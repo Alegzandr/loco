@@ -151,9 +151,6 @@ export function vistaCamera(v: View, near: number, far: number): PerspectiveCame
   return camera
 }
 
-/** How far the sun's shadow map reaches from the table, tiles: the near and the middle ground, not the far shore. */
-const VISTA_SHADOW_REACH = { side: 16, back: 42, up: 12 }
-
 interface VistaJob {
   renderer: WebGLRenderer
   scene: Scene
@@ -215,7 +212,8 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
   const felt0 = view.tableOutline(64)
   const lamp = makeTableLamp(rig, [felt0.reduce((a, p) => a + p[0], 0) / felt0.length, cam.tableTop, felt0.reduce((a, p) => a + p[2], 0) / felt0.length])
   scene.add(lamp, lamp.target)
-  const r = VISTA_SHADOW_REACH
+  // The near and the middle ground, not the far shore: the room's reach.
+  const r = rig.shadowReach
   lights.fitShadow(new Box3(new Vector3(-r.side, -1, -r.back), new Vector3(r.side, r.up, view.eye[2] + 2)))
   renderer.shadowMap.needsUpdate = true
 
@@ -252,6 +250,7 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
         focus: Math.hypot(...view.eye),
         dof: LOOK.vista.dof,
         bloom: LOOK.vista.bloom,
+        glow: Math.max(0, rig.haze - 1) * LOOK.post.bloomWeather,
       }, size)
       photographed = true
     } catch (err) {

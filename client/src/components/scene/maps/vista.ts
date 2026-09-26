@@ -146,6 +146,28 @@ export function vistaTable(k: Kit, m: TableMaterials) {
   k.sweep(outline, top, [[-0.5, -0.08], [-0.5, -0.08 - skirt], [-0.9, -0.08 - skirt]], rim)
 
   const h = top - 0.08 - skirt
+  // Where a foot may stand: the table's size is solved to the felt on screen,
+  // so a foot set a fixed distance out lands outside a shallow table and its
+  // top shows, cut square, in front of the edge. A foot aimed along (dx, dz)
+  // is pulled in until it stands `inset` inside the outline in that direction,
+  // under the skirt's flange (0.9 in) and never past it.
+  const within = (dx: number, dz: number, inset: number): [number, number] => {
+    const want = Math.hypot(dx, dz)
+    if (want === 0) return [cx, cz]
+    const a = Math.atan2(dz, dx)
+    let reach = Infinity
+    let best = Infinity
+    for (const [x, z] of outline) {
+      let d = Math.abs(Math.atan2(z - cz, x - cx) - a)
+      if (d > Math.PI) d = 2 * Math.PI - d
+      if (d < best) {
+        best = d
+        reach = Math.hypot(x - cx, z - cz)
+      }
+    }
+    const r = Math.min(want, Math.max(0, reach - inset))
+    return [cx + (dx / want) * r, cz + (dz / want) * r]
+  }
   switch (m.pedestal) {
     case 'tulip': {
       const chrome: Finish = { kind: 'metal', color: base }
@@ -154,12 +176,13 @@ export function vistaTable(k: Kit, m: TableMaterials) {
     }
     case 'turned': {
       const oak: Finish = { ...rim, color: base }
-      for (const s of [-1, 1]) {
-        const z = cz + s * 1.6
+      const [, zFar] = within(0, -1.6, 1.1)
+      const [, zNear] = within(0, 1.6, 1.1)
+      for (const z of [zFar, zNear]) {
         k.lathe(cx, 0, z, [[0, 0], [0.32, 0], [0.32, 0.06], [0.24, 0.08], [0.2, 0.12], [0.28, 0.2], [0.3, 0.26], [0.22, 0.34], [0.14, 0.4], [0.16, 0.48], [0.22, 0.52], [0.22, h], [0, h]], oak, { seg: 32 })
         k.lathe(cx, 0, z, [[0.33, 0], [0.33, 0.045]], metal, { seg: 32 })
       }
-      k.finishBox(cx, 0.1, cz, 0.18, 0.12, 3.2, oak)
+      k.finishBox(cx, 0.1, (zFar + zNear) / 2, 0.18, 0.12, zNear - zFar, oak)
       break
     }
     case 'deco': {
@@ -186,8 +209,7 @@ export function vistaTable(k: Kit, m: TableMaterials) {
     case 'legs': {
       const black: Finish = { kind: 'lacquer', color: base, grain: 'lacquer', grainColor: mix(base, 0x000000, 0.4) }
       for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        const x = cx + sx * 1.35
-        const z = cz + sz * 2.1
+        const [x, z] = within(sx * 1.35, sz * 2.1, 1.1)
         k.lathe(x, 0, z, [[0.16, 0], [0.13, h]], black, { seg: 4 })
         k.lathe(x, 0, z, [[0.175, 0], [0.175, 0.06], [0, 0.06]], metal, { seg: 4 })
       }
@@ -343,36 +365,77 @@ export function deck(k: Kit, z0: number, z1: number, width: number, a: Hex, b: H
   }
 }
 
-/** A 5-row bitmap font, enough to spell a sign. */
-const GLYPHS: Record<string, string[]> = {
-  L: ['#..', '#..', '#..', '#..', '###'],
-  O: ['###', '#.#', '#.#', '#.#', '###'],
-  C: ['###', '#..', '#..', '#..', '###'],
-  '!': ['#', '#', '#', '.', '#'],
-  ' ': ['.', '.', '.', '.', '.'],
+type Stroke = readonly (readonly [number, number])[]
+
+/** Half a stadium's end: `n` points round `(cx, cy)` at radius `r`, from `a0` to `a1` degrees. */
+function arc(cx: number, cy: number, r: number, a0: number, a1: number, n = 8): [number, number][] {
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const a = ((a0 + ((a1 - a0) * i) / n) * Math.PI) / 180
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)] as [number, number]
+  })
 }
 
 /**
- * A word as lit blocks on a vertical panel facing +z (rot 0). `cell` is the
- * size of one pixel; `x, z` the panel's centre, `y` its bottom.
+ * The letters a sign spells, as the lines a glass tube is bent along: each
+ * glyph is its width in cells and its strokes, in cells, five tall, the tube
+ * running half a cell inside the glyph's box. A bitmap font in blocks was
+ * what this was, and at the distance a sign is read from, with the bloom on
+ * it, a letter of lit squares came out a row of blobs.
+ */
+const GLYPHS: Record<string, { w: number; strokes: Stroke[] }> = {
+  L: { w: 3, strokes: [[[0.5, 4.5], [0.5, 0.5], [2.5, 0.5]]] },
+  O: { w: 3, strokes: [[...arc(1.5, 3.5, 1, 0, 180), ...arc(1.5, 1.5, 1, 180, 360), [2.5, 3.5]]] },
+  C: { w: 3, strokes: [[...arc(1.5, 3.5, 1, 25, 180), ...arc(1.5, 1.5, 1, 180, 335)]] },
+  '!': { w: 1, strokes: [[[0.5, 4.5], [0.5, 1.9]], [[0.5, 0.75], [0.5, 0.45]]] },
+  ' ': { w: 1, strokes: [] },
+}
+
+/**
+ * A word in neon tubes on a dark panel facing +z (rot 0). `cell` is a fifth
+ * of a letter's height; `x, z` the panel's centre, `y` its bottom.
+ *
+ * Lit, each tube is its colour with a core near white in front of it — the
+ * way a tube looks, hot along the middle, and what the bloom takes up — and
+ * the glow round the word is the bloom's, never a halo sphere laid over it.
  */
 export function neonText(k: Kit, text: string, x: number, y: number, z: number, cell: number, color: Hex, rot = 0) {
-  const cols = [...text].reduce((w, ch) => w + (GLYPHS[ch]?.[0].length ?? 3) + 1, -1)
-  let cx = -cols / 2
+  const cols = [...text].reduce((w, ch) => w + (GLYPHS[ch]?.w ?? 1) + 1, -1)
   const on = k.rig.lampsOn
+  const cos = Math.cos(rot)
+  const sin = Math.sin(rot)
+  /** A point on the panel: `lx` across, `ly` up, `lz` out of it towards the viewer. */
+  const at = (lx: number, lz: number) => [x + lx * cos + lz * sin, z - lx * sin + lz * cos] as const
+  const r = cell * 0.2
+  const tube = (ax: number, ay: number, bx: number, by: number, radius: number, lz: number, c: Hex, glow: boolean) => {
+    const len = Math.hypot(bx - ax, by - ay) + radius * 1.6
+    const tilt = Math.atan2(by - ay, bx - ax)
+    const [px, pz] = at((ax + bx) / 2, lz)
+    const py = (ay + by) / 2
+    // A tilted block is placed by its centre, an upright one by its bottom.
+    k.box(px, tilt ? py : py - radius, pz, len, radius * 2, radius * 2, c, { rot, tilt, glow, outline: !glow, cap: false })
+  }
+  // The panel the tubes are mounted on: dark, so a letter reads against it
+  // by day as well as lit.
+  const pw = (cols + 1.2) * cell
+  const [bx, bz] = at(0, -r * 2.2)
+  k.box(bx, y - 0.4 * cell, bz, pw, 5.8 * cell, 0.12 * cell + 0.05, mix(color, 0x16121c, 0.86), { rot, cap: false })
+  // Unlit, the letters keep their colour a shade down: grey, the brand's
+  // own sign was the one thing on the square nobody could read by day.
+  const glass = on ? color : mix(color, 0x2a2a35, 0.3)
+  const core = mix(color, 0xffffff, 0.55)
+  let cx = -cols / 2
   for (const ch of text) {
     const g = GLYPHS[ch] ?? GLYPHS[' ']
-    for (let r = 0; r < 5; r++) {
-      for (let c = 0; c < g[r].length; c++) {
-        if (g[r][c] !== '#') continue
-        const lx = (cx + c + 0.5) * cell
-        const ly = y + (4 - r + 0.5) * cell
-        // Unlit, the letters keep their colour a shade down: grey, the brand's
-        // own sign was the one thing on the square nobody could read by day.
-        k.box(x + lx * Math.cos(rot), ly - cell / 2, z - lx * Math.sin(rot), cell * 0.92, cell * 0.92, cell * 0.4, on ? color : mix(color, 0x2a2a35, 0.3), { rot, glow: on, outline: !on, cap: false })
+    for (const stroke of g.strokes) {
+      for (let i = 1; i < stroke.length; i++) {
+        const [ax, ay] = stroke[i - 1]
+        const [ex, ey] = stroke[i]
+        const p0 = [(cx + ax) * cell, y + ay * cell] as const
+        const p1 = [(cx + ex) * cell, y + ey * cell] as const
+        tube(p0[0], p0[1], p1[0], p1[1], r, 0, glass, on)
+        if (on) tube(p0[0], p0[1], p1[0], p1[1], r * 0.45, r * 0.75, core, true)
       }
     }
-    cx += g[0].length + 1
+    cx += g.w + 1
   }
-  if (on) k.halo(x, y + 2.5 * cell, z, cols * cell * 0.55, color, 0.25, false)
 }

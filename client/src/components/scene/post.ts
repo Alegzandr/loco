@@ -365,10 +365,16 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform sampler2D tScene;
   uniform sampler2D tBlur;
   uniform sampler2D tBloom;
+  uniform sampler2D tBloomWide;
   uniform vec2 uRes;
   uniform float uFxaa;
   uniform float uDofMax;
   uniform float uBloom;
+  uniform float uBloomWide;
+  // What is a light, and how much of the air a light sees through.
+  uniform float uEmitFrom;
+  uniform float uEmitKnee;
+  uniform float uPierce;
   uniform float uVignette;
   uniform vec4 uVignetteShape;   // from, to, squash, scale
   uniform float uAberration;
@@ -466,7 +472,10 @@ const COMPOSITE_FRAG = /* glsl */ `
     float blurAmt = smoothstep(uFocusDist * 2.0, uFocusDist * 40.0, dist) * uDofMax;
     vec3 col = mix(sharp, texture2D(tBlur, uv).rgb, blurAmt);
 
-    col += texture2D(tBloom, uv).rgb * uBloom;
+    // A light is not a wall: the mist and the air lie in front of a wall and
+    // take its colour away, but a lamp, a lit window or a tube shines through
+    // them — what the air does to a light is spread it (the bloom, below).
+    float emit = uPierce * smoothstep(uEmitFrom, uEmitFrom + uEmitKnee, dot(sharp, vec3(0.2126, 0.7152, 0.0722)));
 
     // The mist: lying in the low ground at dawn and in the fog, thinning with
     // the height and broken into banks, so the table's podium stands out of
@@ -478,7 +487,7 @@ const COMPOSITE_FRAG = /* glsl */ `
       // None over the table and the near ground, thickening over the water
       // and the fields: a bank lying out there, never a veil on the lens.
       float far = smoothstep(uMistNear, uMistNear * 4.0, dist);
-      col = mix(col, uMistColor, clamp(uMist * low * bank * far, 0.0, 0.85));
+      col = mix(col, uMistColor, clamp(uMist * low * bank * far, 0.0, 0.85) * (1.0 - emit));
     }
 
     // The air: the far sinks into the colour of the sky low down, loses its
@@ -488,12 +497,17 @@ const COMPOSITE_FRAG = /* glsl */ `
       vec3 wp = worldAt(uv);
       vec3 camPos = (uCameraWorld * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
       vec3 ray = normalize(wp - camPos);
-      float t = uHazeMax * (1.0 - exp(-dist / uHazeDist));
+      float t = uHazeMax * (1.0 - exp(-dist / uHazeDist)) * (1.0 - emit);
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(col, vec3(l), uHazeDesat * t);
       vec3 air = uHazeColor + uLightColor * uSunGlow * pow(max(dot(ray, uLightDir), 0.0), uSunGlowPower);
       col = mix(col, air, t);
     }
+
+    // The bloom goes on after the air: it is the light scattered by that air
+    // towards the lens, so the air does not dim it. Two widths, the tight one
+    // round the thing that shines and the wide one it lays in the air round it.
+    col += texture2D(tBloom, uv).rgb * uBloom + texture2D(tBloomWide, uv).rgb * uBloomWide;
 
     // The tone curve, with the exposure, in linear light: the same function
     // the plain path applies through the renderer.
@@ -575,6 +589,8 @@ export interface AirOptions {
   dof: number
   /** Bloom on top of the look's own. */
   bloom: number
+  /** How much more the air spreads a light than a clear night does: the weather's (`LOOK.vista.haze.weather`), 0 on a clear night. */
+  glow: number
 }
 
 /** The projection and its inverse, which every pass that reconstructs a position reads (`VIEW_PARS`). */
@@ -803,6 +819,25 @@ export function renderWithPost(
       renderer.setClearColor(0x000000, 1)
       renderer.clear()
     }
+    // The wide one, at a sixteenth, off the tight one: the glow a lamp lays in
+    // the air round it. Without it every light was its own shape and a rim,
+    // and a street of lamps read as a street of coloured dots.
+    const ww = Math.ceil(bw / 4)
+    const wh = Math.ceil(bh / 4)
+    const wideA = make(ww, wh, { half })
+    if (opts.bloom) {
+      const wideB = make(ww, wh, { half })
+      copy.uniforms.tDiffuse.value = bloomA.texture
+      pass(copy, wideA)
+      for (let i = 0; i < 2; i++) {
+        blurPass(wideA.texture, wideB, LOOK.post.bloomWideSpread / ww, 0)
+        blurPass(wideB.texture, wideA, 0, LOOK.post.bloomWideSpread / wh)
+      }
+    } else {
+      renderer.setRenderTarget(wideA)
+      renderer.setClearColor(0x000000, 1)
+      renderer.clear()
+    }
 
     // ─── The out-of-focus copy, at a half ──────────────────────────────────
     const hw = Math.ceil(width / 2)
@@ -821,6 +856,8 @@ export function renderWithPost(
     // is the sky and the snow, which must not glow; at midnight the lamps are
     // the light.
     const bloomStrength = opts.bloom ? LOOK.post.bloomStrength + rig.dark * LOOK.post.bloomDark + air.bloom : 0
+    // The wide glow is the lamps', so it is the night's: at noon the lamps are off.
+    const bloomWide = opts.bloom ? rig.dark * LOOK.post.bloomWide * (1 + air.glow) : 0
     const composite = shader(COMPOSITE_FRAG, {
       tScene: { value: litRT.texture },
       tBlur: { value: blurA.texture },
@@ -829,6 +866,11 @@ export function renderWithPost(
       uFxaa: { value: opts.fxaa ? 1 : 0 },
       uDofMax: { value: opts.dof ? air.dof : 0 },
       uBloom: { value: bloomStrength },
+      tBloomWide: { value: wideA.texture },
+      uBloomWide: { value: bloomWide },
+      uEmitFrom: { value: LOOK.post.emitFrom / exposure },
+      uEmitKnee: { value: LOOK.post.emitKnee / exposure },
+      uPierce: { value: rig.lampsOn ? LOOK.post.pierce : 0 },
       uVignette: { value: opts.vignette },
       uVignetteShape: { value: new Vector4(LOOK.post.vignetteFrom, LOOK.post.vignetteTo, LOOK.post.vignetteSquash, LOOK.post.vignetteScale) },
       uAberration: { value: opts.aberration ? LOOK.post.aberration : 0 },

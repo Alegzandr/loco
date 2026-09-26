@@ -96,6 +96,18 @@ describe('a model the placer refuses', () => {
   })
 })
 
+describe('a drawn street lamp', () => {
+  it('stands at the height the room asked for, not at the kit scale', () => {
+    // At the kit's own scale the curved light is 2.3 tiles: on the velvet
+    // boulevard, a bollard under palms seven tiles tall.
+    for (const h of [2.6, 4.2]) {
+      const k = kit(lib(['roads/light-curved']))
+      k.lamp(0, 0, { h })
+      expect(box(k).max.y).toBeCloseTo(h, 1)
+    }
+  })
+})
+
 describe('a model house after dark', () => {
   /** A house whose every face is a window. */
   function house(): ModelLib {

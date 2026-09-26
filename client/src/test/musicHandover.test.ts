@@ -124,8 +124,15 @@ class FakeSource extends FakeNode {
     }
     return null
   }
+  /** The way in: the first gain after the filters. */
   get gain(): FakeGain | null {
     return this.find((n): n is FakeGain => n instanceof FakeGain)
+  }
+  /** The way out: the gain after that one, which only `retire` moves. */
+  get release(): FakeGain | null {
+    let n = this.gain?.next ?? null
+    while (n && !(n instanceof FakeGain)) n = n.next
+    return n instanceof FakeGain ? n : null
   }
   get hp(): FakeFilter | null {
     return this.find((n): n is FakeFilter => n instanceof FakeFilter && n.type === 'highpass')
@@ -266,7 +273,7 @@ describe('where a change lands', () => {
     expect((ramp?.at ?? -1) - (incoming.startedAt ?? 0)).toBeGreaterThan(0)
 
     // And the outgoing one fades over its last bar, ending where the new one starts.
-    const tail = opening.gain?.gain.log.curves.find((c) => !c.up)
+    const tail = opening.release?.gain.log.curves.find((c) => !c.up)
     expect(tail).toBeDefined()
     expect(tail!.at + tail!.dur).toBeCloseTo(wrap, 3)
     expect(tail!.dur).toBeCloseTo(HANDOVER_TAIL_S, 3)
@@ -314,7 +321,7 @@ describe('where a change lands', () => {
     // A rise enters on the incoming loop's first full phrase.
     expect(incoming.startOffset).toBeCloseTo(entryOffset(getLoop(next)), 6)
     const up = incoming.gain?.gain.log.curves.find((c) => c.up)
-    const down = sourceOf(first).gain?.gain.log.curves.find((c) => !c.up)
+    const down = sourceOf(first).release?.gain.log.curves.find((c) => !c.up)
     if (plan.handover === 'blend') {
       // Both curves start there: a crossfade, not a landing.
       expect(up?.at).toBeCloseTo(at, 6)
@@ -351,7 +358,7 @@ describe('where a change lands', () => {
     await settle()
     const src = beds()[0]
     music.start('off')
-    const fade = src.gain?.gain.log.curves.find((c) => !c.up)
+    const fade = src.release?.gain.log.curves.find((c) => !c.up)
     expect(fade?.dur).toBe(STOP_FADE_S)
     expect(src.stoppedAt).toBeGreaterThanOrEqual(ctx.currentTime + STOP_FADE_S)
     expect(music.isPlaying()).toBe(false)

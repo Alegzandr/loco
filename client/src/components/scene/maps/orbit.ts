@@ -97,22 +97,38 @@ export const orbit: Builder = (k) => {
   const dome = (x: number, z: number, r: number) => {
     k.sphere(x, -r * 0.35, z, r, WHITE, { seg: 24 })
     k.cyl(x, 0, z, r * 0.96, 0.6, 0xb9c0c9, { seg: 24, cap: false })
-    // A ring of windows, lit after dark.
+    // A ring of windows, lit after dark, set into the shell: the sphere's
+    // own radius at the windows' height, each one turned to face out of it.
+    const wy = r * 0.25
+    const wh = r * 0.05
+    const lift = wy + wh / 2 + r * 0.35
+    const shell = Math.sqrt(r * r - lift * lift)
     for (let i = 0; i < 10; i++) {
       const a = -Math.PI / 2 + (i - 4.5) * 0.22
-      const wx = x + Math.cos(a) * r * 0.9
-      const wz = z - Math.sin(a) * r * 0.9
+      const wx = x + Math.cos(a) * shell
+      const wz = z - Math.sin(a) * shell
       const litHere = on && rng.chance(0.6)
-      k.box(wx, r * 0.25, wz, r * 0.07, r * 0.05, 0.2, litHere ? mix(CYAN, 0xffffff, 0.3) : 0x2a3a48, { rot: -a + Math.PI / 2, glow: litHere, outline: false, cap: false })
+      k.box(wx, wy, wz, r * 0.07, wh, r * 0.03, litHere ? mix(CYAN, 0xffffff, 0.3) : 0x2a3a48, { rot: a + Math.PI / 2, glow: litHere, outline: false, cap: false })
     }
   }
   dome(-34, -70, 9)
   dome(-12, -96, 12)
   dome(26, -84, 8)
-  // The tubes between them.
-  k.cyl(-23, 1.6, -82, 1.5, 22, 0xd9dee5, { axis: 'x', rot: 0.9, seg: 12 })
-  k.cyl(7, 1.6, -90, 1.5, 22, 0xd9dee5, { axis: 'x', rot: -0.25, seg: 12 })
-  if (on) for (const x of [-26, -20, 2, 12]) k.box(x, 2.2, x < 0 ? -80 : -88, 0.8, 0.4, 3.2, CYAN, { glow: true, outline: false, cap: false })
+  // The tubes between them, each with a row of windows along the flank that
+  // faces the table, laid on the tube's own axis.
+  const tube = (cx: number, cz: number, rot: number) => {
+    const tr = 1.5
+    k.cyl(cx, 1.6, cz, tr, 22, 0xd9dee5, { axis: 'x', rot, seg: 12 })
+    const ux = Math.cos(rot)
+    const uz = -Math.sin(rot)
+    for (const t of [-4.5, -1.5, 1.5, 4.5]) {
+      const wx = cx + ux * t - uz * tr
+      const wz = cz + uz * t + ux * tr
+      k.box(wx, 1.4, wz, 0.9, 0.4, 0.2, on ? CYAN : 0x2a3a48, { rot, glow: on, outline: false, cap: false })
+    }
+  }
+  tube(-23, -82, 0.9)
+  tube(7, -90, -0.25)
   // The dish on the left.
   k.cyl(-70, 0, -120, 1.6, 9, 0xc9ced6, { seg: 10 })
   k.cone(-70, 16, -118, 9, 4, WHITE, { seg: 24 })

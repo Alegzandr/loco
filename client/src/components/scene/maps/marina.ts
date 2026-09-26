@@ -160,7 +160,12 @@ export const marina: Builder = (k) => {
     gull('gull-a', [[-46, 11, -40], [-14, 14, -58], [22, 12, -48], [44, 9, -30]], { duration: 26_000 }),
     gull('gull-b', [[50, 16, -90], [10, 19, -110], [-36, 17, -95], [-60, 13, -70]], { duration: 34_000, delay: 9000, size: 1.1 }),
     gull('gull-c', [[-30, 22, -160], [20, 26, -170], [70, 22, -150]], { duration: 40_000, delay: 20_000 }),
-    driftingBoat('boat-far', [[-120, W, -230], [-40, W, -236]], { duration: 260_000, hull: 0xf2ece0, trim: 0xc8513f, size: 1.2 }),
-    driftingBoat('boat-near', [[40, W, -130], [70, W, -126]], { duration: 180_000, delay: 40_000, hull: 0x2f5d7a, trim: 0xf2ece0 }),
+    // Out in the bay, left to right, bow first, coming out of the haze and
+    // going back into it.
+    driftingBoat('boat-far', [[-120, W, -230], [-40, W, -236]], { duration: 130_000, hull: 0xf2ece0, trim: 0xc8513f, size: 1.2 }),
+    // At anchor beyond the jetty's two nearest lamps, rocking and going
+    // nowhere: this close, a boat fading in or out is a ghost. Never behind a
+    // post either: a sprite is drawn over the whole frame.
+    driftingBoat('boat-near', [[97, W, -130]], { delay: 40_000, hull: 0x2f5d7a, trim: 0xf2ece0 }),
   ]
 }

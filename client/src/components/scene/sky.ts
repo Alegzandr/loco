@@ -18,7 +18,7 @@
  * other visual number, so the dev panel can move a sun; this file is the
  * arithmetic that turns them into one rig per hour and sky.
  */
-import { LOOK, WINDOWS_LIT_MAX, type HourLook, type SkyBody } from './look'
+import { LOOK, WINDOWS_LIT_MAX, type HourLook, type ShadowReach, type SkyBody } from './look'
 
 export const TIMES = ['dawn', 'day', 'dusk', 'night'] as const
 export type TimeOfDay = (typeof TIMES)[number]
@@ -66,6 +66,8 @@ export interface LightRig {
   grade: { shadowTint: Hex; highlightTint: Hex; splitStrength: number; saturation: number }
   /** Multiplies the shadow's softness: the room's. */
   shadowSoftness: number
+  /** How far the shadow map reaches from the table, tiles: the look's, or the room's. */
+  shadowReach: ShadowReach
   /** The body drawn in a vista's sky, or null: none up in the frame, or hidden by the weather. */
   body: (SkyBody & { visibility: number }) | null
   /** Stars in a vista's sky, 0–1. */
@@ -253,6 +255,7 @@ export function lightRig(time: TimeOfDay, weather: Weather, room?: string): Ligh
       saturation: r.saturation ?? LOOK.tone.saturation,
     },
     shadowSoftness: r.shadowSoftness ?? 1,
+    shadowReach: { ...LOOK.shadow.reach, ...r.shadowReach },
     sky: { top: skyTop, horizon: skyHorizon },
     sun: { azimuth: sunAngles.azimuth, color: sunColor, intensity: sunIntensity, shadow, elevation: Math.max(3, Math.min(85, sunAngles.elevation + LOOK.sun.elevationOffset)) },
     ambient: { sky: ambientSky, ground: ambientGround, intensity: ambientIntensity },

@@ -164,3 +164,38 @@ export function compact(position: Float32Array, normal: Float32Array, index: Uin
   }
   return { position: p, normal: nr, index: out }
 }
+
+/**
+ * Where a street lamp's light is, in the model's own units: the end of its
+ * arm, the point of the top of the model farthest out from the post. The
+ * bulb of a drawn lamp is under the arm, facing the ground, so from the table
+ * it is never seen — the lamp read as a dark post with a pool at its foot,
+ * and the boulevard as a row of posts. The kit hangs its own bulb here.
+ */
+export function lampHead(b: Pick<Baked, 'position' | 'h'>): [number, number, number] {
+  const p = b.position
+  let top = 0
+  for (let i = 1; i < p.length; i += 3) top = Math.max(top, p[i])
+  let best = -1
+  for (let i = 0; i < p.length; i += 3) {
+    if (p[i + 1] < top * 0.8) continue
+    best = Math.max(best, Math.hypot(p[i], p[i + 2]))
+  }
+  // Every vertex up there within a hand of the farthest: the head's end, averaged.
+  let x = 0
+  let z = 0
+  let n = 0
+  for (let i = 0; i < p.length; i += 3) {
+    if (p[i + 1] < top * 0.8 || Math.hypot(p[i], p[i + 2]) < best - 0.12) continue
+    x += p[i]
+    z += p[i + 2]
+    n++
+  }
+  // And the underside of the arm there: where the light comes out.
+  let y = top
+  for (let i = 0; i < p.length; i += 3) {
+    if (p[i + 1] < top * 0.8 || Math.hypot(p[i], p[i + 2]) < best - 0.12) continue
+    y = Math.min(y, p[i + 1])
+  }
+  return n ? [x / n, y, z / n] : [0, top, 0]
+}

@@ -579,7 +579,17 @@ export function nextFamily(current: Family | null, rand: () => number): Family {
 interface Voice {
   id: string
   src: AudioBufferSourceNode
+  /** The way in: the fade or ramp `swapTo` opens the voice with. */
   gain: GainNode
+  /**
+   * The way out, after `gain`, and `retire`'s alone. Two stages because the
+   * way out can be asked for while the way in is still running — a scene
+   * move inside the first two seconds of a piece — and Firefox and Safari
+   * refuse any event added during a `setValueCurveAtTime` span. On one node
+   * that refusal threw out of `retire` before the source was stopped, and the
+   * loop being left went on playing under the next one for good.
+   */
+  release: GainNode
   /** Context time the source was started at. */
   startedAt: number
   /** Seconds into the loop it was started at. */
@@ -1157,7 +1167,10 @@ class MusicBed {
     } else {
       src.connect(gain)
     }
-    gain.connect(out)
+    const release = ctx.createGain()
+    release.gain.value = 1
+    gain.connect(release)
+    release.connect(out)
 
     // The incoming gain, by shape. A landing arrives whole, on the one, under
     // a ramp too short to hear and long enough not to click; a resume comes
@@ -1219,6 +1232,7 @@ class MusicBed {
       id: def.id,
       src,
       gain,
+      release,
       startedAt: at,
       offset: req.offset,
       seconds,
@@ -1252,9 +1266,26 @@ class MusicBed {
    * between two source gains cannot have that argument.
    */
   private retire(v: Voice, at: number, fade: number, how: { darken?: boolean; bassAt?: number | null } = {}): void {
-    v.gain.gain.cancelScheduledValues(at)
-    if (fade > 0) v.gain.gain.setValueCurveAtTime(fadeCurve(false), at, fade)
-    else v.gain.gain.setValueAtTime(0, at)
+    // The stop first: whatever the automation below may do, a voice that is
+    // retired always ends.
+    try {
+      v.src.stop(at + fade + 0.05)
+    } catch {
+      // Already stopped. Nothing to do, and nothing worth reporting.
+    }
+    this.retiring.push(v)
+    const done = () => {
+      this.retiring = this.retiring.filter((x) => x !== v)
+      try {
+        v.release.disconnect()
+      } catch {
+        // The graph is already gone.
+      }
+    }
+    v.src.onended = done
+    v.release.gain.cancelScheduledValues(at)
+    if (fade > 0) v.release.gain.setValueCurveAtTime(fadeCurve(false), at, fade)
+    else v.release.gain.setValueAtTime(0, at)
     if (how.darken && v.lp && fade > 0) {
       v.lp.frequency.cancelScheduledValues(at)
       v.lp.frequency.setValueAtTime(LP_OPEN_HZ, at)
@@ -1265,21 +1296,6 @@ class MusicBed {
       v.hp.frequency.setValueAtTime(HP_OPEN_HZ, how.bassAt - BASS_GLIDE_S)
       v.hp.frequency.exponentialRampToValueAtTime(BASS_SWAP_HZ, how.bassAt + BASS_GLIDE_S)
     }
-    try {
-      v.src.stop(at + fade + 0.05)
-    } catch {
-      // Already stopped. Nothing to do, and nothing worth reporting.
-    }
-    this.retiring.push(v)
-    const done = () => {
-      this.retiring = this.retiring.filter((x) => x !== v)
-      try {
-        v.gain.disconnect()
-      } catch {
-        // The graph is already gone.
-      }
-    }
-    v.src.onended = done
   }
 
   private stopVoices(): void {
@@ -1291,7 +1307,7 @@ class MusicBed {
         // Already stopped.
       }
       try {
-        v.gain.disconnect()
+        v.release.disconnect()
       } catch {
         // Already disconnected.
       }
