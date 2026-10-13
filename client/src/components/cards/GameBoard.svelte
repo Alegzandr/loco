@@ -147,7 +147,7 @@
 
   // A hand passed across the table (a Swap, a GlobalSwitch): how many of its
   // backs are seen travelling at most, and how long each takes. Enough that it
-  // reads as the hand going over, few enough that ten seats passing at once
+  // reads as the hand going over, few enough that seven seats passing at once
   // stay a picture and not a blizzard.
   const PASS_CARDS_MAX = 12
   const PASS_MS = 620
@@ -184,13 +184,13 @@
   ): { text: string; color: string } | null {
     switch (card.kind) {
       case 'skip':
-        return { text: texts.skip, color: '#ff9f43' }
+        return { text: texts.skip, color: 'var(--color-callout-skip)' }
       case 'reverse':
-        return { text: texts.reverse, color: '#74b9ff' }
+        return { text: texts.reverse, color: 'var(--color-callout-reverse)' }
       case 'draw_two':
-        return { text: `+${pendingDraw || 2}`, color: '#e63946' }
+        return { text: `+${pendingDraw || 2}`, color: 'var(--color-callout-draw)' }
       case 'wild_draw_four':
-        return { text: `+${pendingDraw || 4}`, color: '#e63946' }
+        return { text: `+${pendingDraw || 4}`, color: 'var(--color-callout-draw)' }
       default:
         return null
     }
@@ -829,7 +829,7 @@
       {
         id: newId(),
         text: `+${CATCH_PENALTY_CARDS}`,
-        color: '#e63946',
+        color: 'var(--color-callout-draw)',
         x: seat.x,
         y,
         delayMs: CATCH_CARD_MS + (CATCH_PENALTY_CARDS - 1) * CATCH_CARD_STAGGER_MS,

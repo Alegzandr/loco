@@ -1181,11 +1181,16 @@
      were choosing between. It also ran `white-space: nowrap`, which sent a
      translated sentence off both edges of a phone.
      Flat fill and a shallower ledge than any button on the board: this is a label,
-     not something to press. */
+     not something to press.
+     Centred the way the notice pills are, `inset-inline: 0` + `margin-inline:
+     auto` + `fit-content`, never `left: 50%`, which shrinks the toast against
+     the half of the screen to its right and wraps a sentence early. */
   .errorToast {
     position: absolute;
     top: 30%;
-    left: 50%;
+    inset-inline: 0;
+    margin-inline: auto;
+    width: fit-content;
     display: flex;
     align-items: center;
     gap: var(--space-sm);
@@ -1214,7 +1219,7 @@
     width: 22px;
     height: 22px;
     border-radius: var(--radius-full);
-    background: #fff;
+    background: var(--color-on-dark);
     color: var(--color-error);
     font: 700 15px/1 var(--font-display);
   }
@@ -1441,11 +1446,11 @@
   @keyframes toastSlideUp {
     from {
       opacity: 0;
-      transform: translateX(-50%) translateY(10px) scale(0.9);
+      transform: translateY(10px) scale(0.9);
     }
     to {
       opacity: 1;
-      transform: translateX(-50%) translateY(0) scale(1);
+      transform: translateY(0) scale(1);
     }
   }
 

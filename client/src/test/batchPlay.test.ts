@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { gameStore, removePlayedCards } from '../hooks/gameStore'
-import { CardDTO, PlayerDTO } from '../types/protocol'
+import type { CardDTO, PlayerDTO } from '../types/protocol'
 
 const red5: CardDTO = { color: 'red', kind: 'number', value: 5 }
 const blue7: CardDTO = { color: 'blue', kind: 'number', value: 7 }

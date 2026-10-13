@@ -328,7 +328,7 @@
   /* Active seat: the plate turns into the brightest object on screen. On a
      stream the viewer should never have to hunt for whose turn it is. */
   .seat.active .plate {
-    background: linear-gradient(180deg, #ffe58a 0%, var(--color-secondary) 100%);
+    background: linear-gradient(180deg, var(--color-secondary-glow) 0%, var(--color-secondary) 100%);
     box-shadow:
       var(--shadow-hard),
       0 0 0 5px rgba(255, 201, 60, 0.4),

@@ -146,7 +146,14 @@ func forwardedAddr(r *http.Request) (string, bool) {
 		return "", false
 	}
 	for _, name := range ClientIPHeaders {
-		raw := strings.TrimSpace(r.Header.Get(name))
+		// A list is refused in both spellings: one line carrying a comma, and
+		// the header sent twice, which Header.Get would read as its first line
+		// alone.
+		values := r.Header.Values(name)
+		if len(values) != 1 {
+			continue
+		}
+		raw := strings.TrimSpace(values[0])
 		if raw == "" || strings.Contains(raw, ",") {
 			continue
 		}

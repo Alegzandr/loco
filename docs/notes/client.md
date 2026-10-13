@@ -279,10 +279,11 @@ if the object is built dynamically — so a name left in the old casing is a han
 `card.test.ts` caught exactly that on `Card`'s `onclick` after the port: the test rendered, asserted,
 and counted zero calls out of three clicks.
 
-Where a parent needs the node itself rather than a callback — the flight layer animating a real card
-— the child takes a `setNode` callback and calls it from an effect (`Card.svelte`, `CardBack.svelte`).
-A `bind:this` on the parent's side would work too; the callback is what survived the crossing and it
-keeps the ownership explicit, including the `setNode(null)` on teardown.
+Where a parent needs a node to animate rather than a callback — the flight layer moving a real card
+— it animates a wrapper it owns and never the card's own node: `AnimationLayer.svelte` puts a `use:play`
+action on the `<div>` around each `<Card />` / `<CardBack />`, which hands that element to
+`element.animate`. `Card` and `CardBack` take no node callback at all, so ownership stays with
+whoever draws the wrapper.
 
 **The validator is Valibot because Zod 4 compiles with `Function()` and the CSP refuses that.** The
 full account, the test that replaced the workaround's config pin, and the rest of the generated
@@ -328,7 +329,7 @@ polish.
 - **The upgrader keeps compression off** and sizes its write buffer (4096) so a personalised
   `game_state` goes out in one write. permessage-deflate would buy no bandwidth worth having on
   payloads this small and would put a deflate pass plus a flush on both ends of every play.
-  `WriteBufferPool` is shared, so a ten-seat table does not hold ten per-connection buffers for the
+  `WriteBufferPool` is shared, so a full table (seven seats) does not hold seven per-connection buffers for the
   whole match.
 - **The client sends first and animates second.** `GameBoard.handleCardClick` calls
   `props.onCardClick` and only spawns the hand→discard flight if it returns `true`. The flight is
@@ -810,7 +811,7 @@ last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mo
 - Seeded from `readNickname()` during setup, i.e. **read once at mount**. Re-reading storage while the lobby
   is open would fight whatever the player is typing.
 - It is a prefill, not a submission: an emptied field still refuses to send. In the join form
-  `autoFocus` follows the same fact, landing on the room code when the name is already known and on
+  `autofocus` follows the same fact, landing on the room code when the name is already known and on
   the name when it is not, which is the only thing a returning player still has to type.
 
 ## Answering a nickname as it is typed

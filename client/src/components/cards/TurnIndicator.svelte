@@ -195,7 +195,7 @@
      undid the centring but not the translation, and it throbbed half a pill up
      and to the left of the pill. */
   .penalty {
-    background: linear-gradient(180deg, #ffb648 0%, #f2760c 100%);
+    background: var(--gradient-amber);
     text-shadow: 0 2px 0 rgba(120, 55, 0, 0.45);
     isolation: isolate;
   }

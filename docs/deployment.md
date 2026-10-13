@@ -124,7 +124,8 @@ preferences:
 - **SSL/TLS mode `Full (strict)`.** `Flexible` makes Cloudflare talk HTTP to an origin that redirects
   every HTTP request to HTTPS, which is an infinite redirect and takes the whole site down.
 - **`www.ohloco.com` 301s to the apex, at the edge**, by a Cloudflare redirect rule. It never reaches
-  Traefik, which is why `compose.yml` carries one `Host()` and not two. The apex is canonical
+  Traefik, which is why `deploy/compose.yml` carries one `Host()` for the site and none for `www.`
+  (its other `Host()` is the socket's `ws.`). The apex is canonical
   everywhere — `VITE_PUBLIC_ORIGIN`, the sitemap, the `hreflang` sets — and a canonical naming a
   redirect is the failure nothing reports.
 - **The site's origin certificate is a Cloudflare Origin Certificate, and it is a file rather than

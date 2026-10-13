@@ -22,16 +22,20 @@ description of the wire that a program does not check: when it disagrees with th
 | `kick_player`       | `target_index` (seat to free; host-only, lobby-only, never seat 0) |
 | `transfer_host`     | `target_index` (seat to hand the table to; host-only, lobby-only, never seat 0, never a bot) |
 | `rematch`           | — (one seat's ask for another match; every room, every seat) |
+| `send_emote`        | `emote` (`gg`/`close`/`lucky`; game-over screen only, never to or from a bot) |
 | `find_match`        | `nickname` (enter the 1v1 queue)                         |
 | `cancel_matchmaking`| —                                                        |
+| `play_bot`          | `nickname` (deal a 1v1 against the server at once: no code, no waiting room, BO1) |
 | `leave_room`        | — (give up the seat without dropping the socket; a forfeit in a matchmade match in progress) |
-| `play_card`         | `card`, `chosen_color` — or `play_cards[]` for a batch of identical cards, which takes precedence over `card`. There is no separate `play_cards` message type. |
+| `play_card`         | `card`, `chosen_color` — or `play_cards[]` for a batch of identical cards, which takes precedence over `card`; `declare_loco` when a batch empties the hand. There is no separate `play_cards` message type. |
 | `draw_card`         | —                                                        |
 | `pass_turn`         | —                                                        |
 | `declare_uno`       | —                                                        |
 | `catch_uno`         | `target_index` (seat being caught; omitted = the window closest to expiring) |
 | `counter_draw`      | `card`, `chosen_color`                                   |
-| `interrupt_play_card` (alias `interrupt_play`) | `card?`, `play_cards?`, `declare_loco?` (out-of-turn identical-card interrupt) |
+| `interrupt_play` (alias `interrupt_play_card`) | `card`, `chosen_color` (out-of-turn identical-card interrupt; one card, a `play_cards` batch is refused) |
+| `map_ready`         | — (this client has the match's map; once per match, in answer to `match_loading`) |
+| `debug_set_state`   | dev / E2E only, refused unless the server runs with `LOCO_E2E=1`           |
 
 ## Server → Client
 
@@ -46,13 +50,17 @@ description of the wire that a program does not check: when it disagrees with th
 | `player_left`         | `nickname`, `players`, `player_index` (the mid-match expiry and the walk-out only: the seat that is gone for good, and nothing re-based), `match_history` (the departures that re-base the roster) |
 | `player_disconnected` | `player_index`, `nickname`, `players`, `forfeit_deadline` (matchmade rooms only) |
 | `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`, `session_token` (self)  |
-| `game_started`        | `state` (personalized per player; includes `round_number`, `match_format`, `scoreboard`) |
+| `game_started`        | `state` (personalized per player; includes `round_number`, `match_format`, `scoreboard`); a solo table's also carries `room_code`, `player_id`, `session_token` |
+| `match_loading`       | `players_ready[]` (the seats whose map is in; sent after `game_started` and again on every arrival) |
+| `match_ready`         | `turn`, `turn_deadline`, `interrupt_open` (the loading gate lifts; the turn clock starts here) |
+| `game_state`          | `state` (personalized; after a Swap or GlobalSwitch, and as the correction a refusal carries when the client's state has drifted) |
 | `card_played`         | `player_index`, `card`, `turn`, `pending_draw`, `players`, `chosen_player` (swap only), `catch_seats[]`, `turn_deadline`, `interrupt_open` |
 | `interrupt_success`   | `player_index`, `cards[]` (sent immediately before the matching `card_played`) |
 | `card_drawn`          | `cards[]` (drawer only) / `drawn_count` (everyone else), `player_index`, `turn`, `pending_draw`, `has_drawn`, `interrupt_open` |
 | `turn_changed`        | `turn`, `turn_deadline`, `interrupt_open`                                   |
 | `uno_declared`        | `player_index`                                                              |
 | `uno_caught`          | `player_index`                                                              |
+| `catch_failed`        | `player_index` (a Contre-LOCO! that found nobody and was charged a card; broadcast, or to the caller alone when the penalty drew nothing) |
 | `catch_locked`        | `catch_locked_until` — **to the caller alone**: when their own Contre-LOCO! is pressable again after a call that found nobody (`game.catchLockout`). Sent on the press that armed it *and* on every press made while it runs, because each of those re-arms it. A lockout is not the table's business, and a broadcast per press would be the amplification `catchGrace` exists to stop. |
 | `round_end`           | `round_number`, `round_winner`, `scoreboard`, `round_history`               |
 | `match_end`           | `match_winner`, `scoreboard`, `forfeit`, `player_index` (the seat that left, on a forfeit), `match_history` (every finished match at this table, the one just ended last) |
@@ -63,7 +71,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `match_found`         | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players`, `starts_in_ms` (per-recipient) |
 | `left_room`           | — (acknowledges `leave_room`)                                               |
 | `kicked`              | — (the host freed this client's seat; sent to the removed client only)      |
-| `game_over`           | `winner` (BO1 / legacy path)                                                |
+| `emote`               | `player_index`, `emote` (one seat's emote, broadcast and kept nowhere)      |
 | `latency`             | `latencies[]` (per-seat round trip; broadcast on a timer to playing rooms)   |
 | `players_online`      | `players_online` (sockets connected to this server; sent to seatless sockets only) |
 | `live_streams`        | `live_streams[]` (who is streaming this game; sent to seatless sockets only) |
@@ -85,7 +93,7 @@ Every server message also carries `server_now`, the server's clock in unix milli
 - `card_played` carries `chosen_player` only for `swap` (target seat index). `global_switch` and other cards omit it.
 - **`interrupt_open` says whether the top discard may still be slammed**, on `card_played`, `card_drawn`, `turn_changed`, `match_ready` and in every `GameStateDTO`. It is nullable on the wire like `has_drawn` and for the same reason: false is the answer that matters, and an absent field means unchanged — a draw by the seat at turn shuts the window, a penalty growing a hand leaves it where it was, and both arrive as `card_drawn`. A client that offers a slam without reading it is answered `interrupt window closed` for a race nobody ran.
 - **Every deadline is an absolute server instant, and `server_now` is how the client reads it.** `turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until` and `forfeit_deadline` are unix milliseconds on the server's clock; a client that compared them to its own clock as they arrived was wrong by however far its clock was off, which on a phone is easily seconds — enough to hide a five-second catch window entirely, or to keep it on screen past its end and charge a card for the press. The client keeps the largest recent `server_now - Date.now()` as its offset and moves every deadline by it on arrival (`client/src/hooks/serverClock.ts`). `server_now` is stamped on every message so the estimate is always fresh; it is optional on the wire so an older fixture still validates.
-- `chosen_color` is required for **every** wild (`wild`, `wild_draw_four` **and** `global_switch`) on `play_card`, `play_cards`, `counter_draw` and `interrupt_play_card`. A colourless wild is rejected (`must choose a color for a wild card`); the value `wild` counts as colourless, since it matches no coloured card and would strand the whole table.
+- `chosen_color` is required for **every** wild (`wild`, `wild_draw_four` **and** `global_switch`) on `play_card`, `play_cards`, `counter_draw` and `interrupt_play`. A colourless wild is rejected (`must choose a color for a wild card`); the value `wild` counts as colourless, since it matches no coloured card and would strand the whole table.
 - `interrupt_success` is emitted before the corresponding `card_played` so the client can render lead-taking distinctly.
 - `pending_draw` and `has_drawn` describe the **table** after the event, not the recipient, and `card_played` / `card_drawn` carry both to every seat. They are nullable on the wire on purpose: a hand can grow without anybody having drawn on their turn (the LOCO-catch penalty), so a missing `has_drawn` must mean "unchanged" and never be defaulted to `true` — a client that guessed it disabled its own draw button and had every pass refused with `you must draw a card before passing`.
 - `player_id` is the **recipient's own seat** and is nullable on the wire for the same reason as `player_index`: `omitempty` drops a zero, and seat 0 is the host's. A client must not default an absent `player_id` to 0: it happened to be right while every reader already had an earlier value to fall back on, and stopped being right the moment a reloaded tab reclaimed a seat with no prior state (it seated itself at -1). `player_reconnected` also carries `state.your_index`, which is the same seat and always present.
@@ -113,9 +121,9 @@ Every server message also carries `server_now`, the server's clock in unix milli
   `starts_in_ms`: the match deals itself after that delay with nobody pressing start. Absent means
   "immediately": the countdown is presentation, and the authoritative start is the `game_started`
   that follows.
-- A **matchmade** room has no host. `add_bot`, `start_game`, `set_match_format`, `set_max_players`,
-  `set_streamer_mode`, `kick_player` and `transfer_host` are all refused in one with
-  `not available in a matchmade game`.
+- A **matchmade** room and a **solo** game have no host. `add_bot`, `start_game`, `set_match_format`,
+  `set_max_players`, `set_streamer_mode`, `kick_player` and `transfer_host` are all refused in one with
+  `not available in this game`.
 - **`set_streamer_mode` is the only presentation preference on this protocol, and it is the table's,
   not a seat's.** The table code is one string shared by everybody who can see it, so a host who is
   streaming is exposed by the other players' screens too. Host only
@@ -169,8 +177,8 @@ Every server message also carries `server_now`, the server's clock in unix milli
   `join_room` on a table this process does not have: the code the player typed was almost certainly
   real, and answering `room not found` there blames them for a deploy. See `docs/deployment.md`.
 - `play_cards` (turn-time) requires N identical cards; effects stack: N×+2 = `2N` pending draw, N skips skip N players, N reverses flip parity. Swap and Global Switch cannot batch.
-- `interrupt_play_card` accepts `play_cards` too and **refuses anything past one entry** (`an interject is one card`, `docs/rules.md` §6.8). The field is read there so the rule can be refused rather than assumed of the client; our own client sends `card` alone out of turn.
-- `declare_loco` is the LOCO! call carried by a **turn** batch that **empties the hand** — the one finish that never passes through a single card, so no catch window ever opens on it and no earlier declaration was possible (`docs/rules.md` §14.7). Without it the server refuses the batch (`must call LOCO! before playing your last card`); with it the table gets `uno_declared` immediately before `card_played`. It is ignored everywhere else, `interrupt_play_card` included: a finish from a hand already down to one card is gated on a declaration that already happened, so setting the flag there buys nothing.
+- `interrupt_play` accepts `play_cards` too and **refuses anything past one entry** (`an interject is one card`, `docs/rules.md` §6.8). The field is read there so the rule can be refused rather than assumed of the client; our own client sends `card` alone out of turn.
+- `declare_loco` is the LOCO! call carried by a **turn** batch that **empties the hand** — the one finish that never passes through a single card, so no catch window ever opens on it and no earlier declaration was possible (`docs/rules.md` §14.7). Without it the server refuses the batch (`must call LOCO! before playing your last card`); with it the table gets `uno_declared` immediately before `card_played`. It is ignored everywhere else, `interrupt_play` included: a finish from a hand already down to one card is gated on a declaration that already happened, so setting the flag there buys nothing.
 
 - **`live_streams` is pushed and never asked for**, which is why this feature adds no client message
   at all. Like `players_online` it goes to seatless sockets only, is sent on registration, and is

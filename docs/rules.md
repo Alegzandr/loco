@@ -15,7 +15,7 @@ LOCO is a card-shedding game for **2–7 players**. Goal: be the first to discar
 | Change Direction | 8 | 4 colors × 2 copies |
 | Take 2 | 8 | 4 colors × 2 copies |
 | Swap Cards with Another Player | 4 | 4 colors × 1 copy |
-| Change Cards All Round | 4 | 4 colors × 1 copy |
+| Change Cards All Round | 4 | Black (no color), wild (§14.1) |
 | Choose a Colour | 4 | Black (no color) |
 | Take 4 + Choose a Colour | 4 | Black (no color) |
 
@@ -24,7 +24,7 @@ LOCO is a card-shedding game for **2–7 players**. Goal: be the first to discar
 1. Dealer shuffles and deals **8 cards** per player.
 2. Remaining cards form the **draw pile** (face-down, center of table).
 3. Flip the top card of the draw pile face-up beside it → **discard pile**.
-4. If the starting card is an action card: apply its effect to the first player as if the dealer played it. If it's a black wild card, the dealer declares a color.
+4. The starting card is always a Number: action and wild cards are skipped during setup (§14.2).
 
 ## 4. Turn Order
 
@@ -124,7 +124,7 @@ interjects, and the seat sits catchable between them.
 
 ### 6.7 Simultaneous Interjects
 
-If multiple players could interject: **the first message the server dequeues wins.** The hub's single-goroutine event loop serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
+If multiple players could interject: **the first message the server dequeues wins.** Each table runs on its own goroutine (`server/hub/actor.go`), which serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
 
 ### 6.8 One Card Per Interject
 
@@ -236,18 +236,18 @@ Remaining players sum the point values of cards still in hand:
 
 - [ ] Deck: exactly 112 cards, correct distribution
 - [ ] Setup: 8 cards per player, draw pile, discard pile from top card
-- [ ] Starting action card: effect applied to first player
+- [ ] Starting card: always a Number; action and wild cards are skipped (§14.2)
 - [ ] Matching: color OR number OR symbol (at least one)
 - [ ] Wild cards: playable on anything, player declares color
-- [ ] Drawing: only when no valid play exists; exactly 1 card; may play immediately if valid
+- [ ] Drawing: allowed even with a valid play (§14.4); one draw per turn; may play the drawn card immediately if valid
 - [ ] Draw pile exhaustion: reshuffle discard pile (minus top card)
 - [ ] Interjecting: exact identity check (color AND value, not OR)
-- [ ] Interjecting: wild cards blocked
+- [ ] Interjecting: wild cards allowed on an identical wild (§6.2), naming a colour
 - [ ] Interjecting: currentPlayerIndex updated to interjecter, then advanced
 - [ ] Interjecting: action effects fire on next player after interjecter
 - [ ] Interjecting: LOCO! call enforced
 - [ ] Interjecting: works correctly during Take 2/Take 4 chains
-- [ ] Interjecting: simultaneous resolution by seat priority
+- [ ] Interjecting: simultaneous attempts resolved by arrival order (§6.7), never seat priority
 - [ ] Miss a Turn: next player skips
 - [ ] Change Direction: reverses play direction
 - [ ] Take 2: draw 2, keep the turn (§14.5); stacking allowed (cumulative, same color only)
@@ -261,7 +261,7 @@ Remaining players sum the point values of cards still in hand:
 - [ ] Contre-LOCO!: only inside the 5 s window; a missed call costs the caller 1 card and locks
       their button for 2 s (§14.6), re-armed by every press made while it runs
 - [ ] Round ends on last card played
-- [ ] Scoring: correct point values, configurable mode/threshold
+- [ ] Scoring: correct point values; best-of-N format taken on rounds won (§14.3)
 - [ ] 2-player: Change Direction = Miss a Turn behavior
 
 ## 13. Swap / GlobalSwitch as Last Card

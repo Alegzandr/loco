@@ -2,7 +2,7 @@
  * The questions somebody asks before they play, and the answers.
  *
  * Every answer here describes behaviour the server actually has — the 60-second
- * hold on a dropped seat, the turn clock, the bots, the 2-to-10 range — so this
+ * hold on a dropped seat, the turn clock, the bots, the 2-to-7 range — so this
  * file is as much a promise as it is copy. When one of those changes, this is
  * one of the places that has to change with it; `CLAUDE.md` and
  * `docs/notes/server.md` are where the numbers come from.

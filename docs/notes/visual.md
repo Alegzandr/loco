@@ -290,7 +290,7 @@ Every card the table moves is seen moving, from the place it leaves to the place
   was already the hand we had received — so the first version flew four backs where nine were coming,
   out of places our hand did not have.
 - **A flier waiting out its delay is at its start, not at the layer's origin** (`fill: 'both'` in
-  `AnimationLayer`'s `play`): the last cards of a ten-seat deal wait over a second, and filled forwards
+  `AnimationLayer`'s `play`): the last cards of a seven-seat deal wait over a second, and filled forwards
   only they sat in the board's top-left corner until then.
 
 ## Action bar (`<ActionBar />`)
@@ -1464,8 +1464,8 @@ Svelte throughout, and the movement is the browser's: `Card.svelte`, `CardArt.sv
 `GameBoard`, `GameView` for everything that moves them. There is no animation runtime any more —
 flights are `element.animate` through the `use:play` action in `AnimationLayer.svelte`, and the fan's
 reflow is a CSS transition. The bridge that mounted a Svelte face inside a JSX tree is gone with the
-tree; `setNode` survived it, because handing the node back is still how the flight layer gets the
-real element.
+tree, and so is `setNode`: the flight layer animates the wrapper `<div>` it draws round each card,
+so no card hands its node back.
 
 > **Two things bit during the port and will bite again.**
 > **Svelte keeps a whitespace text node where JSX dropped one**, so a card laid out one element per

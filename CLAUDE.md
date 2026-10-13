@@ -127,8 +127,10 @@ needs jsdom and the `browser` resolve condition.
   own menu, both installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
-  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `TablesArticle.astro`, `liveList.ts`,
-  `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
+  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `TablesArticle.astro`,
+  `RulesArticle.astro`, `FaqArticle.astro`, `FriendsArticle.astro`, `LegalArticle.astro`, `deck.ts`
+  (the deck as the content pages read it), `contrasts.ts`, `ui.ts` (the pages' own chrome strings),
+  `liveList.ts`, `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
   the rooms page shows, shot by `make rooms` and committed
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
@@ -136,7 +138,10 @@ needs jsdom and the `browser` resolve condition.
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
   `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, LiveStrip + `liveStreams.ts` +
   `twitchLinks.ts`, the two server mirrors `nicknameRules.ts` + `tableCodeRules.ts`, and the queue's
-  `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` / `OpponentAway.svelte`
+  `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` / `OpponentAway.svelte`; also
+  FullscreenButton, OutcomeMark (the four ways a match ends), RosterRowMenu (the host's ⋯),
+  `press.ts` (`use:pressToAct`), `dialogFocus.ts`, `countUp.ts`, `emotes.ts`, `matchRecapModel.ts`,
+  `matchDuration.ts`, `matchLengthModel.ts`, `playersOnline.ts`, `fpsMeter.ts`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
   PlayerSlot, TurnIndicator, DirectionRing, TableTrack, AnimationLayer; `layout.ts` pure pixel math;
   `tableSurface.ts` (the rim's material as a seeded SVG noise image, for the board and the rooms page);
@@ -154,9 +159,10 @@ needs jsdom and the `browser` resolve condition.
   `placer.ts` (the ground plan, pure), `mirror.ts` (the water's reflection), `pools.ts` (the lamps'
   light on the ground), `life.ts` + `LifeLayer.svelte` (what moves), `models/` (`manifest.json` the
   allowlist of packed kits, `lib.ts` the GLB loader and baker, `bake.ts` the pure half),
-  `maps/<id>.ts` one builder per room + `maps/vista.ts` (the table, the hills, the skyline, the
+  `maps/<id>.ts` one builder per room, registered in `maps/index.ts` with the kits it loads, +
+  `maps/vista.ts` (the table, the hills, the skyline, the
   pieces every room shares) + `maps/vistaLife.ts` (what moves in them), `render.ts` (one frame, then
-  the context is released),
+  the context is released), `nextPaint.ts` (the yield between render phases),
   `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame), `quality.ts`
   (what each graphics tier buys) + `post.ts` (the finishing passes), `SceneBackdrop.svelte` +
   `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of)
@@ -164,6 +170,7 @@ needs jsdom and the `browser` resolve condition.
   loops may be overlapped — pure), and `gameSounds.ts`, which **decides** the sounds and plays none of
   them
 - `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` +
+  `CoverCard.svelte` (`make cover`) + `RoomStill.svelte` (the rooms page's stills, `make rooms`) +
   `e2eBridge.svelte.ts` (the whole `window.__LOCO_E2E__` surface in one file) + `lookPanel.ts` (the
   lil-gui panel over `scene/look.ts`, mounted by `?look=1`), all behind `import.meta.env.DEV`
 - `src/hooks/` splits in two, and the split is the point. **`.svelte.ts` is anything that owns
@@ -178,18 +185,20 @@ needs jsdom and the `browser` resolve condition.
   `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`, `deriveCatchMiddleware.ts`, and one
   module per family — `sessionActions` `tableActions` `locoActions` `matchActions` `queueActions`),
   `serverMessages.ts`, `sessionPersistence.ts`, `sessionRestore.ts`, `nicknameMemory.ts`,
-  `tableInvite.ts`, `tabLock.ts`, `prefStore.ts`, and the preference and constant modules the
+  `tableInvite.ts`, `tabLock.ts`, `prefStore.ts`, `serverClock.ts` (every deadline onto our clock),
+  `screenIn.ts` (every screen arrives), `haptics.ts`, and the preference and constant modules the
   reactive half wraps (`motionPref`, `colorAssist`, `streamerMode`, `webSocketPolicy`, `mapPreload`,
   `safeAreaInsets`, `graphicsPref`). **The `use` prefix went with React**: none of these is a hook,
   and **nothing in a plain `.ts` file here may reach for a rune** — it would not be compiled, and the
   failure is silent. `src/test/runeScope.test.ts` is the guard.
-- `src/styles/tokens.css` design tokens · `src/i18n/` · `src/test/` (its three seams are in
+- `src/styles/tokens.css` design tokens · `src/i18n/` (`en.ts`, `fr.ts`, `store.ts` the framework-free
+  language, `i18n.svelte.ts` Svelte's window onto it, `serverErrors.ts`) · `src/test/` (its three seams are in
   [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md)) · `public/`
 - `src/types/` **generated from `server/protocol/` by `make protocol`**: `protocol.ts` (the types),
   `protocolSchemas.ts` (the Valibot schemas). Do not edit either by hand.
 
 **`server/`** authoritative game server.
-- `game/` pure domain: room, deck, hand, rules, bot, maps, event log, `nickname.go` + `wordlists/`
+- `game/` pure domain: room (its event log included), card, deck, hand, rules, bot, maps, `nickname.go` + `wordlists/`
   + `screen.go` (the nickname matcher, exported for the one name this game did not write)
 - `hub/` **one file per thing a message leads to**: `table.go` (**the** table, and the seat
   bookkeeping nothing else may do), `actor.go` (the table's goroutine, and the two ways work crosses
@@ -198,7 +207,8 @@ needs jsdom and the `browser` resolve condition.
   `bots.go`, `turntimer.go`, `broadcast.go`, `statedto.go`, `converter.go`, `metrics.go`, `debug.go`,
   `client.go`, `maploading.go`, `matchmaking.go`, `drain.go` + `snapshot.go`, `privacy.go`,
   `logsink.go` (the asynchronous log writer `main` installs), `live.go` (the live-streams strip's
-  one crossing into the loop)
+  one crossing into the loop), `solo.go` (`play_bot`, the 1v1 against the server), `emotes.go` (the
+  three fixed emotes), `online.go` (`players_online`)
 - `janus/` the gateway every third-party call leaves through, and **nothing the gateway already
   does**: no cache, no retry, no token store (`JANUS.md`)
 - `twitch/` who is streaming the game: `config.go`, `helix.go`, `thumbs.go`, `poller.go`. Imports
@@ -336,7 +346,7 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
 - **The gameplay gate also bounds the seat**: `dispatchAtTable` refuses a sender whose `playerID` is
   not an index into `State.Hands` — four entry points index a hand before they validate anything.
 - **Nothing is unbounded.** `MaxClients` (5000) and `MaxConnsPerNet` (64) refused in `ServeWS`
-  **before the upgrade**, against `admitConn`'s own counter, never `statClients`; `MaxRooms` (2000)
+  **before the upgrade**, against `admitConn`'s own counter, never `h.metrics.clients`; `MaxRooms` (2000)
   in `handleCreateRoom`. **Reaching one in production is a signal to read the logs, not a number to
   lower.**
 - **A wrong table code costs something**: `MaxFailedJoins` (20) per network per minute, refused
@@ -344,7 +354,7 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
 - **Both of those are per network, and in production this server never sees one.** The network is
   decided once by `hub.clientNet` and kept on `Client.netKey`. `ClientIPHeaders` in order
   (`CF-Connecting-IP`, then `X-Real-IP`) **only from a trusted peer** (`TrustedProxies`), and a
-  multi-value header is **refused**. **That order is a security property.** Anything unbelievable
+  multi-value header (a comma list or a repeated line) is **refused**. **That order is a security property.** Anything unbelievable
   falls back to the peer (`isRoutableClient`). Truncated on the way in.
 - **Which of those headers a host may forward is the host's to declare, never the shared proxy
   block's** (`client/nginx.conf` `set $loco_cf_ip` / `$loco_real_ip`). `ws.` is grey-clouded, so it
@@ -357,8 +367,9 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
   token and is issued a fresh one**.
 - **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback —
   **the deal is hidden state**, and `game/rng_test.go` runs the clock-seed attack. **Every shuffle
-  that decides a hand takes it, the mid-round `Deck.Replenish` included.** `math/rand` is for bot
-  jitter and nothing else.
+  that decides a hand takes it, the mid-round `Deck.Replenish` included.** `math/rand`'s global source
+  is for bots (their jitter and their choices) and nothing that decides hidden state; the room's own
+  `*rand.Rand` is seeded from `crypto/rand`.
 - **The nickname is validated in the domain and refused with one string.** `game.ValidateNickname`
   owns length **in runes**, an allowlist charset and the blocked-term check; all three reach the
   player as `nickname not allowed` and **never say which rule fired**. Wordlists matched folded,
@@ -410,7 +421,10 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
 
 **A refused message must never be cheaper than an accepted one**
 - **A refusal does not clear the AFK counter.** `dispatchAtTable` resets it *after* the handler and
-  only when `Client.refusals` did not move; `sendError` is the single funnel that moves it.
+  only when `Client.refusals` did not move; `sendError` is the single funnel that moves it. **A
+  gameplay message answered by nobody is a refusal too**: a Contre-LOCO! where nothing is offered,
+  one inside the lockout, or one already charged for this offer calls `Client.refuseSilently()`, which
+  bumps `Client.refusals` without answering, or a held catch button would be immunity from the threshold.
 - **A refusal answers its sender and nobody else**, unless the rules say the table pays too. Same
   rule makes `rematch` idempotent, and covers a penalty that drew nothing and a Contre-LOCO! already
   charged for this offer or aimed at a table where nothing is offered.
@@ -536,7 +550,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 
 **Build and framework**
 - **The game is never an Astro island.** A `client:*` directive emits inline scripts the CSP refuses;
-  `entry.ts` is mounted by a bundled `<script>`. `csp.test.ts` fails on any `client:*` or `is:inline`.
+  `entry.ts` is mounted by a bundled `<script>`. `csp.test.ts` fails on any `client:*` or `is:inline`, except an `is:inline`
+  `application/ld+json` data block (the structured data in `layouts/Base.astro`), which never executes.
 - **`make csp` belongs after a dependency bump too**: a dependency can break the CSP without
   appearing in our sources. The validator is Valibot, not Zod, whose JIT reached for `Function()`.
 - **`astro.config.mjs` puts the `VITE_` env prefix back**, which Astro narrows away (`wsEnv.test.ts`).
@@ -638,7 +653,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `invitePage.test.ts`.
 - **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`). A prefill that
   authenticates nothing, which is why it is not the `loco_session` record.
-- `initLang()`, then `initMotion()`, `initI18n()`, `initPinchGuard()`, `initTableInvite()`,
+- `initLang()` (from `langSwap.ts`), then `initMotion()`, `initI18n()`, `initPinchGuard()`,
+  `initContextGuard()`, `initTableInvite()`, `initTabLock()` (skipped in the dev showcase),
   `initSessionRestore()` in `entry.ts` before the first render, **in that order**.
 
 **Input and controls**
@@ -920,7 +936,7 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   derive one from the other. **The dev host keeps its `-d.` prefix**: `nginx.conf` keys `robots.txt`
   on that pattern and it is all that keeps dev out of the index.
 - **The apex is canonical and `www.` only 301s to it, at the edge.** So `ORIGIN` carries no `www.`
-  (`seo.test.ts`) and `compose.yml` carries one `Host()`. A canonical naming a redirect is reported
+  (`seo.test.ts`) and `deploy/compose.yml` carries one `Host()` for the site and none for `www.`. A canonical naming a redirect is reported
   as invalid by Google and looks fine to every human, because both URLs load.
 - **nginx answers a missing page with a real 404**, never with the game. `robots.txt` advertises the
   sitemap on production hosts and nothing at all on `-d.`.

@@ -59,8 +59,9 @@ const (
 	// is ready to play. Sent once per match, in answer to SMsgMatchLoading.
 	CMsgMapReady ClientMsgType = "map_ready"
 	// CMsgInterruptPlay is the realtime "lead-taking" / jump-in message.
-	// Body may carry either a singular Card OR a PlayCards array (batch identical-card
-	// interrupt). interrupt_play_card is accepted as an alias for the same handler.
+	// Body carries one Card: an interject is one card, and a PlayCards batch is
+	// refused (game.ErrInterruptBatch). interrupt_play_card is accepted as an
+	// alias for the same handler.
 	CMsgInterruptPlay     ClientMsgType = "interrupt_play"
 	CMsgInterruptPlayCard ClientMsgType = "interrupt_play_card"
 	// Dev / E2E only (requires LOCO_E2E=1 env var on the server)

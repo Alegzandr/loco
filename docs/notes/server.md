@@ -182,7 +182,8 @@ The counters above say how loaded the loop is in production. `hub/loop_bench_tes
 loaded *with*, which is the number an architectural argument has to start from. It is internal
 (package `hub`) because it calls `dispatch` directly: going through a socket would measure the kernel.
 
-Run it with `make bench-server`. On a Ryzen 7 9850X3D, Go 1.26, in the container:
+Run it with `make bench-server`. On a Ryzen 7 9850X3D, Go 1.26, in the container (the 10-seat column
+was measured when a table seated ten; the cap is 7 now, so it stands as an upper bound):
 
 | One pass of the loop | 2 seats | 4 seats | 10 seats |
 | --- | --- | --- | --- |
@@ -202,8 +203,8 @@ seconds) ran it at 0.43 % of one core.
 
 So the split that followed (one goroutine per table, next section) was **not** bought for throughput,
 and the note says so where somebody might otherwise assume it was. What it removes is head-of-line
-blocking between strangers' tables: worst case `dispatch` plus a GlobalSwitch fan-out at ten seats,
-about 38 µs. That is three orders of magnitude under the network round trip that already decides
+blocking between strangers' tables: worst case `dispatch` plus a GlobalSwitch fan-out at ten seats
+(measured before the cap came down to 7), about 38 µs. That is three orders of magnitude under the network round trip that already decides
 every interrupt race — small, and now zero, at the price of ownership rules that have to be kept.
 **Anyone proposing to go further should start from these numbers and not from an intuition about
 loops.**
@@ -237,7 +238,7 @@ snapshot ran, and the players who reconnected a moment later were told "room not
 outcome the drain was built to eliminate, reachable at will for the cost of a TCP handshake.
 
 **The two answers.**
-- The **gate** (`isGameplayMsg` + `roomOf` + `Status`/`State`) fixes the class rather than the two
+- The **gate** (`isGameplayMsg` + the table `requireTable` resolved + `Status`/`State`, in `dispatchAtTable`) fixes the class rather than the two
   handlers. The next one to read `State` before validating is covered without anybody remembering to.
   It answers `game not in progress`, resolved by `i18n/serverErrors.ts` like every other refusal.
 - The **recover** bounds the blast radius of whatever the gate does not anticipate: one `WARN` with
@@ -271,7 +272,7 @@ these in production is a signal to read the logs, not a number to lower.**
 Two details that are not arbitrary:
 
 - **Admission is decided before the upgrade**, in `admitConn`, against its own counter rather than
-  `statClients`. `statClients` is maintained by the event loop, which leaves a window between the
+  `h.metrics.clients`. That one is maintained by the event loop, which leaves a window between the
   upgrade and the register that an unbounded number of sockets can arrive in, and that window is
   precisely where a flood lives. Refusing early also means a connection this server will not serve
   never costs it a hijacked socket, a 256-slot send buffer and two goroutines. 429 rather than a
@@ -321,7 +322,9 @@ Four things it refuses to believe, each of which would hand somebody a private b
 - **A header from an untrusted peer.** It is a claim about a network, not a report of one.
 - **A multi-value header.** This is why the default is `CF-Connecting-IP` and not `X-Forwarded-For`:
   Cloudflare *sets* the former and *appends* to the latter, so the leftmost `X-Forwarded-For` entry is
-  whatever the client invented. Anything with a comma in it falls back to the peer.
+  whatever the client invented. Both spellings of a second value fall back to the peer: a comma list
+  on one line, and the same header sent twice (read with `Header.Values`, since `Header.Get` returns
+  only the first line). `TestClientNetRefusesARepeatedHeader`.
 - **An unparseable or empty one.** A topology nobody described, so the peer stands.
 - **An address no browser on the internet could have** (`isRoutableClient`): loopback, private,
   link-local, multicast, unspecified, in either family and through a v6 mapping. See below — this one
@@ -460,8 +463,8 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   `generateSessionToken` went the same way: it would have degraded the only authentication in the
   game to a guessable number on an error path that, since Go 1.24, `rand.Read` no longer takes: it
   panics if the OS entropy source is broken, which is the right outcome for a server that can no
-  longer issue a trustworthy token. `math/rand` survives for bot jitter, where predictability costs
-  nothing.
+  longer issue a trustworthy token. `math/rand` survives for bots (their jitter and their choices),
+  which decide no hidden state, so predictability costs nothing.
 - **And for the room's own RNG, which is the one that took longest to see.** `game.NewRoom` seeded
   its `*math/rand.Rand` from `time.Now().UnixNano()`, which read as harmless — it is "just the
   shuffle", and the room code and the token, the two things obviously worth protecting, were already
@@ -507,6 +510,14 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     is already the single funnel every refusal in the server goes through, so a handler written next
     year cannot forget to use it, which is the property the dispatch-boundary version had and is the
     only reason it was there.
+    **A gameplay message answered by nobody is a refusal too.** A Contre-LOCO! aimed at a table where
+    nothing is offered, one pressed inside the caller's own lockout, or one already charged for this
+    offer is deliberately met with silence (or only `catch_locked`), so `sendError` never runs and
+    the before/after pair would read it as accepted: a held catch button would have been the new
+    `declare_uno`, an immunity from the threshold bought for nothing. Those paths call
+    `Client.refuseSilently()` (`handleCatchUno`; a miss `penalizeFailedCatch` did not charge, or
+    charged against dry piles, counts too), which bumps `Client.refusals` without answering, so the
+    counter stays as it was. `catch_afk_internal_test.go`.
   - **A Contre-LOCO! on a seat that was never on the hook was charged like a lost race**, and
     therefore *announced* like one. Every timing refusal (`IsMissedCatch`) costs the caller a card
     and puts a `catch_failed` in front of the whole table, which is exactly right for the wager the
@@ -717,9 +728,9 @@ ordinary room's on purpose.
   reveal and never reclaimed requeues the survivor from the expiry, which is reachable only if the
   deal itself was refused. `matchHistoryDTO` never serialises a column set as `null` either way.
   `TestMatchmaking_ReloadDuringTheRevealKeepsTheSeat` and `…RematchRevealKeepsTheRecap` pin it.
-- **A matchmade room has no host**, so `handleAddBot`, `handleStartGame`, `handleSetMatchFormat`,
-  `handleSetMaxPlayers`, `handleKickPlayer` and `handleTransferHost` all begin with
-  `refuseInMatchmade`. The format is fixed
+- **A matchmade room has no host**, and neither has a solo game, so `handleAddBot`, `handleStartGame`,
+  `handleSetMatchFormat`, `handleSetMaxPlayers`, `handleSetStreamerMode`, `handleKickPlayer` and
+  `handleTransferHost` all begin with `refuseWithoutHost` (`table.hostless`, `not available in this game`). The format is fixed
   (BO1: a queue is entered by somebody who wants to play *now*, and a single round is the shortest
   complete thing the game has, as well as the commitment two strangers are least likely to abandon
   halfway) and the size is two. `handleRematch` is deliberately not among them: it is an agreement
@@ -1279,7 +1290,7 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
 - **What is the same for every recipient is built once per broadcast** (`sharedGameState`, handed
   to `playerGameStateWith`): the scoreboard, the recap and the catch lists. `playerGameStateUsing`
   already hoisted the roster; the scoreboard and `matchHistoryDTO` were still rebuilt per seat, so a
-  GlobalSwitch at a ten-seat table on its sixth match was ten scoreboard builds and a hundred slice
+  GlobalSwitch at a ten-seat table (the cap is 7 now) on its sixth match was ten scoreboard builds and a hundred slice
   copies on the hot path.
 - **`restoreRoom` fills the table in before it runs and arms through its box.** `awayAt` is written
   before `t.start`; the turn clock, the bot and the cleanup — all of which write the table's own
@@ -1340,8 +1351,8 @@ map. `hub/maploading.go`.
   number. A departure during the gate used to reach both through `retireSeat`, and the first turn's
   thirty seconds ran against a grey rectangle: the head start the gate exists to refuse, from the
   server's own timer. `openTable` arms both once the last human is in.
-- **Every gameplay message is refused while the gate is open** (`isGameplayMsg` + `isMapLoading` in
-  `dispatch`, "waiting for every player to load the table"). Trusting the client's own loading screen
+- **Every gameplay message is refused while the gate is open** (`isGameplayMsg` + `t.isLoading()` in
+  `dispatchAtTable`, "waiting for every player to load the table"). Trusting the client's own loading screen
   would leave a client that skipped it as the only one able to act.
 - Gate is **per match, not per round**: round two runs on a decoded map, and a second pause there
   would be a stall with no visible cause. A rematch re-arms it, because it draws a new map.
@@ -1614,7 +1625,7 @@ why — the freshness rules, the preview cache, screening a name this game did n
 - `draining` + `matches_in_flight` — this process has been asked to go and is finishing what it had. `matches_in_flight` is the number the shutdown is waiting to reach zero; it is only maintained while draining. `draining` also rides `/health`, which deliberately stays `200`: a draining server is serving its players perfectly well, and a container Docker considers unhealthy is one something else may decide to kill out from under them.
 
 All counters atomic on `Hub`; `GetMetrics()` reads outside the event loop, and every table's goroutine
-writes them, which is the other reason they are atomic. `statMatchesStarted` inc'd in `handleStartGame` (per `start_game`, not per round). `statMatchesFinished` inc'd in `handleRoundOrMatchEnd` when `MatchOver`. `statBotsActive` inc in `handleAddBot`, dec in `deleteRoom` by bot count.
+writes them, which is the other reason they are atomic. They live on one `hubMetrics` struct (`h.metrics`). `matchesStarted` is inc'd in `dealMatch` and `dealSoloMatch` (per match, not per round). `matchesFinished` is inc'd in `handleRoundOrMatchEnd` when `MatchOver`, and in `forfeitMatch`. `botsActive` is inc'd in `handleAddBot`, `openSoloTable` and `restoreRoom`, dec'd in `removeUnmannedSeat` and in `deleteRoom` by bot count.
 
 ## Server stability
 - Deferred async = `time.AfterFunc` (not `go func{Sleep;send}`). Every one of them posts to the table

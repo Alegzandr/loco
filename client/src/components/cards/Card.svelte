@@ -255,6 +255,7 @@
     font-size: 18cqh;
   }
 
+  /* Global: the <svg> is rendered by <CardGlyph />, out of this component's scope. */
   .value :global(svg) {
     width: 100%;
     height: 100%;
@@ -307,7 +308,8 @@
     top: 24%;
   }
 
-  /* An icon corner has no glyph box to size it, so it gets an explicit one. */
+  /* An icon corner has no glyph box to size it, so it gets an explicit one.
+     Global: the <svg> is rendered by <CardGlyph />. */
   .corner :global(svg) {
     width: 12cqh;
     height: 12cqh;

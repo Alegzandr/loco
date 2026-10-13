@@ -129,11 +129,12 @@ func (h *Hub) openSoloTable(c *Client, nickname string) {
 
 	log.Printf("solo match started code=%s nickname=%s bot=%s", code, nickname, botName)
 
-	// Started before the deal is announced: dealMatch opens the map-loading gate,
-	// which arms a timer, and a table has to be running to receive one. Everything
-	// above is the hub filling this table in. See table.start.
-	t.start(h)
+	// Dealt, then started: the deal is the last of the hub filling this table in
+	// (the session token, the loading gate). The gate's timer posts into a box
+	// that already exists, so arming it before the goroutine runs loses nothing,
+	// exactly as the versus reveal's does. See table.start.
 	h.dealSoloMatch(t, c)
+	t.start(h)
 }
 
 // dealSoloMatch is dealMatch's one-seat form: it carries the identity this mode

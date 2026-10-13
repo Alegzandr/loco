@@ -104,7 +104,8 @@ func (d *Deck) DrawUpTo(n int) []Card {
 	return drawn
 }
 
-// Replenish replaces the deck with the shuffled discard pile. The caller keeps
+// Replenish shuffles the discard pile and appends it to what is left of the
+// deck, never in place of it. The caller keeps
 // the current top card out of `discard` — it stays on the pile so the round
 // still has something to match against.
 //

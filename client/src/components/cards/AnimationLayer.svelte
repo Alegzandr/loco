@@ -113,7 +113,7 @@
    * other than where the element sits, and without the forwards half the card
    * would snap back for the one frame before its owner removes it. And the
    * element sits at the layer's origin: without the backwards half, a card
-   * waiting out its delay — the last cards of a ten-seat deal wait over a
+   * waiting out its delay — the last cards of a seven-seat deal wait over a
    * second — sat in the top-left corner of the board until its turn came.
    *
    * Under reduced motion a flight collapses to its destination: a zero-length

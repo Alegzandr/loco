@@ -7,7 +7,7 @@ import CardBack from '../components/cards/CardBack.svelte'
 import { cardLabel, SUIT_PAINT } from '../components/cards/cardTheme'
 import { LOCO_MARK_VIEWBOX, LOCO_MARK_PATH } from '../components/cards/locoMark'
 import LocoLogo from '../components/LocoLogo.svelte'
-import { CardDTO } from '../types/protocol'
+import type { CardDTO } from '../types/protocol'
 
 const card = (over: Partial<CardDTO> = {}): CardDTO => ({
   color: 'red', kind: 'number', value: 5, ...over,

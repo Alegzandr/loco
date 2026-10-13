@@ -13,7 +13,7 @@ describe('resolveServerError', () => {
       'nickname not allowed',
       'room not found',
       'invalid room code',
-      'room is full (max 10 players)',
+      'room is full (max 7 players)',
       'game already in progress',
       'game already started',
       'invalid session token for reconnect',

@@ -434,7 +434,7 @@ export function pageJsonLd(page: PageDef, lang: Lang): object {
  * Structured data for the home page: the site, the page, and the game itself.
  *
  * `VideoGame` is what describes a playable thing rather than a product page,
- * and free / 2-to-10 / in-a-browser are the properties this category is
+ * and free / 2-to-7 / in-a-browser are the properties this category is
  * actually searched on, so they are stated as data and not only as prose.
  *
  * **Free is said with `isAccessibleForFree`, never with an `Offer`.** A
@@ -484,7 +484,7 @@ export function homeJsonLd(lang: Lang): object {
         genre: lang === 'fr' ? 'Jeu de cartes' : 'Card game',
         gamePlatform: 'Web browser',
         playMode: ['https://schema.org/MultiPlayer', 'https://schema.org/SinglePlayer'],
-        numberOfPlayers: { '@type': 'QuantitativeValue', minValue: 2, maxValue: 10 },
+        numberOfPlayers: { '@type': 'QuantitativeValue', minValue: 2, maxValue: 7 },
         isAccessibleForFree: true,
       },
     ],

@@ -563,7 +563,7 @@
      own so the ring can sit under the label at `z-index: -1` (without it, -1
      would drop the ring behind the whole bar). */
   .btnPenalty {
-    background: linear-gradient(180deg, #ff8a5c 0%, #ef3d2a 100%);
+    background: var(--gradient-penalty);
     color: var(--color-on-primary);
     text-shadow: 0 1px 0 rgba(120, 20, 0, 0.45);
     isolation: isolate;
