@@ -1,5 +1,5 @@
 // Card colour palette and shared dimensions for the card renderer.
-import { CardColor, CardDTO } from '../../types/protocol'
+import type { CardColor, CardDTO } from '../../types/protocol'
 
 // ─── Suits ──────────────────────────────────────────────────────────────────
 // Every face is one two-stop gradient running along the card's bottom-left →
@@ -93,7 +93,7 @@ export const DEAL_STAGGER_MS = 45
 export const DEAL_FLIGHT_MS = 260
 /**
  * The whole table is dealt, one card to each seat in turn, and the deal never
- * takes longer than this however many seats there are: a ten-seat table gets
+ * takes longer than this however many seats there are: a seven-seat table gets
  * a quicker hand, not a longer wait.
  */
 export const DEAL_TABLE_MAX_MS = 1500

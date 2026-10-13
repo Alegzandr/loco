@@ -711,7 +711,7 @@
     width: 22px;
     height: 22px;
     border-radius: var(--radius-full);
-    background: #fff;
+    background: var(--color-on-dark);
     color: var(--color-error);
     font: 700 15px/1 var(--font-display);
   }
@@ -815,8 +815,8 @@
     /* A grid track is `min-content` before it is `1fr`, and an <input> asks for
        twenty characters: without this the two-field form solved wider than the
        width above and hung off the right edge of the screen. */
-    .buttonGroup > :global(*),
-    .form > :global(*) {
+    .buttonGroup > *,
+    .form > * {
       min-width: 0;
     }
 
@@ -922,22 +922,22 @@
      opening. Opacity and transform only, once, under the boot fade. */
   .title,
   .tagline,
-  .buttonGroup > :global(*) {
+  .buttonGroup > * {
     animation: riseIn 0.5s var(--ease-out) both;
   }
   .tagline {
     animation-delay: 0.08s;
   }
-  .buttonGroup > :global(:nth-child(1)) {
+  .buttonGroup > :nth-child(1) {
     animation-delay: 0.16s;
   }
-  .buttonGroup > :global(:nth-child(2)) {
+  .buttonGroup > :nth-child(2) {
     animation-delay: 0.22s;
   }
-  .buttonGroup > :global(:nth-child(3)) {
+  .buttonGroup > :nth-child(3) {
     animation-delay: 0.28s;
   }
-  .buttonGroup > :global(:nth-child(4)) {
+  .buttonGroup > :nth-child(4) {
     animation-delay: 0.34s;
   }
 
@@ -954,7 +954,7 @@
 
   :root[data-motion='reduce'] .title,
   :root[data-motion='reduce'] .tagline,
-  :root[data-motion='reduce'] .buttonGroup > :global(*) {
+  :root[data-motion='reduce'] .buttonGroup > * {
     animation: none;
   }
 </style>

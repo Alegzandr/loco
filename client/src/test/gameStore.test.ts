@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { gameStore } from '../hooks/gameStore'
-import { CardDTO, GameStateDTO, ScoreboardEntryDTO } from '../types/protocol'
+import type { CardDTO, GameStateDTO, ScoreboardEntryDTO } from '../types/protocol'
 
 // Reset store state between tests
 beforeEach(() => {
@@ -62,7 +62,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 1,
       match_format: 'BO1',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()
@@ -349,7 +349,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 2,
       match_format: 'BO3',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()
@@ -369,7 +369,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 1,
       match_format: 'BO1',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()
@@ -521,7 +521,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 1,
       match_format: 'BO1',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     expect(gameStore.getState().pendingMatchEnd).toBeNull()
@@ -697,7 +697,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 1,
       match_format: 'BO1',
-      max_players: 10,
+      max_players: 7,
     })
     expect(gameStore.getState().declaredSeats).toEqual([1])
   })
@@ -1060,7 +1060,7 @@ describe('gameStore', () => {
         direction: 1,
         round_number: 1,
         match_format: 'BO1',
-        max_players: 10,
+        max_players: 7,
       })
       expect(gameStore.getState().catchPending).toBe(false)
     })
@@ -1117,7 +1117,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 1,
       match_format: 'BO1',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()
@@ -1143,7 +1143,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 2,
       match_format: 'BO3',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()
@@ -1343,7 +1343,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 1,
       match_format: 'BO1',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()
@@ -1378,7 +1378,7 @@ describe('gameStore', () => {
       direction: 1,
       round_number: 1,
       match_format: 'BO1',
-      max_players: 10,
+      max_players: 7,
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()

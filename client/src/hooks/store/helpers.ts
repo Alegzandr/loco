@@ -1,4 +1,4 @@
-import { CardDTO, GameStateDTO } from '../../types/protocol'
+import type { CardDTO, GameStateDTO } from '../../types/protocol'
 import { CatchWindow, SwapNotice } from './types'
 
 let lastStamp = 0

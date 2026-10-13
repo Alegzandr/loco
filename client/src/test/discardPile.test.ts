@@ -4,7 +4,7 @@ import { act } from './renderHook'
 import DiscardPile from '../components/cards/DiscardPile.svelte'
 import GameView from '../components/GameView.svelte'
 import { gameStore } from '../hooks/gameStore'
-import { CardDTO } from '../types/protocol'
+import type { CardDTO } from '../types/protocol'
 
 const wild: CardDTO = { color: 'wild', kind: 'wild', value: 0 }
 const red7: CardDTO = { color: 'red', kind: 'number', value: 7 }

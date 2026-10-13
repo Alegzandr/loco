@@ -274,7 +274,7 @@ describe('what gets persisted', () => {
         session_token: 'tok',
         players: [{ index: 0, nickname: 'Alice', hand_size: 0, connected: true }],
         match_format: 'BO1',
-        max_players: 10,
+        max_players: 7,
       } as ServerMsg)
     })
 
@@ -299,7 +299,7 @@ describe('what gets persisted', () => {
         session_token: 'tok',
         players: [{ index: 0, nickname: 'Alice', hand_size: 0, connected: true }],
         match_format: 'BO1',
-        max_players: 10,
+        max_players: 7,
       } as ServerMsg)
     })
     expect(readSession()).not.toBeNull()

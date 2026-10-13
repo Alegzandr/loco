@@ -73,6 +73,9 @@
      the error gradient is the one an alert wears — never a button. */
   --color-primary-lift: #ff6d84;
   --color-secondary-lift: #ffe07a;
+  /* One step brighter than the lift: the active seat's plate, which has to be
+     the brightest object on the board and outshine every yellow button. */
+  --color-secondary-glow: #ffe58a;
   --color-tertiary-lift: #8a7cff;
   --color-error-lift: #ff8a6b;
   --gradient-primary: linear-gradient(180deg, var(--color-primary-lift) 0%, var(--color-primary) 100%);
@@ -173,6 +176,24 @@
      scale's own; it was written into `ScoreTable` as a literal beside a copy
      of `--color-error`, which is what a token exists to prevent. */
   --color-amber: #ff9f1a;
+  /* The draw-stack's two orange objects, each its own pair: the action bar's
+     penalty draw (red-orange, LOCO Red's family leaning into the amber — it
+     is the one button that acts under a threat) and the turn pill's "Draw 2"
+     state (the amber pushed to an ember). Both were written at the call site. */
+  --color-penalty-lift: #ff8a5c;
+  --color-penalty: #ef3d2a;
+  --gradient-penalty: linear-gradient(180deg, var(--color-penalty-lift) 0%, var(--color-penalty) 100%);
+  --color-amber-lift: #ffb648;
+  --color-amber-deep: #f2760c;
+  --gradient-amber: linear-gradient(180deg, var(--color-amber-lift) 0%, var(--color-amber-deep) 100%);
+  /* The words a played action card throws over the board (GameBoard's
+     `effectFor`, handed to AnimationLayer as an inline `color`). Each sits in
+     the family of what it says: a skip is the amber's warning, a reverse is
+     the indigo's direction lifted until it reads over the felt, and a +2 / +4
+     — and the card a missed catch costs — is LOCO Red's cost. */
+  --color-callout-skip: #ff9f43;
+  --color-callout-reverse: #74b9ff;
+  --color-callout-draw: #e63946;
   --color-scrim: rgba(8, 4, 20, 0.68);
   /* The scrim for a panel that stays up while the board underneath keeps
      playing — the round summary, the standings, the reconnect curtain. Dense
@@ -189,6 +210,9 @@
   /* The edges of the cards under the discard, seen as the pile's near side
      once it lies on the felt: card stock in its own shade. */
   --card-edge: #cfc9bd;
+  /* The face of a card buried under the discard: plain stock, the one white
+     the board draws on purpose (rule 2 holds — it always sits on the felt). */
+  --card-stock: #ffffff;
 
   /* ── Type ──────────────────────────────────────────────────────────────── */
   --font-display: 'Fredoka Variable', 'Fredoka', 'Baloo 2', system-ui, -apple-system, sans-serif;

@@ -1,5 +1,5 @@
 import { StateCreator } from './createStore'
-import { CardColor } from '../../types/protocol'
+import type { CardColor } from '../../types/protocol'
 import { stamp, gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
 import { CatchWindow, GameStore, TableActions } from './types'
 import { offerEnd, type OnHookUntil } from '../../components/catchAvailability'

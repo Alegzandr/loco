@@ -139,7 +139,7 @@ describe('the pressable button is completed by the store', () => {
     direction: 1,
     round_number: 1,
     match_format: 'BO1',
-    max_players: 10,
+    max_players: 7,
   })
 
   beforeEach(() => {

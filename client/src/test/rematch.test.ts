@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import * as v from 'valibot'
 import { gameStore } from '../hooks/gameStore'
-import { PlayerDTO } from '../types/protocol'
+import type { PlayerDTO } from '../types/protocol'
 import { serverMsgSchema } from '../types/protocolSchemas'
 
 const players: PlayerDTO[] = [

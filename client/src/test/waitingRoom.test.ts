@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { render, screen, fireEvent } from './render'
 import WaitingRoom from '../components/WaitingRoom.svelte'
-import { PlayerDTO } from '../types/protocol'
+import type { PlayerDTO } from '../types/protocol'
 
 function player(index: number, nickname: string): PlayerDTO {
   return { index, nickname, hand_size: 0, connected: true }

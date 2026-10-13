@@ -1,5 +1,5 @@
 import { gameStore, UNO_CATCH_WINDOW_MS } from './gameStore'
-import { ServerMsg } from '../types/protocol'
+import type { ServerMsg } from '../types/protocol'
 import { localizeDeadlines } from './serverClock'
 
 /**

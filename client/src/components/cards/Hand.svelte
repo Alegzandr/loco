@@ -398,7 +398,9 @@
      The card's transition is transform alone. It also transitioned `box-shadow`, and nothing the hover
      does moves the shadow: the one shadow change a card in hand ever sees is
      the playable glow, which flips for the whole fan at once on a turn change
-     and was being tweened on every card of it. */
+     and was being tweened on every card of it.
+     Global, here and below: `.card` is the root <Card /> renders, out of this
+     component's scope. */
   .slot :global(.card) {
     transform-origin: 50% 50%;
     transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);

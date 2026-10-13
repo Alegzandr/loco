@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render } from './render'
 import AnimationLayer, { type Flier, type Impact } from '../components/cards/AnimationLayer.svelte'
-import { CardDTO } from '../types/protocol'
+import type { CardDTO } from '../types/protocol'
 
 const noop = () => {}
 
@@ -48,7 +48,7 @@ describe('<AnimationLayer /> turning a card over', () => {
 describe('<AnimationLayer /> waiting cards', () => {
   it('holds a delayed flier at its start, never at the corner of the board', () => {
     // A flier sits at the layer's origin and is placed by its animation. The
-    // last cards of a ten-seat deal wait over a second before they leave, and
+    // last cards of a seven-seat deal wait over a second before they leave, and
     // an animation filled forwards only left them in the top-left corner until
     // then.
     const spy = vi.spyOn(Element.prototype, 'animate')

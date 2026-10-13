@@ -267,7 +267,18 @@ describe('structured data', () => {
     }
     const game = ld['@graph'].find((n) => n['@type'] === 'VideoGame')!
     expect(game.isAccessibleForFree).toBe(true)
-    expect(game.numberOfPlayers).toEqual({ '@type': 'QuantitativeValue', minValue: 2, maxValue: 10 })
+    // Pinned to the server's own range: a number typed here once said ten
+    // after the table had been capped at seven, and a rich result promising
+    // seats the server refuses is the one claim a player can check.
+    const room = readFileSync(path.join(CLIENT, '..', 'server', 'game', 'room.go'), 'utf8')
+    const goConst = (name: string) => Number(room.match(new RegExp(`${name}\\s*=\\s*(\\d+)`))?.[1])
+    expect(Number.isInteger(goConst('serverMaxPlayers')), 'serverMaxPlayers not found in server/game/room.go').toBe(true)
+    expect(game.numberOfPlayers).toEqual({
+      '@type': 'QuantitativeValue',
+      minValue: goConst('serverMinPlayers'),
+      maxValue: goConst('serverMaxPlayers'),
+    })
+    expect(game.numberOfPlayers?.maxValue).toBe(7)
   })
 
   it('never asks a validator for a rating nobody has left', () => {

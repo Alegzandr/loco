@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { handCardKeys } from '../components/cards/layout'
 import { radToDeg } from '../components/cards/cardTheme'
 import { gameStore } from '../hooks/gameStore'
-import { CardDTO, PlayerDTO } from '../types/protocol'
+import type { CardDTO, PlayerDTO } from '../types/protocol'
 
 describe('handCardKeys', () => {
   it('gives distinct cards distinct keys', () => {

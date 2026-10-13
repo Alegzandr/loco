@@ -296,7 +296,7 @@
     width: 72px;
     height: 108px;
     border-radius: 11px;
-    background: #fff;
+    background: var(--card-stock);
     border: var(--stroke-thin) solid var(--color-stroke);
     transform-origin: 50% 50%;
     pointer-events: none;
@@ -334,7 +334,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(180deg, #ff6d7d 0%, var(--color-primary) 100%);
+    background: var(--gradient-primary);
     border: var(--stroke) solid var(--color-stroke);
     border-radius: var(--radius-full);
     color: var(--color-on-primary);

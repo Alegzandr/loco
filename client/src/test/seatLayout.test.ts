@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import {
   seatLayout,
@@ -28,6 +30,12 @@ import {
   handCard,
   type SeatSize,
 } from '../components/cards/cardTheme'
+
+// The fullest table the server seats, us not counted: read off
+// `serverMaxPlayers` in server/game/room.go, so the loops below cover exactly
+// the tables that can exist and not ones the server refuses.
+const ROOM_GO = readFileSync(path.resolve(__dirname, '..', '..', '..', 'server', 'game', 'room.go'), 'utf8')
+const MAX_OPPONENTS = Number(ROOM_GO.match(/serverMaxPlayers\s*=\s*(\d+)/)?.[1]) - 1
 
 const DESKTOP = { w: 1440, h: 900 }
 const DESIGN = { w: 1240, h: 790 }
@@ -103,6 +111,10 @@ const onEllipse = (felt: Rect, x: number, y: number) => {
 }
 
 describe('seatLayout: a place on the rim', () => {
+  it('is tested up to the fullest table the server seats', () => {
+    expect(MAX_OPPONENTS, 'serverMaxPlayers not found in server/game/room.go').toBe(6)
+  })
+
   it('returns nothing for a table with no opponents', () => {
     const l = seatLayout(0, DESKTOP.w, DESKTOP.h)
     expect(l.seats).toEqual([])
@@ -110,7 +122,7 @@ describe('seatLayout: a place on the rim', () => {
   })
 
   it('gives every opponent a place on the rim of a desktop table, in clockwise order', () => {
-    for (let n = 1; n <= 9; n++) {
+    for (let n = 1; n <= MAX_OPPONENTS; n++) {
       const l = seatLayout(n, DESIGN.w, DESIGN.h)
       const felt = tableRect(DESIGN.w, DESIGN.h, l.blockHeight)
       expect(l.seats.every((s) => s.onFelt)).toBe(true)
@@ -143,7 +155,7 @@ describe('seatLayout: a place on the rim', () => {
       expect(Math.abs(three.seats[0].y + three.seats[0].plate.y - mid3)).toBeLessThan(felt3.height * 0.06)
       expect(Math.abs(three.seats[2].y + three.seats[2].plate.y - mid3)).toBeLessThan(felt3.height * 0.06)
       // More come down the shoulders towards our end, as far as our hand lets them.
-      for (let n = 5; n <= 9; n++) {
+      for (let n = 5; n <= MAX_OPPONENTS; n++) {
         const l = seatLayout(n, vp.w, vp.h)
         const felt = tableRect(vp.w, vp.h, l.blockHeight)
         const mid = felt.top + felt.height / 2
@@ -185,7 +197,7 @@ describe('seatLayout: a place on the rim', () => {
 
   it('never lets two names or two hands touch, at any size of table', () => {
     for (const vp of VIEWPORTS) {
-      for (let n = 1; n <= 9; n++) {
+      for (let n = 1; n <= MAX_OPPONENTS; n++) {
         const { seats } = seatLayout(n, vp.w, vp.h)
         expect(seats).toHaveLength(n)
         for (let i = 0; i < n; i++) {
@@ -204,7 +216,7 @@ describe('seatLayout: a place on the rim', () => {
 
   it('lays every hand on the cloth, inside the rail and the racetrack', () => {
     for (const vp of VIEWPORTS) {
-      for (let n = 1; n <= 9; n++) {
+      for (let n = 1; n <= MAX_OPPONENTS; n++) {
         const l = seatLayout(n, vp.w, vp.h)
         if (!l.seats.every((s) => s.onFelt)) continue
         const t = tableRect(vp.w, vp.h, l.blockHeight)
@@ -224,7 +236,7 @@ describe('seatLayout: a place on the rim', () => {
 
   it('keeps every hand clear of the deck and the discard', () => {
     for (const vp of VIEWPORTS) {
-      for (let n = 1; n <= 9; n++) {
+      for (let n = 1; n <= MAX_OPPONENTS; n++) {
         const l = seatLayout(n, vp.w, vp.h)
         const deck = deckPosition(vp.w, vp.h, l.blockHeight)
         const disc = discardPosition(vp.w, vp.h, l.blockHeight)
@@ -239,7 +251,7 @@ describe('seatLayout: a place on the rim', () => {
 
   it('keeps every seat on screen, under the top chrome', () => {
     for (const vp of [...VIEWPORTS, { w: 320, h: 640 }]) {
-      for (let n = 1; n <= 9; n++) {
+      for (let n = 1; n <= MAX_OPPONENTS; n++) {
         for (const s of seatLayout(n, vp.w, vp.h).seats) {
           expect(s.box.left).toBeGreaterThanOrEqual(-0.5)
           expect(s.box.left + s.box.width).toBeLessThanOrEqual(vp.w + 0.5)
@@ -251,11 +263,11 @@ describe('seatLayout: a place on the rim', () => {
   })
 
   it('never uses the big seats on a phone', () => {
-    for (let n = 1; n <= 9; n++) expect(seatLayout(n, PHONE.w, PHONE.h).size).not.toBe('full')
+    for (let n = 1; n <= MAX_OPPONENTS; n++) expect(seatLayout(n, PHONE.w, PHONE.h).size).not.toBe('full')
   })
 
   it('stands a crowded phone table in rows above the felt when the rim cannot seat everybody', () => {
-    const l = seatLayout(9, PHONE.w, PHONE.h)
+    const l = seatLayout(MAX_OPPONENTS, PHONE.w, PHONE.h)
     expect(l.seats.every((s) => !s.onFelt)).toBe(true)
     expect(new Set(l.seats.map((s) => Math.round(s.y))).size).toBeGreaterThan(1)
     const felt = tableRect(PHONE.w, PHONE.h, l.blockHeight)
@@ -382,7 +394,7 @@ describe('shoutLine: where LOCO!, the interception and the catch stamp land', ()
   it('never covers an opponent while the table has a gap for it', () => {
     let gaps = 0
     for (const vp of VIEWPORTS) {
-      for (let n = 1; n <= 9; n++) {
+      for (let n = 1; n <= MAX_OPPONENTS; n++) {
         const lay = seatLayout(n, vp.w, vp.h)
         const line = shoutLine(vp.w, vp.h, lay.seats, lay.blockHeight)
         if (onPiles(line, deckPosition(vp.w, vp.h, lay.blockHeight).y)) continue
@@ -393,7 +405,7 @@ describe('shoutLine: where LOCO!, the interception and the catch stamp land', ()
       }
     }
     // Not a test of nothing: a good share of tables have one.
-    expect(gaps).toBeGreaterThan((VIEWPORTS.length * 9) / 3)
+    expect(gaps).toBeGreaterThan((VIEWPORTS.length * MAX_OPPONENTS) / 3)
   })
 
   it('finds the gap above the piles when the seats are held up in rows', () => {
@@ -410,7 +422,7 @@ describe('shoutLine: where LOCO!, the interception and the catch stamp land', ()
 
   it('never comes down on our own hand, which an interception is answered from', () => {
     for (const vp of VIEWPORTS) {
-      for (let n = 1; n <= 9; n++) {
+      for (let n = 1; n <= MAX_OPPONENTS; n++) {
         const lay = seatLayout(n, vp.w, vp.h)
         const line = shoutLine(vp.w, vp.h, lay.seats, lay.blockHeight)
         const handTop = vp.h - BOTTOM_RESERVE - handCard().h
