@@ -94,7 +94,7 @@ room's reset.
   drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2 (it is at 3
   now: `GameState.InterruptOpen` changed the shape of `game.Room` in turn).
 - **And it rides the `player_left` that re-bases the roster**, on all three paths that shrink it
-  (`releaseSeat`, `handlePlayerDisconnect`, and the expiry branch that removes the seat for real).
+  (`releaseSeat`, `disconnectAtTable` (reached from `handleDisconnect`, `hub/presence.go`), and the expiry branch that removes the seat for real).
   The screen reading it is already open by then: a seat going takes a column out of every row, and a
   client that keeps the version from before draws each player the *next* player's evening. The
   client cannot re-base it on its own — the column that went belongs to a seat that is in neither
@@ -257,7 +257,7 @@ a string it is free to reword.
 - Window state on `GameState`: `InterruptOpen` (the window), `LastPlayBy` (-1 = nobody played the card on top), `LastPlayAt` (informational). Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`/`CounterDraw`, and by `dealRound`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end.
 - **The opening discard is interceptable, and that is why the window and its author are two fields.** They used to be one, and a dealt card has no author: a seat holding the twin of the card the round opened on was answered `interrupt window closed`, which the client renders as *"somebody was faster"* — on a table where nobody had played anything yet. `dealRound` now sets `InterruptOpen: true` with `LastPlayBy` still -1: the window is open and belongs to no seat, so every rule below (no deadline, nobody excluded, the current player included) applies to it unchanged. `TestRoom_InterruptPlay_OpeningDiscardIsInterceptable` reads it off a real deal rather than a fixture, because the bug was in what `dealRound` left behind.
 - **Bots are the one exception, and it costs nothing to state twice**: `game.BotInterrupt` and `hub.maybeScheduleBotInterrupt` both gate on `LastPlayBy >= 0`, not on `InterruptOpen`, so they answer plays and not deals. A bot slamming the opening discard would take the round's first turn off the seat the deal handed it, before that player had touched anything — an interject is a reaction, and there is nothing there to react to. The hub half is belt and braces: it only schedules off a human's move anyway.
-- Resolution: fastest-server-received wins (single-goroutine event loop serializes).
+- Resolution: fastest-server-received wins (the table's own goroutine serializes, `hub/actor.go`).
 - **The window's state is on the wire, because the client cannot derive it.** `interrupt_open`
   rides `card_played` (open, unless the play took the round), `card_drawn` (shut when the seat at
   turn drew, unchanged when a penalty merely grew a hand — the two are the same message type, which
@@ -380,8 +380,8 @@ won, and a one-card hand had made them finishes by accident.
   GlobalSwitch (every seat at 1 card, **including one that declared a beat earlier**, since the card
   it declared for is not the card it now holds) and `updateLastCardState(actor)` otherwise.
 - `CatchUndeclared` is per target and refuses self-catching. `GameState.CatchableTargets(now)`
-  returns the open windows oldest-first; `hub.maybeScheduleBotCatch` schedules one attempt per
-  target, and `handleBotCatch`'s stale check compares `LastCardAt[target]`.
+  returns the open windows oldest-first; `hub.maybeScheduleBotReactions` arms `scheduleBotCatch`, one attempt per
+  window (`botCatchAttempt`), and `handleBotCatch`'s stale check compares `LastCardAt[target]`.
 - Wire: `catch_uno` carries `target_index` (the catcher names the seat) **when the client has one to
   name**. Absent means the press was made on a read rather than on a cue — the button is live from
   two cards out — and the hub still falls back to the window closest to expiring, which is the
@@ -698,7 +698,7 @@ won, and a one-card hand had made them finishes by accident.
   (last 50, `maxEventLogExport`) is called by `playerGameState`, the single-recipient
   recovery send, and never by `playerGameStateUsing`, which is what every broadcast
   loop uses. The log is the one unbounded field in a payload that is built *and*
-  marshalled once per recipient, so a GlobalSwitch at a ten-seat table used to
+  marshalled once per recipient, so a GlobalSwitch at a ten-seat table (the cap was ten then; it is 7) used to
   serialise the same 50 events (each with a nested card) ten times over, at the exact
   moment the table is busiest. Nothing in the client reads it during play: it exists
   so a reconnecting player's history can be rebuilt, which is the one send that keeps it.
@@ -762,7 +762,7 @@ is never refused. This is what the domain does when the round carries on without
 - Max players: `serverMinPlayers`(2) ≤ n ≤ `serverMaxPlayers`(7); cannot drop below current count.
 - Any change → broadcast `lobby_config_changed` (match_format, max_players).
 - `room_created`/`room_joined` include `match_format` + `max_players`.
-- Defaults: BO1, 10 max.
+- Defaults: BO1, 7 max.
 - **Lobby disconnect re-indexes everything.** `Room.RemoveLobbyPlayer` removes + re-indexes `Player.Index`; `table.dropClient` re-bases the members, the surviving `Client.playerID`, the bot set and the session tokens in one move. First remaining player is always playerID 0 (host).
 - Lobby disconnect leaving no humans → schedule cleanup immediately.
 
