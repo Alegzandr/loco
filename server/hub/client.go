@@ -397,6 +397,16 @@ func (c *Client) sendError(msg string) {
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: msg})
 }
 
+// refuseSilently counts a refusal the server deliberately does not answer: a
+// Contre-LOCO! pressed where nothing is offered, inside its own lockout, or
+// against an offer it already paid for. Saying nothing is the rule for those,
+// so they never reach sendError, and without this they read as accepted at the
+// dispatch boundary and cleared the AFK counter: one press per turn into an
+// empty table kept an absent seat from ever being counted away.
+func (c *Client) refuseSilently() {
+	c.refusals.Add(1)
+}
+
 // noteSuspect tags a gameplay-validation rejection on this client. The first
 // rejection within a 30-second window starts the count; once the window's
 // count crosses suspectThreshold we emit a single WARN with the connID so an

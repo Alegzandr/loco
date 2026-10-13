@@ -298,6 +298,7 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	// say. A seat that drew a moment ago is *not* this case, deliberately: its
 	// window is still running, and that press is the late half of the wager.
 	if !room.CatchOffered(catcher, now) {
+		c.refuseSilently()
 		return
 	}
 	// Still inside the lockout this seat's own last fruitless call armed. The
@@ -310,6 +311,7 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	// why it is dead; the table hears nothing.
 	if room.CatchLocked(catcher, now) {
 		h.lockCatch(t, catcher, now)
+		c.refuseSilently()
 		return
 	}
 	// Nobody is on the hook and the client said so by naming no seat. That is not
@@ -318,7 +320,9 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	// is made of, and it costs the same card as losing the race. The domain
 	// refuses to charge it twice on the same offer.
 	if targetIdx < 0 {
-		h.penalizeFailedCatch(t, catcher, now)
+		if !h.penalizeFailedCatch(t, catcher, now) {
+			c.refuseSilently()
+		}
 		return
 	}
 	// The verdict, on the instant the message arrived and never later. A
@@ -340,12 +344,15 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 		// ErrNoCatchWindow joins them: the seat exists but owed nothing, which is
 		// the same misread as pressing with no seat named at all.
 		case game.IsMissedCatch(err) || errors.Is(err, game.ErrNoCatchWindow):
-			h.penalizeFailedCatch(t, catcher, now)
+			if !h.penalizeFailedCatch(t, catcher, now) {
+				c.refuseSilently()
+			}
 		// The domain's own lockout guard, reached only if this seat's lock was
 		// armed between the check above and here. Answered like the check
 		// above: the lock is re-stated to its owner and nobody is charged.
 		case errors.Is(err, game.ErrCatchLocked):
 			h.lockCatch(t, catcher, now)
+			c.refuseSilently()
 		default:
 			c.sendError(err.Error())
 			c.noteRejection(err)
@@ -364,14 +371,16 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 // penalizeFailedCatch charges one card for a Contre-LOCO! that found nothing and
 // tells the room whose call it was. Shared by the human and the bot path — a bot
 // that guesses wrong pays the same price, or the two are playing different games.
-func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int, now time.Time) {
+// It reports whether the call was charged: one that was not is a refusal the
+// table does not hear, and the human path counts it as one (refuseSilently).
+func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int, now time.Time) bool {
 	room := t.room
 	// Nothing near the finish at all: there was no wager to lose, so there is
 	// no card and no lockout either. handleCatchUno returns before it gets
 	// here; the bot path arrives through IsMissedCatch, where a window was open
 	// a moment ago and this cannot be true.
 	if !room.CatchOffered(catcherIdx, now) {
-		return
+		return false
 	}
 	drawn, charged := room.PenalizeFailedCatch(catcherIdx, now)
 	// Every call that finds nobody arms the lockout, charged or not: the card is
@@ -388,7 +397,7 @@ func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int, now time.Time) {
 	// answer here would be a second notice for one mistake, and a spammed
 	// button would still be a way to make the table talk.
 	if !charged {
-		return
+		return false
 	}
 	msg := protocol.ServerMsg{
 		Type:        protocol.SMsgCatchFailed,
@@ -407,10 +416,13 @@ func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int, now time.Time) {
 		if c := t.client(catcherIdx); c != nil {
 			c.Send(msg)
 		}
-		return
+		// Charged, but the piles were dry and nothing was paid: as free as a
+		// miss the domain declined to charge, and counted the same way.
+		return false
 	}
 	h.broadcastToRoomAll(t, msg)
 	h.sendHandGrowth(t, catcherIdx, drawn)
+	return true
 }
 
 // lockCatch arms — or re-arms — one seat's Contre-LOCO! lockout and tells that

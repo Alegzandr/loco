@@ -129,6 +129,19 @@ func TestClientNet(t *testing.T) {
 	}
 }
 
+// The same list sent as two header lines rather than one with a comma.
+// Header.Get reads the first line alone, so this used to be believed: the
+// sender's own value first, whatever the edge appended after it ignored.
+func TestClientNetRefusesARepeatedHeader(t *testing.T) {
+	r := httptest.NewRequest("GET", "/ws", nil)
+	r.RemoteAddr = "172.18.0.4:41022"
+	r.Header.Add("CF-Connecting-IP", "1.2.3.4")
+	r.Header.Add("CF-Connecting-IP", "203.0.113.7")
+	if got, want := clientNet(r), "172.18.0.0/24"; got != want {
+		t.Errorf("clientNet() = %q, want %q", got, want)
+	}
+}
+
 // The order of ClientIPHeaders is a security property, not a preference. On the
 // proxied path a client can put an X-Real-IP of its own choosing on the request
 // and the CDN forwards it; the header the CDN itself sets has to win, or the
