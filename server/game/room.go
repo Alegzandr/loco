@@ -114,6 +114,20 @@ const (
 	// run dry and the penalty draw comes back empty. Outside this grace the call
 	// is refused to its sender alone.
 	catchGrace = 3 * time.Second
+	// catchNearGrace is how long a seat that just grew out of the two-card
+	// picture is still offered: the same late half of the wager as catchGrace,
+	// for the offer that never became a window. A seat on two cards draws
+	// instead of playing, its hand goes to three, and on that frame the button
+	// used to go dark under a thumb already on its way down — the read made for
+	// the player, in their favour. The press that lands there is a call on a
+	// seat that was one card from owing it a moment ago, so it is charged like
+	// every other miss.
+	//
+	// Short on purpose: it is a spasm's worth of lateness, not a second chance
+	// at a picture that has gone. **The client offers it for less than this**
+	// (CATCH_NEAR_GRACE_MS, 600ms, pinned by serverMirrors.test.ts), and the
+	// difference is the wire, as with catchGrace.
+	catchNearGrace = 1600 * time.Millisecond
 )
 
 // Player holds per-player metadata.
@@ -202,6 +216,12 @@ type GameState struct {
 	// Indexed by player index like every other seat-keyed slice here, and sized
 	// in dealRound.
 	CatchLockedUntil []time.Time
+
+	// NearLeftAt[i] is the instant seat i's hand last grew out of
+	// catchNearHand cards (a draw, a failed call paid for). Zero = never this
+	// round. It keeps the offer standing for catchNearGrace past that instant:
+	// see catchNearGrace. Indexed by player index, sized in dealRound.
+	NearLeftAt []time.Time
 
 	// Retired marks the seats that have left the match for good, copied from
 	// Room.Retired at every deal. The seat stays in every index — hands, scores
@@ -427,7 +447,30 @@ func (s *GameState) catchOffered(catcher, i int, now time.Time) bool {
 	if s.catchRaceRecent(i, now) {
 		return true
 	}
-	return s.Hands[i].Size() == catchNearHand
+	return s.Hands[i].Size() == catchNearHand || s.nearRecent(i, now)
+}
+
+// nearRecent reports whether seat i left the two-card picture recently enough
+// for a press aimed at it to be a late call rather than no call at all
+// (catchNearGrace).
+func (s *GameState) nearRecent(i int, now time.Time) bool {
+	if i < 0 || i >= len(s.NearLeftAt) {
+		return false
+	}
+	at := s.NearLeftAt[i]
+	return !at.IsZero() && now.Sub(at) <= catchNearGrace
+}
+
+// noteHandGrew records seat i leaving the two-card picture upwards, given the
+// size its hand had before the cards went in. Every path that grows a hand a
+// seat chose to grow — a draw, a fruitless call paid for — goes through here.
+func (s *GameState) noteHandGrew(i, before int, now time.Time) {
+	if i < 0 || i >= len(s.NearLeftAt) {
+		return
+	}
+	if before == catchNearHand && s.Hands[i].Size() > before {
+		s.NearLeftAt[i] = now
+	}
 }
 
 // CatchOffered reports whether a Contre-LOCO! from catcher is a wager at now —
@@ -511,7 +554,10 @@ func (s *GameState) catchOfferKey(catcher int, now time.Time) string {
 			fmt.Fprintf(&b, "%d@%d;", i, s.LastCardAt[i].UnixNano())
 			continue
 		}
-		fmt.Fprintf(&b, "%d:%d;", i, s.Hands[i].Size())
+		// A seat inside its near grace is keyed on the picture it just left, so
+		// a press before the draw and the spasm after it are one misread and
+		// pay one card.
+		fmt.Fprintf(&b, "%d:%d;", i, catchNearHand)
 	}
 	return b.String()
 }
@@ -903,6 +949,7 @@ func (r *Room) dealRound(startingPlayer int) {
 		LastCardAt:       make([]time.Time, n),
 		CatchPaidFor:     make([]string, n),
 		CatchLockedUntil: make([]time.Time, n),
+		NearLeftAt:       make([]time.Time, n),
 		Retired:          retired,
 	}
 
@@ -1447,7 +1494,9 @@ func (r *Room) DrawCard(playerIndex int) error {
 	// had no legal way to end.
 	r.ensureDeck(n)
 	cards := r.State.Deck.DrawUpTo(n)
+	before := r.State.Hands[playerIndex].Size()
 	r.State.Hands[playerIndex].Add(cards...)
+	r.State.noteHandGrew(playerIndex, before, time.Now())
 	// The stack is settled by taking whatever the piles could give: a remainder
 	// kept pending is a debt no draw can ever pay off. See DrawUpTo.
 	r.State.PendingDraw = 0
@@ -1731,7 +1780,9 @@ func (r *Room) PenalizeFailedCatch(catcherIndex int, now time.Time) ([]Card, boo
 		// and the table simply had no card left to charge it with.
 		return nil, true
 	}
+	before := r.State.Hands[catcherIndex].Size()
 	r.State.Hands[catcherIndex].Add(drawn...)
+	r.State.noteHandGrew(catcherIndex, before, now)
 	r.State.logEvent(EventCatchFailed, catcherIndex, nil, 0)
 	return drawn, true
 }

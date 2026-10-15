@@ -5,6 +5,7 @@ import {
   catchLiveUntil,
   CATCH_LIVE_MAX_HAND,
   CATCH_LATE_GRACE_MS,
+  CATCH_NEAR_GRACE_MS,
 } from '../components/catchAvailability'
 import type { PlayerDTO } from '../types/protocol'
 
@@ -21,6 +22,19 @@ const UNLOCKED = 0
 const WINDOW = 5000
 
 describe('isCatchLive', () => {
+  // A seat that just drew out of two keeps the button live for the near grace,
+  // and not a moment longer: the late spasm lands, the picture does not linger.
+  it('outlives a draw out of two by the near grace, and only by it', () => {
+    const players = [seat(0, 8), seat(1, CATCH_LIVE_MAX_HAND + 1)]
+    const near = { 1: NOW + CATCH_NEAR_GRACE_MS }
+    expect(isCatchLive(players, 0, {}, UNLOCKED, NOW, near)).toBe(true)
+    expect(catchLiveUntil(players, 0, {}, UNLOCKED, NOW, near)).toBe(NOW + CATCH_NEAR_GRACE_MS)
+    expect(isCatchLive(players, 0, {}, UNLOCKED, NOW + CATCH_NEAR_GRACE_MS, near)).toBe(false)
+    // Our own seat's draw never counts, and the lockout still wins.
+    expect(isCatchLive([seat(0, 3), seat(1, 8)], 0, {}, UNLOCKED, NOW, { 0: NOW + 500 })).toBe(false)
+    expect(isCatchLive(players, 0, {}, NOW + 1000, NOW, near)).toBe(false)
+  })
+
   it('is dead on a fresh deal', () => {
     expect(isCatchLive([seat(0, 8), seat(1, 8), seat(2, 8)], 0, {}, UNLOCKED, NOW)).toBe(false)
   })

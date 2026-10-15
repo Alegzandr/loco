@@ -9,7 +9,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { gameStore } from '../hooks/gameStore'
 import type { GameStateDTO, PlayerDTO } from '../types/protocol'
-import { CATCH_LATE_GRACE_MS } from '../components/catchAvailability'
+import {
+  CATCH_LATE_GRACE_MS,
+  CATCH_LIVE_MAX_HAND,
+  CATCH_NEAR_GRACE_MS,
+} from '../components/catchAvailability'
 
 const now = () => Date.now()
 
@@ -147,6 +151,7 @@ describe('the pressable button is completed by the store', () => {
       myIndex: 0,
       catchWindows: [],
       onHookUntil: {},
+      nearUntil: {},
       players: [],
       catchLive: false,
     })
@@ -179,6 +184,29 @@ describe('the pressable button is completed by the store', () => {
     expect(s.catchTarget).toBeNull()
     // The wager is not a promise, and it is still on the table.
     expect(s.catchLive).toBe(true)
+  })
+
+  // The two-card picture has a late half too: a seat on two draws instead of
+  // playing, and the button stays live a spasm longer so the press already on
+  // its way down still lands (and is charged by the server's catchNearGrace).
+  it('keeps the button live a spasm after a seat draws out of two', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, CATCH_LIVE_MAX_HAND)])
+    expect(gameStore.getState().catchLive).toBe(true)
+    const before = now()
+    gameStore.getState().applyCardDrawn(null, 1, 0, true, 1, 0)
+    const s = gameStore.getState()
+    expect(s.players.find((p) => p.index === 1)?.hand_size).toBe(CATCH_LIVE_MAX_HAND + 1)
+    expect(s.catchLive).toBe(true)
+    expect(s.catchLiveUntil).not.toBeNull()
+    expect(s.catchLiveUntil!).toBeGreaterThanOrEqual(before + CATCH_NEAR_GRACE_MS)
+    expect(s.catchLiveUntil!).toBeLessThanOrEqual(now() + CATCH_NEAR_GRACE_MS)
+  })
+
+  // Three to four is not a picture anybody was aiming at.
+  it('leaves no grace behind a draw from three', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, CATCH_LIVE_MAX_HAND + 1)])
+    gameStore.getState().applyCardDrawn(null, 1, 0, true, 1, 0)
+    expect(gameStore.getState().catchLive).toBe(false)
   })
 
   // The pin on what the button must not know: the seat calls it, its window is
@@ -295,6 +323,7 @@ describe('the spent wager, which is not the offer', () => {
       myIndex: 0,
       catchWindows: [],
       onHookUntil: {},
+      nearUntil: {},
       players: [],
       catchLive: false,
       catchSpent: false,

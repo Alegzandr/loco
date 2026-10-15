@@ -277,6 +277,10 @@ export interface GameState {
   // `applyCardPlayed` and `applyGameState`, and read against the roster, so a
   // stale entry for a seat that is no longer on one card counts for nothing.
   onHookUntil: Record<number, number>
+  // When each seat that just drew out of the two-card picture stops keeping
+  // the centre button live, seat → local instant (CATCH_NEAR_GRACE_MS past the
+  // draw). Written by `applyCardDrawn`; the late spasm's half of the offer.
+  nearUntil: Record<number, number>
   // Whether the centre button is pressable at all — a much looser question than
   // `catchTarget`, which is the promise that somebody is actually on the hook.
   // **Derived** by the store itself (`store/deriveCatchMiddleware.ts` through

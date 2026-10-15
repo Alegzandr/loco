@@ -42,6 +42,7 @@ export const initialState: GameState = {
   myDeclared: false,
   catchWindows: [],
   onHookUntil: {},
+  nearUntil: {},
   catchTarget: null,
   unoTimerEnd: null,
   catchLive: false,
