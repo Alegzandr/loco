@@ -319,7 +319,10 @@ which leaves a window where a bot holds one undeclared card and its turn has alr
 interject, which is always a single card; only a bot's finishing *turn* batch passes
 `declareLoco: true`. Without it the domain
 refuses, `botPlay` logs and returns **without rescheduling**, and the seat stops playing for the rest
-of the round — a bot that goes quiet does not fail, it just stops.
+of the round — a bot that goes quiet does not fail, it just stops. **That on-the-spot call never comes
+early**: a finish off an undeclared last card is held until the bot's own declaration would have
+come (`hub.botFinishDue`, `botUnoAt`), or the call made on the way out shuts the catch window the
+moment the bot finds a card to play (`server.md`, "The move that takes the round").
 
 **A bot plays its identical copies together on its own turn when a copy buys something**
 (`BotAction.Cards`, `botBatchFor`): two +2s are a +4, two Skips step two seats, and a bot's last two

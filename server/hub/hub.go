@@ -87,6 +87,14 @@ type expireMsg struct {
 type botMoveMsg struct {
 	roomCode string
 	playerID int
+	// armedAt is when the turn came to this seat: a finishing move is held until
+	// BotFinishDelay after it (botFinishDue), and a move deferred for that reason
+	// keeps the same stamp, so its instant does not slide each time it is asked.
+	armedAt time.Time
+	// boardAt is the pile a deferred finishing move was held against
+	// (State.LastPlayAt), zero on an ordinary move. A card landing meanwhile
+	// re-armed the seat through handleRoundOrMatchEnd, and this one is stale.
+	boardAt time.Time
 }
 
 // cleanupMsg is sent internally when an empty room's cleanup timer fires.
@@ -123,6 +131,11 @@ type botInterruptMsg struct {
 	// stale-check: the discard must still be the card this was scheduled for.
 	// Anything else and the bot is answering a board that no longer exists.
 	lastPlayAt time.Time
+	// committed is a finishing interject already decided and held to its
+	// instant (botFinishDue): the die was rolled and the bot picked when it was
+	// first due, so the follow-up rolls nothing and picks nobody else.
+	committed bool
+	seat      int
 }
 
 // Hub manages all active tables and connected clients.

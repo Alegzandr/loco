@@ -448,6 +448,16 @@ polish.
   `catchLiveUntil` read it beside `onHookUntil`. Under the server's `catchNearGrace` (2.5s) by the
   wire, pinned by `serverMirrors.test.ts`. Without it, the seat drawing to three greyed the button
   out under a press already on its way down.
+
+  **A tail keeps a live button live; it never lights a dark one.** Found in play: our catch landed,
+  the seat took its two and sat on three, and the next card anybody played reset `catchSpent` while
+  the window's tail (`onHookUntil`, kept past the hand growing) was still running — the button lit
+  up again over a seat that owed nothing, and the server charged the press, because a landed catch
+  spends no offer. The near grace did the same. So when `applyCardPlayed` hands a spent wager back
+  it drops the tails with it (`liveWindowsOnly`: only a seat on one card inside its window survives,
+  and `nearUntil` is emptied); a seat on two still re-arms the button on its own. A player who never
+  pressed keeps the tail through somebody else's card, since that button was live all along.
+  `catchDerivation.test.ts`, "the spent wager".
 - **There is no latch: what ends the offer is the clock and never the next card**
   (`isCatchLive` + `catchLiveUntil`, derived by `deriveCatchMiddleware`; `GameView` arms one timer on
   `store.catchLiveUntil` and calls `rereadCatchLive`). Held open until the next card landed, the

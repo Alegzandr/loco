@@ -31,6 +31,24 @@ function updateOnHook(
   return next
 }
 
+/**
+ * The windows that are still a real offer: the seat is on its last card and the
+ * window the server named has not ended. Everything else in `onHookUntil` is a
+ * tail (see `applyCardPlayed`).
+ */
+function liveWindowsOnly(
+  onHook: OnHookUntil,
+  players: { index: number; hand_size: number }[],
+  now: number,
+): OnHookUntil {
+  const next: OnHookUntil = {}
+  for (const p of players) {
+    const end = onHook[p.index]
+    if (end !== undefined && end > now && p.hand_size === 1) next[p.index] = end
+  }
+  return next
+}
+
 export const createTableActions: StateCreator<GameStore, TableActions> = (set) => ({
   applyGameState: (state) =>
     set((s) => {
@@ -168,6 +186,19 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       // Any fresh window retires the declaration banner: it announced the
       // previous one-card situation, and the table has moved on.
       const voidsBanner = opened.length > 0
+      // Handing a spent wager back must not light the button over a tail. A
+      // window running past a hand that grew out of reach (a catch that landed,
+      // a draw), a window in its late grace, a seat's near grace after drawing
+      // out of two: each keeps a live button live so a late thumb still lands,
+      // and none of them is a fresh offer. With our call spent the button was
+      // dark over them, and the card that hands the wager back would have lit
+      // it again over a seat that owes nothing — a press there costs a card.
+      // So the tails go with the spent call, and only what is really on the
+      // table (a seat on two, a seat on one inside its window) re-arms it.
+      const now = Date.now()
+      const onHook = updateOnHook(s.onHookUntil, catchSeats, updatedPlayers, now)
+      const onHookUntil = s.catchSpent ? liveWindowsOnly(onHook, updatedPlayers, now) : onHook
+      const nearUntil = s.catchSpent ? {} : s.nearUntil
       return {
         myHand: updatedHand,
         discard: card,
@@ -189,7 +220,8 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
           opened.map((w) => w.seat),
         ),
         catchWindows,
-        onHookUntil: updateOnHook(s.onHookUntil, catchSeats, updatedPlayers, Date.now()),
+        onHookUntil,
+        nearUntil,
         // The board moved, so a Contre-LOCO! is a fresh read rather than the
         // same one repeated: a card played is the one event that can put a new
         // offer on the table, and the server's own ration is keyed on the
