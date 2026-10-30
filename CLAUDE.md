@@ -508,6 +508,11 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
   (`botCatchAttempt`, derived from seat + `LastCardAt`). **Their lateness is theirs alone** —
   `BotCatchDelay` is the only thing between a bot and the instant a window opens. Armed by one
   `maybeScheduleBotReactions` after **every** action, human or bot.
+- **A bot's move that takes the round is held to its instant** (`botFinishDue`): never sooner than
+  `BotFinishDelay` (1.8–2.6s) after it became possible — the card it slams onto landing, its turn
+  coming round — and **never before its own declaration** (`botUnoAt`) while its last card is
+  undeclared, or the call it makes on the way out shuts the catch window early. **The declaration
+  has one instant per window**, like the catch. Slam, batch, turn and counter alike.
 - **Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment** (gated on
   `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
 - **An AFK kick answers the socket, never the turn**: the clock draws and passes for the kicked seat

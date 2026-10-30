@@ -30,7 +30,8 @@ var BotJitterMax = 1000 * time.Millisecond
 // it, so a shorter one changes how long a test takes and not what it proves.
 // Every *other* bot delay is a reaction window somebody is meant to be able to
 // win — BotCatchDelay against a human's Contre-LOCO!, BotUnoDelay against the
-// catch it invites, BotInterruptDelay against an open interrupt window — and
+// catch it invites, BotInterruptDelay against an open interrupt window,
+// BotFinishDelay against the round being taken from under the table — and
 // shortening those would quietly rewrite the verdict of the tests that cover
 // them. They are deliberately not tunable here.
 //
@@ -141,6 +142,93 @@ var (
 // Exported so tests can set it to a deterministic value.
 var BotInterruptProb float32 = 0.40
 
+// BotFinishDelay and BotFinishJitterMax bound how soon a bot may take the round
+// once it can (1.8–2.6s): its last card slammed onto the pile, its last two
+// copies dumped on its own turn, its last card played or countered. Measured
+// from the moment the finish became possible — the card it answers landing, the
+// turn coming round — and never added on top of a delay already spent.
+//
+// A finish is the one move nobody gets a second look at, and at the ordinary
+// pace it was the bot's every time: 0.7s after a card lands is a slam before a
+// person has read the pile, and the table could only watch the round go. Held
+// to this, the answer is there to be found — take the lead back with a twin,
+// slam the top before the bot's turn comes — and it is a reach, not a gift.
+//
+// Not tunable from the environment: it is a reaction window like the others.
+// Exported so tests can set them to 0.
+var (
+	BotFinishDelay     = 1800 * time.Millisecond
+	BotFinishJitterMax = 800 * time.Millisecond
+)
+
+// Salts for momentJitter, one per decision taken off the same moment, so the
+// declaration and the finish drawn from one window are not the same number.
+const (
+	saltUno uint64 = iota + 1
+	saltFinish
+)
+
+// momentJitter is a jitter in [0, max] that is a function of a seat and an
+// instant, for the same reason botCatchAttempt is: the moment is armed once per
+// action taken inside it, and a draw per arming would make the busiest board
+// the fastest one. Same moment, same answer.
+func momentJitter(seat int, at time.Time, salt uint64, max time.Duration) time.Duration {
+	ms := max.Milliseconds()
+	if ms <= 0 {
+		return 0
+	}
+	var buf [24]byte
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(at.UnixNano()))
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(seat))
+	binary.LittleEndian.PutUint64(buf[16:24], salt)
+	return time.Duration(int64(fnv1a64(buf[:])>>1)%(ms+1)) * time.Millisecond
+}
+
+// botUnoAt is the instant a bot declares the last card it reached at windowAt.
+// One instant per window, however many times the window is armed.
+func botUnoAt(seat int, windowAt time.Time) time.Time {
+	return windowAt.Add(BotUnoDelay + momentJitter(seat, windowAt, saltUno, BotUnoJitterMax))
+}
+
+// botFinishes says whether the bot's chosen turn move empties its hand.
+func botFinishes(state *game.GameState, seat int, action game.BotAction) bool {
+	size := state.Hands[seat].Size()
+	switch action.Kind {
+	case game.BotPlay:
+		if len(action.Cards) > 1 {
+			return len(action.Cards) == size
+		}
+		return size == 1
+	case game.BotCounter:
+		return size == 1
+	}
+	return false
+}
+
+// botFinishDue is the earliest instant seat may take the round with a move that
+// became possible at since. Two floors, and the later one holds.
+//
+// BotFinishDelay after since, so that a person can still answer the board.
+//
+// And a bot sitting on an undeclared last card does not finish before its own
+// declaration would have come (botUnoAt). Its call is made on the spot when it
+// finishes (botDeclareBeforeFinish), which is legal — a late call is always
+// accepted — but it shut the catch window the moment the bot found a card to
+// play, and the next card a human put down was often that moment: a bot down to
+// one card was caught only if nobody at the table played fast. Held to its own
+// declaration, the window a human gets is the one BotUnoDelay promises,
+// whatever the pile does.
+func botFinishDue(state *game.GameState, seat int, since time.Time) time.Time {
+	due := since.Add(BotFinishDelay + momentJitter(seat, since, saltFinish, BotFinishJitterMax))
+	windowAt := state.LastCardAt[seat]
+	if state.Hands[seat].Size() == 1 && !state.LastCardDeclared[seat] && !windowAt.IsZero() {
+		if at := botUnoAt(seat, windowAt); at.After(due) {
+			due = at
+		}
+	}
+	return due
+}
+
 // handleAddBot adds a bot player to the lobby (host-only).
 // nextBotName returns the lowest free "BotN" name (1-based). Scanning for a free
 // name rather than counting seats keeps the first bot named Bot1 and avoids
@@ -236,14 +324,18 @@ func (h *Hub) keepHostHuman(t *table) {
 // Retried once if the table is behind: dropping permanently would stall the
 // game, since no player would act on that turn.
 func (h *Hub) scheduleBotMove(t *table, playerID int) {
-	bm := botMoveMsg{roomCode: t.code, playerID: playerID}
+	bm := botMoveMsg{roomCode: t.code, playerID: playerID, armedAt: time.Now()}
 	// Add random jitter so bots don't all act at the same instant and feel more
 	// like human reaction times. BotJitterMax can be set to 0 in tests.
 	var jitter time.Duration
 	if jm := int(BotJitterMax.Milliseconds()); jm > 0 {
 		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
 	}
-	time.AfterFunc(BotThinkDelay+jitter, func() {
+	h.postBotMoveAfter(t, bm, BotThinkDelay+jitter)
+}
+
+func (h *Hub) postBotMoveAfter(t *table, bm botMoveMsg, wait time.Duration) {
+	time.AfterFunc(wait, func() {
 		h.postCritical(t, "bot_move", time.Second, func() { h.executeBotMove(t, bm) })
 	})
 }
@@ -268,15 +360,20 @@ func (h *Hub) maybeScheduleBot(t *table) {
 // still showing the 5 s catch window it opened on the same card_played, so a
 // bot's LOCO! could never be caught and every Contre-LOCO! tap came back
 // "player already declared".
+//
+// The instant is the window's (botUnoAt), not a fresh draw from now: the window
+// is armed again by every action taken inside it, and the earliest of several
+// draws made a bot declare sooner the busier the table — while botFinishDue
+// needs to know when the call comes, to hold the finish behind it.
 func (h *Hub) scheduleBotUnoAnnounce(t *table, playerIndex int, lastCardTime time.Time) {
-	var jitter time.Duration
-	if jm := int(BotUnoJitterMax.Milliseconds()); jm > 0 {
-		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	wait := time.Until(botUnoAt(playerIndex, lastCardTime))
+	if wait < 0 {
+		wait = 0
 	}
 	um := unoMsg{roomCode: t.code, playerIndex: playerIndex, lastCardTime: lastCardTime}
 	// Non-critical if the box is full: the bot simply never declares and stays
 	// catchable until its window expires.
-	time.AfterFunc(BotUnoDelay+jitter, func() {
+	time.AfterFunc(wait, func() {
 		t.postFromTimer("bot_uno", func() { h.handleUnoAnnounce(t, um) })
 	})
 }
@@ -481,6 +578,20 @@ func (h *Hub) handleBotInterrupt(t *table, bim botInterruptMsg) {
 	if len(bots) == 0 {
 		return
 	}
+	if bim.committed {
+		// A finish held to its instant: decided already, so nothing is rolled
+		// again and nobody else is picked. Asked again all the same, because a
+		// catch can have grown the hand it was going to empty.
+		if !t.isBot(bim.seat) {
+			return
+		}
+		action := game.BotInterrupt(state, bim.seat)
+		if action == nil || state.Hands[bim.seat].Size() != 1 {
+			return
+		}
+		h.botInterject(t, bim, bim.seat, action)
+		return
+	}
 	// Probabilistic, like every other bot reaction: they do not always spot it.
 	if mrand.Float32() >= BotInterruptProb {
 		return
@@ -513,7 +624,25 @@ func (h *Hub) handleBotInterrupt(t *table, bim botInterruptMsg) {
 		return
 	}
 	picked := candidates[mrand.Intn(len(candidates))]
-	botID, action := picked.seat, picked.action
+	// An interject is one card, so off a one-card hand it takes the round, and
+	// the round is not taken before its instant (botFinishDue) — counted from the
+	// card it answers, which is when a human could first have seen it coming.
+	if state.Hands[picked.seat].Size() == 1 {
+		if due := botFinishDue(state, picked.seat, bim.lastPlayAt); time.Now().Before(due) {
+			held := bim
+			held.committed, held.seat = true, picked.seat
+			time.AfterFunc(time.Until(due), func() {
+				t.postFromTimer("bot_interrupt", func() { h.handleBotInterrupt(t, held) })
+			})
+			return
+		}
+	}
+	h.botInterject(t, bim, picked.seat, picked.action)
+}
+
+// botInterject slams one card for botID and settles what follows.
+func (h *Hub) botInterject(t *table, bim botInterruptMsg, botID int, action *game.BotInterruptAction) {
+	room := t.room
 	// Same net as the ordinary bot turn: an interject is one card, so an
 	// interject off a one-card hand takes the round and the domain asks for the
 	// call first.
@@ -616,8 +745,21 @@ func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 		log.Printf("bot move skipped, not a bot slot code=%s player=%d", bm.roomCode, bm.playerID)
 		return
 	}
+	if !bm.boardAt.IsZero() && !room.State.LastPlayAt.Equal(bm.boardAt) {
+		return // a card landed while the finish was held; that play re-armed the seat
+	}
 
 	action := game.BotThink(room.State, bm.playerID)
+	// The round-taking move waits for its instant (botFinishDue). Thought again
+	// when it comes rather than carried: the board may have moved under it — a
+	// catch, a card slammed — and a stale plan is a refused one.
+	if botFinishes(room.State, bm.playerID, action) {
+		if due := botFinishDue(room.State, bm.playerID, bm.armedAt); time.Now().Before(due) {
+			bm.boardAt = room.State.LastPlayAt
+			h.postBotMoveAfter(t, bm, time.Until(due))
+			return
+		}
+	}
 
 	switch action.Kind {
 	case game.BotPlay:

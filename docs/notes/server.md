@@ -1183,7 +1183,7 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
   shorter one changes how long the E2E suite takes and not what it proves. Every *other* bot delay
   is a reaction window somebody is meant to be able to win (`BotCatchDelay` against a human's
   Contre-LOCO!, `BotUnoDelay` against the catch it invites, `BotInterruptDelay` against an open
-  window), and shortening those in CI would quietly rewrite the verdict of the tests covering them.
+  window, `BotFinishDelay` against the round being taken), and shortening those in CI would quietly rewrite the verdict of the tests covering them.
   A malformed or negative value is ignored with a `WARN` and leaves the shipped timing in place: a
   typo must not silently produce an instant bot.
 - **Bots interject** (`game.BotInterrupt(state, playerIdx) *BotInterruptAction`, scheduled by
@@ -1212,6 +1212,26 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
     with, or the bot is answering a board that no longer exists.
   - `broadcastInterrupt` is shared with the human path, so a bot taking the lead produces the exact
     same sequence on the wire (`interrupt_success` then `card_played`).
+- **The move that takes the round is held to its instant** (`botFinishDue`, `BotFinishDelay` +
+  `BotFinishJitterMax` = **1.8–2.6s**). Every way a bot empties its hand waits for it: the slam of
+  its last card (`handleBotInterrupt` decides, then re-posts itself `committed` to the instant, so
+  nothing is rolled or picked twice), its last card or last copies on its own turn, its last
+  counter (`executeBotMove` thinks, sees `botFinishes`, and re-posts the move with the same
+  `armedAt`, dropped if a card lands meanwhile — `boardAt` — because that play re-armed the seat).
+  - **Measured from the moment the finish became possible** — the card it answers landing
+    (`LastPlayAt`), the turn coming round (`armedAt`) — and taken as the later of that and the
+    ordinary delay, never added on top. At the ordinary pace the finish was the bot's every time: a
+    slam 0.7s after a card lands is before anybody has read the pile, and a two-copy dump at the
+    think delay left the table watching the round go. Held, the answer is a reach and not a gift:
+    slam the top, or take the lead back with a twin, before the bot's turn plays out.
+  - **And an undeclared last card holds the finish behind the bot's own declaration**
+    (`botUnoAt`). `botDeclareBeforeFinish` makes the call on the spot, which is legal (a late call is
+    always accepted), but it shut the catch window the instant the bot found a card to play — a bot
+    handed its last card by a Swap played it at the think delay and was uncatchable by construction.
+  - **The declaration has one instant per window** (`botUnoAt`, `momentJitter`, the same hash
+    reasoning as `botCatchAttempt`): it used to be a fresh draw from *now* on every arming, so a
+    busy board declared at the earliest of several draws, and the finish could not know when the
+    call was coming. `bot_finish_test.go`, `bot_finish_internal_test.go`.
 - Auto-declare UNO: **deferred, and the declaration itself is what waits**.
   `maybeScheduleBotReactions` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the
   timer fires and broadcasts only if it succeeded. Declaring on the spot and deferring the *broadcast*
