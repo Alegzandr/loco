@@ -112,6 +112,69 @@ func TestPenalizeFailedCatch_OneCardPerWindowThroughAGrowingHand(t *testing.T) {
 	}
 }
 
+// The two-card offer has a late half too. A seat on two draws instead of
+// playing, its hand goes to three, and on that frame the button used to go dark
+// under a thumb already on its way down. For catchNearGrace the press is still
+// a wager — a late one — and it costs the card a miss costs.
+func TestCatchOffered_OutlivesADrawOutOfTheTwoCardPicture(t *testing.T) {
+	r := twoSeatRoom(t, 3, 2)
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 0
+	r.State.HasDrawn = false
+	if err := r.DrawCard(1); err != nil {
+		t.Fatalf("draw: %v", err)
+	}
+	left := r.State.NearLeftAt[1]
+	if left.IsZero() {
+		t.Fatal("a seat drawing from two cards must stamp the instant it left them")
+	}
+	if !r.CatchOffered(0, left.Add(catchNearGrace/2)) {
+		t.Fatal("a spasm just after the draw is a late call, and a late call is a wager")
+	}
+	if r.CatchOffered(0, left.Add(catchNearGrace+time.Millisecond)) {
+		t.Fatal("past the near grace the offer is gone")
+	}
+	if _, charged := r.PenalizeFailedCatch(0, left.Add(catchNearGrace/2)); !charged {
+		t.Fatal("too late on the two-card picture costs the same card as too early")
+	}
+}
+
+// Pressed before the draw and again just after it, that is one misread of one
+// picture, and it pays one card.
+func TestPenalizeFailedCatch_OneCardAcrossADrawOutOfTwo(t *testing.T) {
+	r := twoSeatRoom(t, 3, 2)
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 0
+	r.State.HasDrawn = false
+	if _, charged := r.PenalizeFailedCatch(0, time.Now()); !charged {
+		t.Fatal("the press against a seat on two is charged")
+	}
+	if err := r.DrawCard(1); err != nil {
+		t.Fatalf("draw: %v", err)
+	}
+	if _, charged := r.PenalizeFailedCatch(0, time.Now()); charged {
+		t.Fatal("the same misread a beat later is not a second card")
+	}
+}
+
+// A seat that was never on two leaves no grace behind it: three to four is not
+// a picture anybody was aiming at.
+func TestCatchOffered_NoNearGraceFromThreeCards(t *testing.T) {
+	r := twoSeatRoom(t, 3, 3)
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 0
+	r.State.HasDrawn = false
+	if err := r.DrawCard(1); err != nil {
+		t.Fatalf("draw: %v", err)
+	}
+	if !r.State.NearLeftAt[1].IsZero() {
+		t.Fatal("three to four is not leaving the two-card picture")
+	}
+	if r.CatchOffered(0, time.Now()) {
+		t.Fatal("nothing is offered at a table of threes and fours")
+	}
+}
+
 // twoSeatRoom deals a room and hands back its state, with every seat holding
 // the number of cards the caller asked for.
 func twoSeatRoom(t *testing.T, sizes ...int) *Room {

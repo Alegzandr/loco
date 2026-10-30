@@ -21,7 +21,11 @@ import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { TABLE_CODE_CHARS, TABLE_CODE_LENGTH, isTableCodeValid } from '../components/tableCodeRules'
 import { NICKNAME_MAX_CHARS, isNicknameShapeValid } from '../components/nicknameRules'
-import { CATCH_LATE_GRACE_MS, CATCH_LIVE_MAX_HAND } from '../components/catchAvailability'
+import {
+  CATCH_LATE_GRACE_MS,
+  CATCH_LIVE_MAX_HAND,
+  CATCH_NEAR_GRACE_MS,
+} from '../components/catchAvailability'
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
 const read = (...p: string[]) => readFileSync(path.join(REPO, 'server', ...p), 'utf8')
@@ -151,6 +155,16 @@ describe('the catch offer, against the server', () => {
     const ms = Number(grace![1]) * (grace![2] === 'Second' ? 1000 : 1)
     expect(CATCH_LATE_GRACE_MS).toBeGreaterThan(0)
     expect(CATCH_LATE_GRACE_MS).toBeLessThan(ms)
+  })
+
+  // Same relationship for the two-card picture's late half: the button's near
+  // grace sits under the server's by a round trip.
+  it('offers the spasm after a draw out of two inside the window the server charges for', () => {
+    const grace = room.match(/\n\tcatchNearGrace = (\d+) \* time\.(Second|Millisecond)\r?\n/)
+    expect(grace, 'catchNearGrace not found in server/game/room.go').toBeTruthy()
+    const ms = Number(grace![1]) * (grace![2] === 'Second' ? 1000 : 1)
+    expect(CATCH_NEAR_GRACE_MS).toBeGreaterThan(0)
+    expect(CATCH_NEAR_GRACE_MS).toBeLessThan(ms)
   })
 })
 

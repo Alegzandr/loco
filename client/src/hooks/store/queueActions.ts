@@ -34,6 +34,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       // belongs to one board, and this is a new one.
       catchWindows: [],
       onHookUntil: {},
+      nearUntil: {},
       catchLockedUntil: 0,
       declaredSeats: [],
       catchLive: false,
@@ -79,6 +80,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       rematchNeeded: 0,
       catchWindows: [],
       onHookUntil: {},
+      nearUntil: {},
       catchLockedUntil: 0,
       declaredSeats: [],
       catchLive: false,

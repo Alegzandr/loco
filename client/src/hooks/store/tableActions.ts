@@ -2,7 +2,12 @@ import { StateCreator } from './createStore'
 import type { CardColor } from '../../types/protocol'
 import { stamp, gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
 import { CatchWindow, GameStore, TableActions } from './types'
-import { offerEnd, type OnHookUntil } from '../../components/catchAvailability'
+import {
+  CATCH_LIVE_MAX_HAND,
+  CATCH_NEAR_GRACE_MS,
+  offerEnd,
+  type OnHookUntil,
+} from '../../components/catchAvailability'
 
 /**
  * The clock the centre button runs on, brought up to date by what the server
@@ -217,8 +222,18 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       // seat a moment ago is what these cards are.
       const penalty = !!s.catchFlash && s.catchFlash.seat === playerIndex && Date.now() - s.catchFlash.at < 1500
       const lastDraw = grew > 0 ? { seat: playerIndex, count: grew, penalty, at: stamp() } : s.lastDraw
+      // A seat that drew out of the two-card picture keeps the button live a
+      // spasm longer, so a press already on its way down still lands — and is
+      // charged, because the server keeps the same offer a round trip longer
+      // (`catchNearGrace`). See CATCH_NEAR_GRACE_MS.
+      const before = s.players.find((p) => p.index === playerIndex)?.hand_size
+      const nearUntil =
+        grew > 0 && before === CATCH_LIVE_MAX_HAND
+          ? { ...s.nearUntil, [playerIndex]: Date.now() + CATCH_NEAR_GRACE_MS }
+          : s.nearUntil
       const turnState = {
         lastDraw,
+        nearUntil,
         currentTurn: turn,
         hasDrawn: hasDrawn ?? s.hasDrawn,
         pendingDraw: pendingDraw ?? s.pendingDraw,

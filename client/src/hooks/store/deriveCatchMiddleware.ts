@@ -54,6 +54,7 @@ export const deriveCatchState =
           !('declaredSeats' in patch) &&
           !('players' in patch) &&
           !('onHookUntil' in patch) &&
+          !('nearUntil' in patch) &&
           !('catchLockedUntil' in patch) &&
           !('catchLive' in patch)
         ) {
@@ -71,6 +72,7 @@ export const deriveCatchState =
             merged.onHookUntil,
             merged.catchLockedUntil,
             now,
+            merged.nearUntil,
           ),
           catchLiveUntil: catchLiveUntil(
             merged.players,
@@ -78,6 +80,7 @@ export const deriveCatchState =
             merged.onHookUntil,
             merged.catchLockedUntil,
             now,
+            merged.nearUntil,
           ),
           catchLocked: isCatchLocked(merged.catchLockedUntil, now),
         }

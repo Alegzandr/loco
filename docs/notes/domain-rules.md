@@ -91,8 +91,8 @@ room's reset.
   exchanges both. No twelfth map — a slice of records on the struct.
 - It rides `match_end` (the one message that opens the screen reading it) and every personalised
   `game_state` (so a reconnect mid-match still has the evening behind it), and it travels in the
-  drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2 (it is at 3
-  now: `GameState.InterruptOpen` changed the shape of `game.Room` in turn).
+  drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2 (it is at 5
+  now: `GameState.InterruptOpen`, and later `GameState.NearLeftAt`, changed the shape of `game.Room` in turn).
 - **And it rides the `player_left` that re-bases the roster**, on all three paths that shrink it
   (`releaseSeat`, `disconnectAtTable` (reached from `handleDisconnect`, `hub/presence.go`), and the expiry branch that removes the seat for real).
   The screen reading it is already open by then: a seat going takes a column out of every row, and a
@@ -534,6 +534,21 @@ won, and a one-card hand had made them finishes by accident.
     final live frame outside the server's window by one network hop, which is the dark button's
     failure arriving from the other side. `serverMirrors.test.ts` pins the inequality rather than
     either number, so both can move as long as the room between them survives.
+
+    **The two-card offer has the same late half, much shorter.** A seat on two that draws instead
+    of playing (or pays a fruitless call of its own) went to three, and on that frame both sides
+    dropped the offer: the button greyed out under the spasm already on its way down. `noteHandGrew`
+    stamps `GameState.NearLeftAt` when a hand grows *from exactly* `catchNearHand`, and
+    `catchOffered` keeps the seat offered for `catchNearGrace` (2.5s) past it; the client keeps the
+    button live `CATCH_NEAR_GRACE_MS` (1.5s), the same inequality pinned the same way. Short on
+    purpose: a spasm's worth of lateness, not a second look at a picture that has gone. It started at
+    600ms and was too short to be pressed by anything but an inhuman reaction: the hand is seen to
+    grow when the card's flight lands, a beat after the message, and the thumb has to find the button
+    after that. Inside the
+    grace `catchOfferKey` writes the seat as the two-card picture it left (`i:2`), so a press before
+    the draw and one just after are one misread and one card. Three to four leaves nothing behind.
+    Only the draw and the failed-call penalty stamp it; a Swap or a GlobalSwitch rearranges hands
+    without anybody choosing to grow one, and leaves it alone.
 
     `catch_window_test.go` owns the domain half of both, `hub/catch_immediate_test.go` the
     immediacy and the one-card ration through a real socket. **The race itself is not an E2E test

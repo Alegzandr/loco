@@ -62,6 +62,22 @@ export const CATCH_LIVE_MAX_HAND = 2
 export const CATCH_LATE_GRACE_MS = 2000
 
 /**
+ * How long a seat that just grew out of the two-card picture keeps the button
+ * live: the late half of the wager for the offer that never became a window.
+ *
+ * A seat on two draws instead of playing — its own draw, or the card a
+ * fruitless call of its own cost it — and on that frame its hand reads three
+ * and the button used to go dark under a thumb already on its way down. Same
+ * failure as the window's, so the same answer, much shorter: a spasm's worth
+ * of lateness, not a second chance at a picture that has gone.
+ *
+ * **Shorter than the server's `catchNearGrace` (2.5s), and the difference is
+ * the wire**, exactly as with CATCH_LATE_GRACE_MS. `serverMirrors.test.ts`
+ * pins the inequality.
+ */
+export const CATCH_NEAR_GRACE_MS = 1500
+
+/**
  * When each seat's current last card stops being catchable: seat → the end of
  * the window the server named for it (`catch_seats`, on `card_played` and on
  * every snapshot). It is kept past the declaration the table hears, past the
@@ -71,6 +87,14 @@ export const CATCH_LATE_GRACE_MS = 2000
  * runs, plus CATCH_LATE_GRACE_MS, whatever happened inside it.
  */
 export type OnHookUntil = Record<number, number>
+
+/**
+ * When each seat's two-card offer stops outliving the draw that took it out
+ * of reach: seat → the local instant its near grace ends
+ * (CATCH_NEAR_GRACE_MS past the draw). Written by `applyCardDrawn` when a seat
+ * on two grows, read against the clock only.
+ */
+export type NearUntil = Record<number, number>
 
 /**
  * Whether Contre-LOCO! is pressable right now: some *other* seat has a window
@@ -119,9 +143,10 @@ export function isCatchLive(
   onHookUntil: OnHookUntil,
   lockedUntil: number,
   now: number,
+  nearUntil: NearUntil = {},
 ): boolean {
   if (isCatchLocked(lockedUntil, now)) return false
-  return players.some((p) => offeredBy(p, myIndex, onHookUntil, now))
+  return players.some((p) => offeredBy(p, myIndex, onHookUntil, nearUntil, now))
 }
 
 /**
@@ -173,6 +198,7 @@ export function catchLiveUntil(
   onHookUntil: OnHookUntil,
   lockedUntil: number,
   now: number,
+  nearUntil: NearUntil = {},
 ): number | null {
   // Locked out: the answer changes when the lock does, whatever the table is
   // holding. It is the *earliest* of the two — a lock that outlives every
@@ -185,9 +211,10 @@ export function catchLiveUntil(
     // A seat one play from a window is an offer no clock ends: only a card can
     // move it, and a card is a message.
     if (p.hand_size === CATCH_LIVE_MAX_HAND) return null
-    const end = offerEnd(p.index, onHookUntil)
-    if (end === undefined || end <= now) continue
-    if (until === null || end > until) until = end
+    for (const end of [offerEnd(p.index, onHookUntil), nearUntil[p.index]]) {
+      if (end === undefined || end <= now) continue
+      if (until === null || end > until) until = end
+    }
   }
   return until
 }
@@ -196,10 +223,13 @@ function offeredBy(
   p: PlayerDTO,
   myIndex: number,
   onHookUntil: OnHookUntil,
+  nearUntil: NearUntil,
   now: number,
 ): boolean {
   if (p.index === myIndex) return false
   const end = offerEnd(p.index, onHookUntil)
   if (end !== undefined && end > now) return true
+  const near = nearUntil[p.index]
+  if (near !== undefined && near > now) return true
   return p.hand_size === CATCH_LIVE_MAX_HAND
 }
