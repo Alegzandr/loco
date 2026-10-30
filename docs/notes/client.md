@@ -444,8 +444,8 @@ polish.
   there; only the *armed* cue is a promise, and it rides `catchTarget`.
 
   The two-card offer gets the same treatment, shorter: `applyCardDrawn` writes `store.nearUntil`
-  (seat → now + `CATCH_NEAR_GRACE_MS`, 600ms) when a seat on exactly two grows, and `isCatchLive` /
-  `catchLiveUntil` read it beside `onHookUntil`. Under the server's `catchNearGrace` (1.6s) by the
+  (seat → now + `CATCH_NEAR_GRACE_MS`, 1.5s) when a seat on exactly two grows, and `isCatchLive` /
+  `catchLiveUntil` read it beside `onHookUntil`. Under the server's `catchNearGrace` (2.5s) by the
   wire, pinned by `serverMirrors.test.ts`. Without it, the seat drawing to three greyed the button
   out under a press already on its way down.
 - **There is no latch: what ends the offer is the clock and never the next card**

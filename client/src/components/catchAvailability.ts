@@ -71,11 +71,11 @@ export const CATCH_LATE_GRACE_MS = 2000
  * failure as the window's, so the same answer, much shorter: a spasm's worth
  * of lateness, not a second chance at a picture that has gone.
  *
- * **Shorter than the server's `catchNearGrace` (1.6s), and the difference is
+ * **Shorter than the server's `catchNearGrace` (2.5s), and the difference is
  * the wire**, exactly as with CATCH_LATE_GRACE_MS. `serverMirrors.test.ts`
  * pins the inequality.
  */
-export const CATCH_NEAR_GRACE_MS = 600
+export const CATCH_NEAR_GRACE_MS = 1500
 
 /**
  * When each seat's current last card stops being catchable: seat → the end of

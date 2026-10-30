@@ -539,9 +539,12 @@ won, and a one-card hand had made them finishes by accident.
     of playing (or pays a fruitless call of its own) went to three, and on that frame both sides
     dropped the offer: the button greyed out under the spasm already on its way down. `noteHandGrew`
     stamps `GameState.NearLeftAt` when a hand grows *from exactly* `catchNearHand`, and
-    `catchOffered` keeps the seat offered for `catchNearGrace` (1.6s) past it; the client keeps the
-    button live `CATCH_NEAR_GRACE_MS` (600ms), the same inequality pinned the same way. Short on
-    purpose: a spasm's worth of lateness, not a second look at a picture that has gone. Inside the
+    `catchOffered` keeps the seat offered for `catchNearGrace` (2.5s) past it; the client keeps the
+    button live `CATCH_NEAR_GRACE_MS` (1.5s), the same inequality pinned the same way. Short on
+    purpose: a spasm's worth of lateness, not a second look at a picture that has gone. It started at
+    600ms and was too short to be pressed by anything but an inhuman reaction: the hand is seen to
+    grow when the card's flight lands, a beat after the message, and the thumb has to find the button
+    after that. Inside the
     grace `catchOfferKey` writes the seat as the two-card picture it left (`i:2`), so a press before
     the draw and one just after are one misread and one card. Three to four leaves nothing behind.
     Only the draw and the failed-call penalty stamp it; a Swap or a GlobalSwitch rearranges hands

@@ -258,7 +258,7 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    seat with a **window still running** (5s plus `catchGrace`, 3s), so the press is a **read of the
    table** and not an answer to a cue. **The offer is the window, not the hand** — a seat can leave
    the near-finish picture with no card played. **A seat that grows out of two keeps the offer for
-   `catchNearGrace` (1.6s)** (`GameState.NearLeftAt`, `noteHandGrew`), keyed on the two-card picture
+   `catchNearGrace` (2.5s)** (`GameState.NearLeftAt`, `noteHandGrew`), keyed on the two-card picture
    it left, so the spasm a beat after a draw is charged and a press either side of it pays once. **Two, not three**, because a window a player can
    miss on purpose is a Swap away from being ammunition. **The ration is the offer, never the card
    played.** **A press against a table where nothing is offered is answered by nobody and charged to
@@ -615,7 +615,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   inequality, not a number. **Hand sizes, our own seat and the clock decide it, and nothing else
   may** — `isCatchLive` does not take `declaredSeats`, because going dead on a declaration would
   report it. The clock is `store.onHookUntil`, kept past the declaration and past the hand growing back.
-  **A seat that draws out of two keeps it live `CATCH_NEAR_GRACE_MS` (600ms) longer**
+  **A seat that draws out of two keeps it live `CATCH_NEAR_GRACE_MS` (1.5s) longer**
   (`store.nearUntil`, written by `applyCardDrawn`), under the server's `catchNearGrace` by the wire.
 - **There is no latch: what ends the offer is the clock and never the next card** (`catchLiveUntil`,
   one timer in `GameView`). **`store.catchSpent` is the client's copy of the server's ration**,

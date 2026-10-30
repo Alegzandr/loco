@@ -125,9 +125,9 @@ const (
 	//
 	// Short on purpose: it is a spasm's worth of lateness, not a second chance
 	// at a picture that has gone. **The client offers it for less than this**
-	// (CATCH_NEAR_GRACE_MS, 600ms, pinned by serverMirrors.test.ts), and the
+	// (CATCH_NEAR_GRACE_MS, 1.5s, pinned by serverMirrors.test.ts), and the
 	// difference is the wire, as with catchGrace.
-	catchNearGrace = 1600 * time.Millisecond
+	catchNearGrace = 2500 * time.Millisecond
 )
 
 // Player holds per-player metadata.
