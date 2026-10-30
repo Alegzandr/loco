@@ -377,6 +377,55 @@ describe('the spent wager, which is not the offer', () => {
       )
     expect(gameStore.getState().catchSpent).toBe(false)
   })
+
+  // What the bar draws: the offer, narrowed by a wager already spent with
+  // nothing left to aim at (GameView's `wagerSpent`).
+  const pressable = () => {
+    const s = gameStore.getState()
+    return s.catchLive && !(s.catchSpent && s.catchTarget === null)
+  }
+  const elsewhere = (players: PlayerDTO[]) =>
+    gameStore
+      .getState()
+      .applyCardPlayed(2, { color: 'red', kind: 'number', value: 4 }, 0, 0, 'red', players, undefined, 1, [])
+
+  // Our catch landed, the seat took its two and sits on three, and the next
+  // card anybody played handed the wager back while the window's tail was still
+  // running: the button lit up again over a seat that owes nothing, and a press
+  // there cost a card. A tail keeps a live button live; it never lights a dark one.
+  it('does not light back up over the tail of a window our catch settled', () => {
+    const end = now() + 5000
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 1), seat(2, 6)])
+    gameStore.setState({ catchWindows: [{ seat: 1, endsAt: end }], onHookUntil: { 1: end } })
+    gameStore.getState().noteCatchAttempt(1)
+    gameStore.getState().applyUnoCaught(1)
+    gameStore.getState().applyCardDrawn(null, 1, 2, undefined, 2, 0)
+    expect(pressable()).toBe(false)
+    elsewhere([seat(0, 8), seat(1, 3), seat(2, 5)])
+    expect(pressable()).toBe(false)
+  })
+
+  // Same for the near grace: pressed at two, the seat drew to three, a card was
+  // played — the spasm's grace is not a fresh offer.
+  it('does not light back up over the near grace of a seat that drew to three', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, CATCH_LIVE_MAX_HAND), seat(2, 6)])
+    gameStore.getState().noteBlindCatchAttempt()
+    gameStore.getState().applyCardDrawn(null, 1, 1, true, 1, 0)
+    expect(pressable()).toBe(false)
+    elsewhere([seat(0, 8), seat(1, 3), seat(2, 5)])
+    expect(pressable()).toBe(false)
+  })
+
+  // And a player who never pressed keeps the tail through somebody else's card:
+  // that button was live all along, and dropping it on an unrelated play would
+  // grey it out under a late thumb.
+  it('keeps the tail live through a card played when our wager was never spent', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, CATCH_LIVE_MAX_HAND), seat(2, 6)])
+    gameStore.getState().applyCardDrawn(null, 1, 1, true, 1, 0)
+    expect(pressable()).toBe(true)
+    elsewhere([seat(0, 8), seat(1, 3), seat(2, 5)])
+    expect(pressable()).toBe(true)
+  })
 })
 
 /**

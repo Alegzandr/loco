@@ -619,7 +619,9 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   (`store.nearUntil`, written by `applyCardDrawn`), under the server's `catchNearGrace` by the wire.
 - **There is no latch: what ends the offer is the clock and never the next card** (`catchLiveUntil`,
   one timer in `GameView`). **`store.catchSpent` is the client's copy of the server's ration**,
-  suppressing the *blind* send only.
+  suppressing the *blind* send only. **A tail keeps a live button live and never lights a dark
+  one**: the card that hands a spent wager back drops the tails with it (`applyCardPlayed`,
+  `liveWindowsOnly`) — a window past a hand that grew, a window in its late grace, a near grace.
 - **A call that found nobody locks the button, and the button says so** (`store.catchLockedUntil`,
   `isCatchLocked`, `ActionBar`'s padlock and drain). The lockout is the server's and arrives as an
   **absolute instant**, so nothing here mirrors its duration. **It takes the halo off too**
