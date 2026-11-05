@@ -28,7 +28,9 @@ import {
 } from '../components/catchAvailability'
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
-const read = (...p: string[]) => readFileSync(path.join(REPO, 'server', ...p), 'utf8')
+// A Windows checkout with core.autocrlf hands these files over in CRLF, and the
+// patterns below are written against LF, which is what CI checks out.
+const read = (...p: string[]) => readFileSync(path.join(REPO, 'server', ...p), 'utf8').replace(/\r\n/g, '\n')
 
 describe('the table code, against the server', () => {
   // hub.roomCodeRe is what join_room is validated against.
@@ -173,7 +175,7 @@ describe('the catch offer, against the server', () => {
 // in a `<script>` block nothing can import.
 describe('the seat count, against the server', () => {
   const room = read('game', 'room.go')
-  const waiting = readFileSync(path.join(REPO, 'client', 'src', 'components', 'WaitingRoom.svelte'), 'utf8')
+  const waiting = readFileSync(path.join(REPO, 'client', 'src', 'components', 'WaitingRoom.svelte'), 'utf8').replace(/\r\n/g, '\n')
   const goConst = (name: string) => Number(room.match(new RegExp(`${name}\\s*=\\s*(\\d+)`))?.[1])
   const svelteConst = (name: string) => Number(waiting.match(new RegExp(`const ${name} = (\\d+)`))?.[1])
 
