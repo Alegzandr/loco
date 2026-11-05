@@ -22,7 +22,9 @@ import {
 } from '../components/cards/layout'
 import { CARD_H, CARD_W, handCard } from '../components/cards/cardTheme'
 
-const read = (...p: string[]) => readFileSync(path.resolve(__dirname, '..', ...p), 'utf8')
+// A Windows checkout with core.autocrlf hands these files over in CRLF, and the
+// patterns below are written against LF, which is what CI checks out.
+const read = (...p: string[]) => readFileSync(path.resolve(__dirname, '..', ...p), 'utf8').replace(/\r\n/g, '\n')
 
 // iPhone 13 Pro on its side, Safari's bar showing: the page is 844×340, the
 // notch is on one flank and the home indicator still runs along the bottom.

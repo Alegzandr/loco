@@ -16,7 +16,9 @@ import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
-const read = (...p: string[]) => readFileSync(path.join(CLIENT, 'src', ...p), 'utf8')
+// A Windows checkout with core.autocrlf hands these files over in CRLF, and the
+// patterns below are written against LF, which is what CI checks out.
+const read = (...p: string[]) => readFileSync(path.join(CLIENT, 'src', ...p), 'utf8').replace(/\r\n/g, '\n')
 
 const base = read('layouts', 'Base.astro')
 // Markup and style are one file now: a Svelte component carries its own
