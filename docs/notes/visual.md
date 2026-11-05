@@ -1742,7 +1742,12 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     shrinks), so what is approximate there is the announcement, never the hand — which always comes
     from the server. Scene `game-catch-caught`; `src/test/catchBanner.test.ts`.
 - **UNO banner**: tilted sticker, punch-in, on the shout line so the play that triggered it stays
-  visible. The word is alone on it and the caller rides the tag (`.unoWho`): "Pixel: LOCO!" was one
+  visible. **It is a moment, not a state: it leaves on its own after `UNO_BANNER_MS` (2.2s)**, keyed
+  on `unoDeclaredAt` so the next call replays it, with a 240ms fade on the same beat (the delay
+  survives reduced motion). It used to be the `unoDeclared` latch itself, up until the next card
+  opened a window: at 1920×1080 the sticker sat over the piles for turns on end, a disadvantage to
+  the very player who called it (at 2560×1440 the gap under the piles held it). The latch still
+  stays up for the sounds and the music. `gameView.test.ts`. The word is alone on it and the caller rides the tag (`.unoWho`): "Pixel: LOCO!" was one
   line of mixed type in which the name took the size of the shout.
   - **Centred with `inset-inline: 0` + `margin-inline: auto` and `width: fit-content`, never
     `left: 50%`** — the notice pills' rule, and the same bug one size up: anchored at the midpoint

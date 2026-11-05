@@ -1041,7 +1041,9 @@ stated at the top of `styles/tokens.css`:
 - **The three shouts land on a line the board computes, never a percentage of the screen**
   (`layout.ts: shoutLine` → `--shout-y`): the tallest free gap in the middle column, else over the
   piles, **never over anybody's hand**. A fixed height sat on the hand across the table.
-  `seatLayout.test.ts`. **The interception's plate is a ribbon cut to the word, never a band
+  `seatLayout.test.ts`. **All three are moments with their own timer, LOCO! included**
+  (`UNO_BANNER_MS`, never the `unoDeclared` latch, which outlived several turns over the piles at
+  1080p). **The interception's plate is a ribbon cut to the word, never a band
   across the frame**, and **no seat-colour dot beside a name**: both tried and refused.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
