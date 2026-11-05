@@ -1,3 +1,13 @@
+<script lang="ts" module>
+  /**
+   * How long the LOCO! sticker stays up. A moment, like the interception
+   * (1.8s) and the catch stamp (1.9s), a beat longer because it is the
+   * loudest. It used to be the latch itself, up until the next window opened,
+   * and on a 1080p screen it sat over the piles for turns on end.
+   */
+  export const UNO_BANNER_MS = 2200
+</script>
+
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { CardColor, ClientMsg } from '../types/protocol'
@@ -247,6 +257,18 @@
   const catchLive = $derived(g.catchLive && !wagerSpent)
   const turnDeadline = $derived(g.turnDeadline)
   const catchWindowEnd = $derived(g.unoTimerEnd)
+
+  // The sticker leaves on its own timer, keyed on the declaration's stamp so a
+  // second call replays it. `unoDeclared` itself stays up: the sounds and the
+  // music read it, and the server's word on who declared is `declaredSeats`.
+  const unoAt = $derived(g.unoDeclared ? g.unoDeclaredAt : null)
+  let unoGoneAt = $state<number | null>(null)
+  $effect(() => {
+    const at = unoAt
+    if (at === null) return
+    const id = setTimeout(() => (unoGoneAt = at), UNO_BANNER_MS)
+    return () => clearTimeout(id)
+  })
   drainBar(() => turnFill, () => turnDeadline, 'auto')
   drainBar(() => catchFill, () => catchDeadline, UNO_CATCH_WINDOW_MS)
 
@@ -747,11 +769,11 @@
     onDone={() => g.clearCatchFlash()}
   />
 
-  {#if g.unoDeclared}
+  {#if unoAt !== null && unoGoneAt !== unoAt}
     {@const caller = g.players.find((pl) => pl.index === g.unoDeclaredByIndex)}
     <!-- The word alone on the sticker, the caller on the tag the other two shouts
          hang their seat on: "Pixel: LOCO!" was one line of mixed type. -->
-    <div class="unoBanner">
+    <div class="unoBanner" data-testid="uno-banner" style:--uno-life="{UNO_BANNER_MS}ms">
       <span class="unoWord">{t.unoBanner}</span>
       {#if g.unoDeclaredByIndex >= 0 && caller?.nickname}
         <span class="unoWho">{caller.nickname}</span>
@@ -922,7 +944,13 @@
       0 0 0 4px var(--color-stroke),
       0 12px 0 var(--color-stroke-soft);
     pointer-events: none;
-    animation: unoPunch 0.45s var(--ease-bounce) forwards;
+    /* In on the punch, out on the beat the timer unmounts it: the exit is
+       `forwards` and ends on the unmount, the notice pills' grammar. The delay
+       survives reduced motion (only durations are flattened there), so the
+       sticker still leaves on time. */
+    animation:
+      unoPunch 0.45s var(--ease-bounce) forwards,
+      unoOut 0.24s ease-in calc(var(--uno-life, 2200ms) - 240ms) forwards;
     /* 45: the third of the three moments allowed to shout, on the layer the
        interception slam and the catch stamp already hold. At 10 it sat under
        the notice pills (14), and on a phone a Swap landing on the same beat
@@ -943,6 +971,13 @@
     100% {
       opacity: 1;
       transform: translateY(-50%) scale(1) rotate(-4deg);
+    }
+  }
+
+  @keyframes unoOut {
+    to {
+      opacity: 0;
+      transform: translateY(-50%) scale(0.92) rotate(-4deg);
     }
   }
 

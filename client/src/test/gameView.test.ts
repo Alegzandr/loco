@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import { act } from './renderHook'
 import GameView from '../components/GameView.svelte'
+import { UNO_BANNER_MS } from '../components/GameView.svelte'
 import { gameStore } from '../hooks/gameStore'
 import type { CardDTO } from '../types/protocol'
 
@@ -116,5 +117,36 @@ describe('GameView — GlobalSwitch colour choice', () => {
         .applyCardPlayed(1, gs, 0, 0, 'blue', [seat(0, 'Alice', 2), seat(1, 'Bob', 2)])
     })
     expect(screen.queryByRole('button', { name: 'green' })).not.toBeInTheDocument()
+  })
+})
+
+// The LOCO! sticker is a moment, like the other two shouts, not a state. It
+// used to stay up until the next card opened a window, which could be several
+// turns, and at 1920×1080 it sat over the piles the whole time: the player who
+// called it was playing blind, and everybody else was reading through it.
+describe('GameView — LOCO! banner', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    seedBoard()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('leaves on its own, and comes back for the next call', () => {
+    renderGame()
+    act(() => { gameStore.setState({ unoDeclared: true, unoDeclaredByIndex: 1, unoDeclaredAt: 1 }) })
+    expect(screen.getByTestId('uno-banner')).toBeInTheDocument()
+
+    act(() => { vi.advanceTimersByTime(UNO_BANNER_MS - 1) })
+    expect(screen.getByTestId('uno-banner')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.queryByTestId('uno-banner')).toBeNull()
+
+    // The latch stays up for the sounds and the music; only the shout left.
+    expect(gameStore.getState().unoDeclared).toBe(true)
+
+    act(() => { gameStore.setState({ unoDeclaredByIndex: 0, unoDeclaredAt: 2 }) })
+    expect(screen.getByTestId('uno-banner')).toBeInTheDocument()
   })
 })
