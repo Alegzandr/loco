@@ -33,11 +33,25 @@ export interface Pool {
   k: number
 }
 
+/**
+ * A shade lying on the ground: what stands over it keeps the sky off it. The
+ * table's, mostly: the room's light takes no part of the lamp over the table
+ * (`kit.ts: LIGHTS_NO_LAMP`), so nothing else sits the table on its floor.
+ * An ellipse, `rx` by `rz` tiles, darkest at its middle by `k` (0-1).
+ */
+export interface Shade {
+  x: number
+  z: number
+  rx: number
+  rz: number
+  k: number
+}
+
 /** The largest value a texel holds: the map is bytes, scaled down by this. */
 export const POOL_RANGE = 4
 
 export interface PoolMap {
-  /** RGBA bytes, linear light over `POOL_RANGE`, row 0 at `minZ`. */
+  /** RGBA bytes: linear light over `POOL_RANGE` in rgb, the share of light the shades leave in alpha; row 0 at `minZ`. */
   data: Uint8Array
   w: number
   h: number
@@ -52,11 +66,18 @@ export interface PoolMap {
  * Every pool, splatted into one map of the ground: `(1 − d²/r²)²` from each
  * centre, added in linear light. The map covers the pools' own extent at up
  * to `LOOK.pools.texelsPerTile`, and never more than `LOOK.pools.maxSide`
- * texels a side. Null when there is nothing to light.
+ * texels a side. Null when there is nothing to light and nothing to shade.
+ * The shades go in the same map's alpha: what is left of the light there.
  */
-export function splatPools(pools: readonly Pool[]): PoolMap | null {
-  if (pools.length === 0) return null
+export function splatPools(pools: readonly Pool[], shades: readonly Shade[] = []): PoolMap | null {
+  if (pools.length === 0 && shades.length === 0) return null
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+  for (const s of shades) {
+    minX = Math.min(minX, s.x - s.rx)
+    maxX = Math.max(maxX, s.x + s.rx)
+    minZ = Math.min(minZ, s.z - s.rz)
+    maxZ = Math.max(maxZ, s.z + s.rz)
+  }
   for (const p of pools) {
     minX = Math.min(minX, p.x - p.r)
     maxX = Math.max(maxX, p.x + p.r)
@@ -91,10 +112,26 @@ export function splatPools(pools: readonly Pool[]): PoolMap | null {
       }
     }
   }
+  const left = new Float32Array(w * h).fill(1)
+  for (const s of shades) {
+    const x0 = Math.max(0, Math.floor(((s.x - s.rx - minX) / sizeX) * w))
+    const x1 = Math.min(w - 1, Math.ceil(((s.x + s.rx - minX) / sizeX) * w))
+    const z0 = Math.max(0, Math.floor(((s.z - s.rz - minZ) / sizeZ) * h))
+    const z1 = Math.min(h - 1, Math.ceil(((s.z + s.rz - minZ) / sizeZ) * h))
+    for (let j = z0; j <= z1; j++) {
+      const wz = minZ + ((j + 0.5) / h) * sizeZ
+      for (let i = x0; i <= x1; i++) {
+        const wx = minX + ((i + 0.5) / w) * sizeX
+        const d2 = ((wx - s.x) / s.rx) ** 2 + ((wz - s.z) / s.rz) ** 2
+        if (d2 >= 1) continue
+        left[j * w + i] *= 1 - s.k * (1 - d2 * d2)
+      }
+    }
+  }
   const data = new Uint8Array(w * h * 4)
   for (let i = 0; i < w * h; i++) {
     for (let ch = 0; ch < 3; ch++) data[i * 4 + ch] = Math.min(255, Math.round((acc[i * 3 + ch] / POOL_RANGE) * 255))
-    data[i * 4 + 3] = 255
+    data[i * 4 + 3] = Math.round(Math.max(0, left[i]) * 255)
   }
   return { data, w, h, minX, minZ, sizeX, sizeZ }
 }
@@ -133,8 +170,12 @@ export const POOLS_OUT = /* glsl */ `
   if (uPoolOn > 0.5) {
     vec2 puv = (vMirrorWorld.xz - uPoolBox.xy) / uPoolBox.zw;
     if (puv.x >= 0.0 && puv.x <= 1.0 && puv.y >= 0.0 && puv.y <= 1.0) {
-      vec3 pool = texture2D(tPools, puv).rgb * ${POOL_RANGE.toFixed(1)};
+      vec4 ground = texture2D(tPools, puv);
+      vec3 pool = ground.rgb * ${POOL_RANGE.toFixed(1)};
       float lift = exp(-max(0.0, vMirrorWorld.y - uPoolLift) / 1.2);
+      // The shade first, on the ground alone: a lamp's pool lights what a
+      // table has left dark, never the other way about.
+      outgoingLight *= mix(1.0, ground.a, exp(-max(0.0, vMirrorWorld.y - 0.05) / 0.25));
       outgoingLight += diffuseColor.rgb * pool * lift;
     }
   }

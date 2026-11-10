@@ -5,12 +5,13 @@
  * that belongs to one room.
  */
 import { describe, expect, it } from 'vitest'
-import { Mesh, MeshPhysicalMaterial, type Group } from 'three'
+import { Mesh, MeshPhysicalMaterial, ShaderChunk, type Group } from 'three'
 import { MAPS, MAP_IDS } from '../components/cards/maps'
 import { rimSurface, tableCssVars, RIM_GLOSS } from '../components/cards/tableSurface'
 import { feltInViewport } from '../components/cards/layout'
 import { grainPixels } from '../components/scene/grain'
-import { Kit, loftGeometry, sweepGeometry } from '../components/scene/kit'
+import { Kit, SPOT_LOOP_GUARD, loftGeometry, sweepGeometry } from '../components/scene/kit'
+import { makeTableLamp } from '../components/scene/lighting'
 import { CLOTH_INSET } from '../components/cards/layout'
 import { tableFits, type PreparedScene } from '../components/scene/sceneCache'
 import { LOOK } from '../components/scene/look'
@@ -211,6 +212,60 @@ describe('the render builds each room its table', () => {
       expect(finished.some((m) => (m.material as MeshPhysicalMaterial).map !== null), id).toBe(true)
       expect(finished.some((m) => (m.material as MeshPhysicalMaterial).metalness === 1), id).toBe(true)
       for (const m of finished) expect(m.receiveShadow, id).toBe(true)
+    }
+  })
+})
+
+describe('the table is lit by its own lamp, and only the table is', () => {
+  it('casts the table\'s shadow, so what it stands on is not lit through the top', () => {
+    const lamp = makeTableLamp(lightRig('dusk', 'clear', 'rune'), [0, 0.9, 0])
+    expect(lamp.castShadow).toBe(true)
+    expect(lamp.shadow.mapSize.x).toBe(LOOK.table.lamp.shadowMap)
+    // The shadow camera reaches the floor under the table.
+    expect(lamp.shadow.camera.far).toBeGreaterThan(LOOK.table.lamp.height + 0.9)
+  })
+
+  it('is shut out of the room\'s material by a line three still writes', () => {
+    // `kit.ts` removes the spot lights' loop from the lit material by
+    // replacing this guard. A three.js that words it differently would leave
+    // the replace a no-op, and the floor would take the lamp again: a dark
+    // disc metres wide round the table.
+    expect(ShaderChunk.lights_fragment_begin).toContain(SPOT_LOOP_GUARD)
+  })
+
+  it('never throws a varnish\'s whole highlight back, and keeps the cloth its colour', () => {
+    for (const kind of ['wood', 'lacquer', 'marble', 'cloth'] as const) {
+      expect(LOOK.table[kind].specular, kind).toBeLessThan(1)
+    }
+    expect(LOOK.table.cloth.glow).toBeGreaterThan(0)
+    const g = (() => {
+      const felt = feltInViewport(1600, 900, 3, NO_INSETS)
+      const view = solveView(1600, 900, felt, LOOK.vista.camera)
+      const k = new Kit({ rig: lightRig('dusk', 'clear', 'rune'), rng: seededRng('rune'), outline: 0.02, view })
+      vistaTable(k, MAPS.rune.table)
+      return k.build()
+    })()
+    const cloth = g.children.find((c): c is Mesh => c instanceof Mesh && c.material instanceof MeshPhysicalMaterial && c.material.sheen > 0)
+    expect(cloth).toBeDefined()
+    expect((cloth!.material as MeshPhysicalMaterial).emissiveIntensity).toBe(LOOK.table.cloth.glow)
+  })
+})
+
+describe('the grain is rings and depth, never dots', () => {
+  it('sows nothing in a lacquer, whatever the room asks for', () => {
+    const fleck = 0xe8c065
+    const px = grainPixels({ kind: 'lacquer', base: 0x9a1f17, grain: 0x4f0a07, fleck }, 64)
+    for (let i = 0; i < px.length; i += 4) {
+      expect(px[i] === 0xe8 && px[i + 1] === 0xc0 && px[i + 2] === 0x65).toBe(false)
+    }
+  })
+
+  it('keeps every material\'s contrast under half the way to its second colour', () => {
+    for (const kind of ['straight', 'burl', 'lacquer', 'brushed'] as const) {
+      const px = grainPixels({ kind, base: 0x000000, grain: 0xffffff }, 64)
+      let max = 0
+      for (let i = 0; i < px.length; i += 4) max = Math.max(max, px[i])
+      expect(max, kind).toBeLessThan(128)
     }
   })
 })

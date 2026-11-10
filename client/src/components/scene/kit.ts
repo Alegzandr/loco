@@ -73,11 +73,20 @@ import type { V3, View } from './view'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { compact, hullFor, lampHead, splitGlow } from './models/bake'
-import { POOLS_FRAG_PARS, POOLS_OUT, poolUniforms, splatPools, type Pool, type PoolUniforms } from './pools'
+import { POOLS_FRAG_PARS, POOLS_OUT, poolUniforms, splatPools, type Pool, type PoolUniforms, type Shade } from './pools'
 import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, MIRROR_VERT, MIRROR_VERT_PARS, makeMirror, type Mirror } from './mirror'
 
 /** three's own image-based-light chunk, which the lit material edits rather than includes. */
 const THREE_CHUNK_LIGHTS_MAPS = ShaderChunk.lights_fragment_maps
+/** The line three opens its spot lights' loop with: what `LIGHTS_NO_LAMP` shuts. */
+export const SPOT_LOOP_GUARD = '#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )'
+/**
+ * The lights as the room takes them: every one but the spot, which is the
+ * lamp over the table and the table's alone (`lighting.ts: makeTableLamp`).
+ * Lighting the floor with it drew the table's shadow as a dark disc metres
+ * wide, under a lamp that hangs a table's width over the cloth.
+ */
+const LIGHTS_NO_LAMP = ShaderChunk.lights_fragment_begin.replace(SPOT_LOOP_GUARD, '#if 0')
 
 export interface KitOptions {
   rig: LightRig
@@ -92,6 +101,8 @@ export interface KitOptions {
   outlineAt?: (x: number, y: number, z: number) => number
   /** The camera, when the room is seen from the table (`view.ts`); absent for the isometric rooms and the sprites. */
   view?: View
+  /** The painted strips this room's table is dressed in, by address (`Finish.paint`). None, and a painted finish is its colour. */
+  paints?: ReadonlyMap<string, Texture>
   /** Lay shadows on the ground. Off for a sprite of something in the air. */
   shadows?: boolean
   /** The loaded models this room may place (`k.model`). None for a sprite kit that needs none. */
@@ -157,7 +168,7 @@ export interface BlockOptions {
  * physically based material (`LOOK.table[kind]`) with, where the material has
  * one, its grain as a texture (`grain.ts`).
  */
-export type FinishKind = 'wood' | 'lacquer' | 'metal' | 'brushed' | 'marble' | 'cloth'
+export type FinishKind = 'wood' | 'lacquer' | 'metal' | 'brushed' | 'marble' | 'cloth' | 'painted'
 
 export interface Finish {
   kind: FinishKind
@@ -169,6 +180,17 @@ export interface Finish {
   fleck?: Hex
   /** The varnish over it, 0-1, when it is not the kind's own (`LOOK.table`). */
   coat?: number
+  /**
+   * The piece is a light: it shows its own colour at this strength whatever
+   * falls on it, and the bloom takes it up. A strip let into a rail, a tube.
+   */
+  lit?: number
+  /**
+   * A painted strip is its colour (`KitOptions.paints`, keyed by its address):
+   * a moulding seen square on, laid along a band (`Kit.band`). Without the
+   * strip in hand the piece is its `color`.
+   */
+  paint?: string
 }
 
 export const INK = 0x120b24
@@ -234,15 +256,24 @@ export class Kit {
   /** Whether what is built here stands on the ground and throws a shadow on it: off for a sprite of something in the air. */
   readonly shadows: boolean
   private readonly models: ModelLib | null
+  private readonly paints: ReadonlyMap<string, Texture> | null
   private readonly lightPools: boolean
   /** The light lying on the ground tonight (`pools.ts`). */
   readonly pools: Pool[] = []
+  /** The shade lying on the ground whatever the hour (`pools.ts: Shade`). */
+  readonly shades: Shade[] = []
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
   /** The table's pieces, by finish: one mesh and one material each. */
   private finishes = new Map<string, { finish: Finish; geoms: BufferGeometry[] }>()
   /** Something here is glossy or water: the room is worth a mirror pass (`mirror.ts`). */
   reflective = false
+  /**
+   * How much of the mirrored room a glossy floor shows when it is dry, 0-1: a
+   * polished marble, a waxed deck, a lacquered board (`polished`). A wet street
+   * has its own figure (`LOOK.water.wetMirror`) and the larger of the two wins.
+   */
+  polish = 0
   /** The lowest water surface built, tiles; 0 when there is none, which is the ground's own plane. */
   waterLevel = 0
   /** Every pane on every wall, two sheets (`quad`). */
@@ -256,6 +287,7 @@ export class Kit {
     this.view = o.view ?? null
     this.shadows = o.shadows ?? true
     this.models = o.models ?? null
+    this.paints = o.paints ?? null
     this.lightPools = (o.lightPools ?? false) && LOOK.pools.strength > 0
   }
 
@@ -607,6 +639,35 @@ export class Kit {
     this.pushFinish(loftGeometry(rings), finish)
   }
 
+  /** True when the painted strip at this address is in hand: the table can be dressed in it. */
+  painted(address: string | undefined): boolean {
+    return address !== undefined && (this.paints?.has(address) ?? false)
+  }
+
+  /**
+   * A band round the table carrying a painted strip (`Finish.paint`): rings
+   * as `loft`'s, from the strip's top row to its bottom row, each ring's
+   * place down the strip given in `at` (0 its top, 1 its foot). The strip is
+   * laid `repeats` times round, mirrored end to end, so an even count closes
+   * on itself and the strip need not tile.
+   */
+  band(rings: readonly (readonly V3[])[], at: readonly number[], repeats: number, finish: Finish) {
+    this.pushFinish(bandGeometry(rings, at, repeats), finish)
+  }
+
+  /**
+   * A flat finished piece through four points, world, in order round it: an
+   * inlay let into a surface. It faces up.
+   */
+  patch(a: V3, b: V3, c: V3, d: V3, finish: Finish) {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new Float32BufferAttribute([...a, ...b, ...c, ...d], 3))
+    g.setAttribute('normal', new Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3))
+    g.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2))
+    g.setIndex([0, 1, 2, 0, 2, 3])
+    this.pushFinish(g, finish)
+  }
+
   /** A finished block: a stretcher, a plinth. `y` is its bottom. */
   finishBox(x: number, y: number, z: number, w: number, h: number, d: number, finish: Finish, o: { rot?: number } = {}) {
     this.pushFinish(this.place(new BoxGeometry(w, h, d), x, y + h / 2, z, o.rot ?? 0), finish)
@@ -704,6 +765,12 @@ export class Kit {
     this.pools.push({ x, z, r, color, k: k * (0.35 + 0.65 * Math.min(1, this.rig.dark)) })
   }
 
+  /** The shade of what stands over the ground at `(x, z)`: an ellipse `rx` by `rz` tiles, `k` dark at its middle (`pools.ts`). */
+  shade(x: number, z: number, rx: number, rz: number, k: number) {
+    if (!this.lightPools) return
+    this.shades.push({ x, z, rx, rz, k })
+  }
+
   // ─── Props ────────────────────────────────────────────────────────────────
 
   /** A flat slab: paving, a road, a deck. Receives shadows, casts none. */
@@ -714,6 +781,17 @@ export class Kit {
   /** Records a water surface at height `y`: the mirror pass draws nothing under the lowest one. */
   private waterAt(y: number) {
     this.waterLevel = Math.min(this.waterLevel, y)
+    this.reflective = true
+  }
+
+  /**
+   * This room's floor is polished: its glossy slabs mirror the room standing
+   * on them, by `amount` (0-1), whatever the weather. Under snow there is no
+   * floor to see, and nothing is asked for.
+   */
+  polished(amount: number) {
+    if (this.rig.snow) return
+    this.polish = Math.max(this.polish, amount)
     this.reflective = true
   }
 
@@ -1424,7 +1502,7 @@ export class Kit {
     this.flushSheets()
     const lit = merge(this.buckets.lit)
     if (lit) {
-      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig), poolUniforms(splatPools(this.pools))))
+      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig), poolUniforms(splatPools(this.pools, this.shades))))
       m.castShadow = true
       m.receiveShadow = true
       g.add(m)
@@ -1432,7 +1510,7 @@ export class Kit {
     for (const { finish, geoms } of this.finishes.values()) {
       const merged = merge(geoms)
       if (!merged) continue
-      const m = new Mesh(merged, finishMaterial(finish, env))
+      const m = new Mesh(merged, finishMaterial(finish, env, this.paints))
       m.castShadow = this.shadows
       m.receiveShadow = true
       g.add(m)
@@ -1482,6 +1560,7 @@ function litMaterial(env: Texture | null, mirror: Mirror, pools: PoolUniforms): 
       .replace('#include <common>', `#include <common>\n${MIRROR_FRAG_PARS}\n${POOLS_FRAG_PARS}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(mix(roughnessFactor, uGlossRoughness, vGloss), uWaterRoughness, vWater);')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${MIRROR_NORMAL}`)
+      .replace('#include <lights_fragment_begin>', LIGHTS_NO_LAMP)
       .replace(
         '#include <lights_fragment_maps>',
         THREE_CHUNK_LIGHTS_MAPS.replace('iblIrradiance += getIBLIrradiance( geometryNormal );', '').replace(
@@ -1540,9 +1619,9 @@ function grainTexture(f: Finish): DataTexture | null {
  * swept or turned piece is only ever seen from outside, and this spares the
  * winding of every profile a builder writes.
  */
-function finishMaterial(f: Finish, env: Texture | null): MeshPhysicalMaterial {
+function finishMaterial(f: Finish, env: Texture | null, paints: ReadonlyMap<string, Texture> | null = null): MeshPhysicalMaterial {
   const look = LOOK.table[f.kind]
-  const map = grainTexture(f)
+  const map = (f.paint ? paints?.get(f.paint) : undefined) ?? grainTexture(f)
   const m = new MeshPhysicalMaterial({
     color: map ? 0xffffff : f.color,
     map,
@@ -1552,6 +1631,17 @@ function finishMaterial(f: Finish, env: Texture | null): MeshPhysicalMaterial {
     clearcoatRoughness: look.clearcoatRoughness,
     side: DoubleSide,
   })
+  if (look.specular !== undefined) m.specularIntensity = look.specular
+  if (f.lit) {
+    m.emissive = new Color(f.color)
+    m.emissiveIntensity = f.lit
+  } else if (look.glow) {
+    // Its grain too, where it has one: a flat colour showing through the
+    // shade would wash the rings out exactly where the edge turns away.
+    m.emissive = new Color(map ? 0xffffff : f.color)
+    m.emissiveMap = map
+    m.emissiveIntensity = look.glow
+  }
   if (look.sheen) {
     m.sheen = look.sheen
     m.sheenRoughness = look.sheenRoughness ?? 0.5
@@ -1562,6 +1652,40 @@ function finishMaterial(f: Finish, env: Texture | null): MeshPhysicalMaterial {
     m.envMapIntensity = LOOK.table.envIntensity
   }
   return m
+}
+
+/**
+ * A band through rings of points (`Kit.band`): one column of vertices per
+ * point and one more to close the seam, `u` running `repeats` times round and
+ * `v` down the strip as `at` says. Normals are the surface's own.
+ */
+export function bandGeometry(rings: readonly (readonly V3[])[], at: readonly number[], repeats: number): BufferGeometry {
+  const m = rings.length
+  const n = Math.min(...rings.map((r) => r.length))
+  const pos: number[] = []
+  const uv: number[] = []
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j < m; j++) {
+      const p = rings[j][i % n]
+      pos.push(p[0], p[1], p[2])
+      // The strip's top row is the image's top, which is `v` 1.
+      uv.push((i / n) * repeats, 1 - at[j])
+    }
+  }
+  const idx: number[] = []
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m - 1; j++) {
+      const a = i * m + j
+      const b = (i + 1) * m + j
+      idx.push(a, b, a + 1, b, b + 1, a + 1)
+    }
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
 }
 
 /**

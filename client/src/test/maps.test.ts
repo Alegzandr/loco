@@ -16,6 +16,7 @@ import { seededRng } from '../components/scene/rng'
 import { tableRect, feltInViewport, boardScale, boardSpace, seatLayout } from '../components/cards/layout'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
+import { plateHour } from '../components/scene/plates'
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
 const mapsGo = readFileSync(path.join(REPO, 'server', 'game', 'maps.go'), 'utf8')
@@ -71,7 +72,8 @@ describe('map registry', () => {
   })
 
   it('names every colour of every table as a CSS colour', () => {
-    const kinds = new Set(['rimKind', 'edge', 'pedestal'])
+    // What is not a colour: the three kinds, and the two painted strips (addresses, `sceneTableTrim.test.ts`).
+    const kinds = new Set(['rimKind', 'edge', 'pedestal', 'paint'])
     for (const id of MAP_IDS) {
       const m = MAPS[id]
       expect(m.id).toBe(id)
@@ -101,9 +103,11 @@ describe('map registry', () => {
   // reload must not lose the whole scene over a word this build does not know.
   it('resolves a scene, defaulting the hour and the sky rather than dropping the room', () => {
     expect(resolveScene('neon', 'night', 'rain')).toEqual({ map: MAPS.neon, time: 'night', weather: 'rain' })
-    expect(resolveScene('neon', 'noon', 'rain')?.time).toBe('day')
+    // An unknown hour is dealt in daylight, and then a painted room shows its
+    // painting's own hour whatever was dealt (`plates.ts`, `scenePlates.test.ts`).
+    expect(resolveScene('neon', 'noon', 'rain')?.time).toBe(plateHour('neon', 'day'))
     expect(resolveScene('neon', 'night', 'hail')?.weather).toBe('clear')
-    expect(resolveScene('neon', undefined, undefined)).toEqual({ map: MAPS.neon, time: 'day', weather: 'clear' })
+    expect(resolveScene('neon', undefined, undefined)).toEqual({ map: MAPS.neon, time: plateHour('neon', 'day'), weather: 'clear' })
     // A sky the server never deals this map is treated like an unknown one.
     expect(resolveScene('orbit', 'day', 'snow')?.weather).toBe('clear')
     expect(resolveScene('atlantis', 'day', 'clear')).toBeNull()

@@ -16,7 +16,8 @@
  * keeps its colour a shade down (`neonText`), never grey.
  */
 import type { Builder } from './vista'
-import { neonText } from './vista'
+import type { Finish } from '../kit'
+import { festoon, groundInlay, neonText, pot } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix, scale } from '../sky'
 import { deck, hills, skyline, vistaTable } from './vista'
@@ -38,8 +39,22 @@ export const neon: Builder = (k) => {
   vistaTable(k, MAPS.neon.table)
 
   // ─── Near: the roof ─────────────────────────────────────────────────────
-  // A deck of dark wood: the one warm thing up here, under the violet.
-  deck(k, EDGE, view.eye[2] + 2, 52, 0x4a3328, 0x3d2a22, { plank: 0.36 })
+  // A deck of warm wood: the one warm thing up here, under the violet. Warm
+  // and not dark: at noon a near-black deck under a near-black table was a
+  // hole in the bottom half of the frame, under a pale sky.
+  // Oiled, so the tubes and the string of bulbs lie in it.
+  k.polished(0.4)
+  deck(k, EDGE, view.eye[2] + 2, 52, 0x7a5846, 0x6a4a3a, { plank: 0.36, gloss: 0.55 })
+  // The table's stage: a disc of dark composite let into the boards, with two
+  // rings of light in it, and their light on the boards round it.
+  groundInlay(k, [
+    { out: 1.6, color: 0x1d1b26, gloss: 0.7 },
+    { out: 1.5, color: NEON[0], glow: true },
+    { out: 1.42, color: 0x1d1b26, gloss: 0.7 },
+    { out: 0.56, color: NEON[1], glow: true },
+    { out: 0.5, color: 0x15141b, gloss: 0.7 },
+  ])
+  k.pool(0, 0, 6, NEON[0], 0.2)
   // The parapet and a railing along the edge: two rails on posts, so the
   // city shows through it.
   k.box(0, -0.1, EDGE - 0.3, 52, 0.5, 0.5, scale(TILE, 0.9), { cap: true })
@@ -49,21 +64,27 @@ export const neon: Builder = (k) => {
   if (on) k.box(0, 0.02, EDGE + 0.05, 52, 0.06, 0.06, NEON[2], { glow: true, outline: false, cap: false })
 
   // Left: planters of tall grass along the railing, and a bench.
+  const zinc: Finish = { kind: 'brushed', color: 0x4c4760, grain: 'brushed', grainColor: 0x35314a }
+  const chrome: Finish = { kind: 'metal', color: 0xb9bec9 }
   for (const [x, z] of [[-5.6, -5.8], [-7.4, -4.2], [-8.2, -1.8]] as const) {
-    k.box(x, 0, z, 1.1, 0.8, 1.1, 0x3b3747, { cap: false })
+    pot(k, x, z, 0.58, 0.85, zinc, chrome)
     k.bush(x, z, 0.62, k.leaf(mix(0x3f8f6a, 0x2b6b58, rng.range(0, 1))), { y: 0.8, collide: false })
   }
+  // A string of bulbs across the terrace, post to post: the one warm light up
+  // here, over the far rail and under the skyline.
+  for (const x of [-10.5, 10.5]) k.cyl(x, 0, EDGE + 0.4, 0.05, 3.5, STEEL, { seg: 6, cap: false })
+  festoon(k, [-10.5, 3.45, EDGE + 0.4], [10.5, 3.45, EDGE + 0.4], 0.75, 26, 0xffc98a)
   k.box(-5.4, 0.42, -2.6, 0.5, 0.08, 2.2, 0x6b4a3a, { cap: false })
   for (const dz of [-0.9, 0.9]) k.box(-5.4, 0, -2.6 + dz, 0.4, 0.42, 0.1, STEEL, { outline: false, cap: false })
   // Right: the rooftop bar, its counter lit from beneath, two stools.
   const bx = 6.2
   const bz = -4.6
-  k.box(bx, 0, bz, 1.0, 1.1, 4.4, 0x2a2536)
+  k.box(bx, 0, bz, 1.0, 1.1, 4.4, 0x3b3552)
   k.box(bx, 1.1, bz, 1.3, 0.08, 4.6, 0x6b4a3a, { cap: true })
   if (on) k.box(bx - 0.52, 0.06, bz, 0.06, 0.06, 4.3, NEON[1], { glow: true, outline: false, cap: false })
   for (const dz of [-1.2, 0.6]) {
-    k.cyl(bx - 1.0, 0, bz + dz, 0.05, 0.75, STEEL, { seg: 6, cap: false })
-    k.cyl(bx - 1.0, 0.75, bz + dz, 0.24, 0.08, NEON[0], { seg: 12, cap: false })
+    k.lathe(bx - 1.0, 0, bz + dz, [[0, 0], [0.24, 0], [0.24, 0.02], [0.06, 0.05], [0.035, 0.1], [0.035, 0.7], [0.1, 0.74], [0, 0.74]], chrome, { seg: 20 })
+    k.cyl(bx - 1.0, 0.74, bz + dz, 0.24, 0.09, NEON[0], { seg: 16, cap: false, gloss: 0.5 })
   }
   // Bottles on a shelf behind it, catching the tubes.
   for (let i = 0; i < 6; i++) k.cyl(bx + 0.2, 1.18, bz - 1.6 + i * 0.6, 0.06, 0.3, rng.pick([0x2f8f6a, 0x8a3a4a, 0xc9a86b]), { seg: 6, outline: false, cap: false, gloss: 0.8 })

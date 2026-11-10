@@ -9,6 +9,7 @@
   import FullscreenButton from './FullscreenButton.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import LocoLogo from './LocoLogo.svelte'
+  import HomeHands from './HomeHands.svelte'
   import { playSfx } from '../audio/sfx'
   import { readNickname, rememberNickname } from '../hooks/nicknameMemory'
   import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
@@ -186,6 +187,7 @@
 </script>
 
 <div class="container">
+  <HomeHands />
   <!-- The sign of life, opposite the chip row and on the same line. Drawn from
        two up and absent below it, never zeroed or reworded: playersOnline.ts. A
        status line rather than a control — nothing here is pressable, so it is a

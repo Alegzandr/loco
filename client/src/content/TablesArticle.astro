@@ -9,15 +9,15 @@
 // A content page ships no script (see docs/notes/seo.md), so it cannot render
 // the diorama the way the board does. What it shows instead is a photograph of
 // that render: `make rooms` (tools/rooms/shoot.mjs) shoots each room alone at
-// its signature hour, with the podium built under where the table sits, into
-// `src/assets/rooms/`, and this page lays the board's own CSS table over the
-// still — the same materials, the same rim, the same inlay — so the room and
-// the table are one object here as they are in a match. The rest is told:
-// which hours and which skies the server can deal the room under.
+// its signature hour into `src/assets/rooms/`. In a room the render is the
+// table — cloth, racetrack, rail, edge and what it stands on — so the still
+// carries the table too and nothing is drawn over it, as on the board. The
+// rest is told: which hours and which skies the server can deal the room under.
 //
-// A room whose still has not been shot yet falls back to its sky: the page
-// must never fail to build over a picture, and `contentPages.test.ts` is what
-// says the picture is missing.
+// A room whose still has not been shot yet falls back to its sky and the
+// board's own CSS table on it, in the room's materials: the page must never
+// fail to build over a picture, and `roomsPage.test.ts` is what says the
+// picture is missing.
 import { Image } from 'astro:assets'
 import type { ImageMetadata } from 'astro'
 import { MAPS, MAP_IDS, TIMES, type MapId, type TimeOfDay } from '../components/cards/maps'
@@ -79,10 +79,13 @@ const stillOf = (id: MapId): ImageMetadata | undefined => stills[`../assets/room
         <span class="roomHour">{t.mapTimes[SIGNATURE[id]]}</span>
       </div>
       {/*
-        The room, then the table the way the board draws it: the same
-        materials, the same rim, no plinth (the render carries the podium).
-        The two `--tbl-*` rulesets in content.css are a transcription of
-        GameBoard.svelte's, and move with it.
+        The room, and its table in it: the still is the render, and in a room
+        the render is the table (cloth, racetrack, rail, edge, pedestal), so
+        nothing is drawn over it, exactly as on the board. The CSS table is
+        what stands in when there is no photograph to show: the same
+        materials, the same rim, on the sky of the hour. The two `--tbl-*`
+        rulesets in content.css are a transcription of GameBoard.svelte's,
+        and move with it.
       */}
       <div class="roomArt" style={vars}>
         {still && (
@@ -97,8 +100,8 @@ const stillOf = (id: MapId): ImageMetadata | undefined => stills[`../assets/room
             decoding="async"
           />
         )}
-        <div class="roomGlow" aria-hidden="true"></div>
-        <div class="roomTable" aria-hidden="true"></div>
+        {!still && <div class="roomGlow" aria-hidden="true"></div>}
+        {!still && <div class="roomTable" aria-hidden="true"></div>}
       </div>
       <p>{copy.tagline}</p>
       {/*

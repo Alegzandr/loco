@@ -1191,6 +1191,57 @@ export function tableTrackEllipse(width: number, height: number): { cx: number; 
   }
 }
 
+// ─── The cloth's inlay ──────────────────────────────────────────────────────
+
+/** How far inside the cloth's edge the inlaid thread runs, as a share of the cloth's semi-axes. */
+export const INLAY_THREAD = 0.86
+/** The medallion's half-width under the piles, board pixels, where the cloth has the room. */
+export const INLAY_MEDAL_RX = 250
+/** How far the thread has to stand off the medallion, board pixels, before it carries its studs. */
+export const INLAY_STUD_CLEAR = 200
+
+/**
+ * What is inlaid in the cloth, in the felt's own box (`FeltInlay.svelte`): the
+ * cloth's ellipse, a thread round it, four studs on the thread, and a
+ * medallion under the piles.
+ *
+ * The thread is concentric with the felt, like every line round the table
+ * (`tableTrackEllipse`). The medallion is a circle lying on the cloth, so it
+ * is an ellipse **of the cloth's own proportions** round the piles: any other
+ * ratio reads as a disc floating over a table seen at another angle.
+ */
+export function feltInlay(
+  rect: { left: number; top: number; width: number; height: number },
+  centre: { x: number; y: number },
+): {
+  cloth: { cx: number; cy: number; rx: number; ry: number }
+  thread: { cx: number; cy: number; rx: number; ry: number }
+  medal: { cx: number; cy: number; rx: number; ry: number }
+  studs: { x: number; y: number }[]
+} {
+  const cx = rect.width / 2
+  const cy = rect.height / 2
+  const rx = Math.max(1, cx - CLOTH_INSET)
+  const ry = Math.max(1, cy - CLOTH_INSET)
+  const thread = { cx, cy, rx: rx * INLAY_THREAD, ry: ry * INLAY_THREAD }
+  const mrx = Math.min(INLAY_MEDAL_RX, rx * 0.4)
+  const medal = { cx: centre.x - rect.left, cy: centre.y - rect.top, rx: mrx, ry: (mrx * ry) / rx }
+  return {
+    cloth: { cx, cy, rx, ry },
+    thread,
+    medal,
+    // On a small table the thread passes right beside the arrows round the
+    // piles: a stud there is one more shape in the one place that is busy.
+    studs:
+      thread.rx - mrx > INLAY_STUD_CLEAR
+        ? [
+            { x: cx - thread.rx, y: cy },
+            { x: cx + thread.rx, y: cy },
+          ]
+        : [],
+  }
+}
+
 // ─── Play direction ─────────────────────────────────────────────────────────
 
 /** The middle of the deck and discard pair, in board space: what the direction's arrows turn round. */
@@ -1205,8 +1256,13 @@ export function pileCentre(width: number, height: number, topReserve = 0, landsc
 export const DIRECTION_RADIUS = CARD_W + PILE_GAP / 2 + 40
 /** How wide each arrow's band is, board pixels. */
 export const DIRECTION_BAND = 15
-/** How far each arrow runs round the circle, radians: two of them, a gap at the top and the bottom. */
-const ARROW_SWEEP = (130 * Math.PI) / 180
+/**
+ * How far each arrow runs round the circle, radians: two of them, one each
+ * side of the piles. Short on purpose: laid flat, the circle passes behind
+ * the piles above and below them, and at 130 degrees both heads ended there,
+ * so the one part of an arrow that says which way was the part nobody saw.
+ */
+export const ARROW_SWEEP = (84 * Math.PI) / 180
 
 /** The box the arrows are drawn in: the circle plus an arrowhead's reach, on every side. */
 export function directionArrowBox(r = DIRECTION_RADIUS, w = DIRECTION_BAND): number {

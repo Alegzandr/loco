@@ -11,6 +11,8 @@ import {
   discardPosition,
   deckPosition,
   directionArrows,
+  feltInlay,
+  CLOTH_INSET,
   directionArrowBox,
   DIRECTION_RADIUS,
   feltSquash,
@@ -244,12 +246,66 @@ describe('directionArrows', () => {
     }
   })
 
+  it('ends each arrow where it can be seen, clear of the piles it turns round', () => {
+    // Laid flat, the circle passes behind the piles above and below them: a
+    // head that lands there is the one part of the arrow that says which
+    // way, hidden. Each tip stands further out than the pair of cards is wide.
+    const discard = discardPosition(1280, 800)
+    const deck = deckPosition(1280, 800)
+    const halfPair = (discard.x + CARD_W - deck.x) / 2
+    for (const dir of [1, -1]) {
+      for (const d of directionArrows(dir)) expect(Math.abs(tip(d).x), String(dir)).toBeGreaterThan(halfPair)
+    }
+  })
+
   it('clears both piles', () => {
     // The circle stands outside the pair of cards: deck | gap | discard.
     const discard = discardPosition(1280, 800)
     const deck = deckPosition(1280, 800)
     const halfPair = (discard.x + CARD_W - deck.x) / 2
     expect(DIRECTION_RADIUS).toBeGreaterThan(halfPair)
+  })
+})
+
+describe('the inlay of the cloth', () => {
+  const rect = { left: 210, top: 260, width: 1500, height: 700 }
+  const centre = { x: 960, y: 580 }
+  const g = feltInlay(rect, centre)
+
+  it('runs its thread concentric with the felt, inside the cloth', () => {
+    expect(g.thread.cx).toBe(rect.width / 2)
+    expect(g.thread.cy).toBe(rect.height / 2)
+    expect(g.cloth.rx).toBe(rect.width / 2 - CLOTH_INSET)
+    expect(g.thread.rx).toBeLessThan(g.cloth.rx)
+    expect(g.thread.ry).toBeLessThan(g.cloth.ry)
+    // Both semi-axes taken in by the same share: the same kind of oval.
+    expect(g.thread.rx / g.cloth.rx).toBeCloseTo(g.thread.ry / g.cloth.ry, 6)
+  })
+
+  it('lays the medallion round the piles, in the proportions of the cloth', () => {
+    expect(g.medal.cx).toBe(centre.x - rect.left)
+    expect(g.medal.cy).toBe(centre.y - rect.top)
+    expect(g.medal.ry / g.medal.rx).toBeCloseTo(g.cloth.ry / g.cloth.rx, 6)
+    // Wide enough to hold the two piles, and well inside the thread.
+    expect(g.medal.rx).toBeGreaterThan(CARD_W + 20)
+    expect(g.medal.rx).toBeLessThan(g.thread.rx * 0.6)
+  })
+
+  it('shrinks with a small table instead of running into the rail', () => {
+    const small = feltInlay({ left: 0, top: 0, width: 420, height: 300 }, { x: 210, y: 150 })
+    expect(small.medal.rx).toBeLessThan(small.cloth.rx * 0.5)
+    expect(small.medal.ry).toBeLessThan(small.cloth.ry * 0.5)
+    // And it carries no stud: there the thread runs beside the arrows.
+    expect(small.studs).toHaveLength(0)
+    expect(g.studs).toHaveLength(2)
+  })
+
+  it('sets its studs on the thread', () => {
+    for (const s of g.studs) {
+      const nx = (s.x - g.thread.cx) / g.thread.rx
+      const ny = (s.y - g.thread.cy) / g.thread.ry
+      expect(nx * nx + ny * ny).toBeCloseTo(1, 6)
+    }
   })
 })
 

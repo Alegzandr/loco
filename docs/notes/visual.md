@@ -795,6 +795,15 @@ moon's sky; neon's moon rises over the left of the city). `sceneLighting.test.ts
 edge and the horizon**, per room and hour, at 16:9 — neon's moon was above the edge when it was
 written.
 
+**The shade is what the player looks at, so the sky's fill is strong** (`LOOK.hours[h].ambient`,
+raised 2026-11-10: dawn 1.1 → 1.7, dusk 1.5 → 2.3, night 1.6 → 2.0, noon 1.15 → 1.3). A room lit
+from behind is a room whose every face turned to the table is in shade, and so is the ground the
+table's own shadow falls on, which from the chair is most of the near floor. With the fill sized
+for a picture lit from the front, that shade was a navy silhouette: Rune's tavern a black wall, its
+square a dark slab, and the room only read in the strip of sunlit ground behind it. The split is
+untouched — the sun is still warmer and still stronger than the sky at every hour, which
+`sceneLighting.test.ts` holds — and the shade keeps the room's own tint.
+
 ### The sky (`scene/dome.ts`)
 A dome round the camera, drawn by one shader, in the scene. **A mesh rather than a pass**, because
 the water has to reflect it — the sun's road across the bay is the dome, mirrored — and the bloom
@@ -970,6 +979,10 @@ Each builder's header names its three grounds.
     nearer than the sample is not a crease**: counted, a tree top over a paving stone drew a dark
     halo round every silhouette. The per-pixel rotation is interleaved gradient noise — the sine
     hash streaked diagonally at frame coordinates.
+  - **The occlusion has a floor** (`LOOK.ao.floor`, a half, applied where it is multiplied in).
+    The widest crease in every room is the floor under the table: a metre under a top four across,
+    which the wide radius reads as fully closed. Unbounded it was black, and seen from the table
+    that is the bottom third of the frame, at noon as at midnight, with the hand laid over it.
   - **The air** (`AirOptions`, `LOOK.vista.haze`): every pixel that is not sky takes, by its distance
     from the lens, up to `max` of the colour of the sky low down (`1 − exp(−d / distance)`), loses up
     to `desaturate` of its own saturation on the way, and **glows towards the light** (the light's
@@ -1166,15 +1179,16 @@ Each was one line of geometry standing in for something with a shape:
 A felt inside a rim, on exactly `tableRect()`, and **a table of its own in every room, made of a
 noble material** (the pass of 2026-09-25): Neon a piano-black lacquer banded in chrome on a chrome
 tulip foot, Rune quartersawn oak and bronze on two turned balusters, Velvet walnut burl and gold on
-a stepped black marble column, Orbit brushed titanium on a tripod, Sakura vermilion urushi flecked
-with gold on four lacquered legs, Marina varnished teak and brass on a capstan. `MapDef.table` in
+a stepped black marble column, Orbit brushed titanium on a tripod, Sakura vermilion urushi banded
+in gold on four lacquered legs, Marina varnished teak and brass on a capstan. `MapDef.table` in
 `maps.ts` holds the colours (`felt`, `feltDeep`, `rim`, `rimLight`, `grain`, `base`, `inlay`,
 `fleck`, `baseVein`) and names the rest (`rimKind`, `edge`, `pedestal`); `tableMaterials.test.ts`
 refuses two rooms with the same table. Without a scene the variables fall back to the tokens'
 near-black table.
 - **The rim is its material, drawn** (`cards/tableSurface.ts`): an SVG whose only content is a filter
   — fractal noise shaped by a transfer curve into the material's own colours (growth rings, a
-  burl's eyes, brushing, a lacquer's depth and its gold dust) — served as a `data:` URI, which
+  burl's swirl, brushing, a lacquer's depth; never pores, eyes or dust, see "The grain is rings and
+  depth" below) — served as a `data:` URI, which
   `img-src 'self' data:` already allows. No canvas and no script, so the same string is the rim's
   background on the board, the racetrack's `<pattern>` and the rooms page's rim at build time;
   seeded, so every seat sees the same table. A glossy finish carries the room's lights in it
@@ -1189,7 +1203,7 @@ near-black table.
   `MeshPhysicalMaterial` with a sheen and nothing drawn on it, `LOOK.table.cloth`), a **metal
   filet** and a **racetrack** in the rail's material stained darker, and a **rail** with a rounded
   section rising `LOOK.table.rail.height` over the cloth and rolling over into the edge's face.
-  The board then draws none of its own (`.tableOval.rendered`, no `TableTrack`), only the mark.
+  The board then draws none of its own (`.tableOval.rendered`, no `TableTrack`).
   - **The lines are still the concentric ellipses the player chose.** Each ring of the top is the
     felt's screen ellipse taken in by the same number of pixels on both axes and cast onto the
     table (`View.tableOutline(n, inset)`), and the rings are lofted into one surface
@@ -1203,8 +1217,39 @@ near-black table.
     spot straight down from 3.4 m, fading from the middle out over its whole cone, stronger as the
     room darkens (`LightRig.dark`). Without it the cloth was **black** at dusk — lit only by a sun a
     few degrees up and a violet sky — and so had the old cloth plate been, under the CSS felt that
-    hid it. No shadow: the sun's is the one map, and the corner where the rail meets the cloth is
-    the occlusion's.
+    hid it.
+  - **The lamp is the table's alone, and it casts the table's shadow** (the pass of 2026-11-10).
+    It had no shadow, on the argument that the sun's was the one map, and it lit everything in its
+    cone: so it lit the pedestal and the floor *through the table top*, and Neon's chrome foot came
+    out the brightest thing in the frame, a white blot under the hand. Two changes, and both are
+    needed. It has a small shadow map of its own (`lamp.shadowMap`, drawn once like the sun's), so
+    what the table stands on is in the table's shade. And the room's one lit material no longer
+    takes spot lights at all (`kit.ts: LIGHTS_NO_LAMP`, the spot loop's guard replaced by `#if 0`):
+    with the shadow alone, the floor round the table was lit by the lamp and the floor under it was
+    not, which drew the table's shadow as a dark hard-edged disc metres wide. The finishes
+    (`finishMaterial`) are untouched and are the only thing the lamp lights.
+    `tableMaterials.test.ts` pins the shadow and that three still writes the line the replace
+    looks for (`SPOT_LOOP_GUARD`) — a reworded chunk would make it a silent no-op.
+  - **A finish shows a share of its own colour whatever the light** (`FinishLook.glow`, an
+    emissive of the piece's colour, its grain included). The key light is ahead of the camera at
+    three hours out of four, so every face of the table turned to the player is in shade, and a
+    physically honest table there was a black rim round a navy cloth: Rune's green felt read as
+    blue and its oak as charcoal. The cloth's colour is the table's identity in a room, so it is
+    not left to the sky.
+  - **A varnish does not throw its whole highlight back** (`FinishLook.specular`, a dielectric's
+    `specularIntensity`; the lacquer carries no clearcoat at all). The lamp is a metre over the
+    rail and the moon is low ahead of the camera: at full strength either came back off the rail's
+    crown as a white smear a third of the way round the table, which the bloom then spread. What
+    is left is the metal filet's own clean line. The woods keep a quarter of their gloss as
+    varnish (`vista.ts: COAT`); at a half, a low sun was a glint that outlived the sun under a fog.
+  - **The grain is rings and depth, never dots** (`scene/grain.ts`, `cards/tableSurface.ts`, the
+    same pass). The oak's pores, the burl's eyes and the urushi's gold dust were each a noise
+    thresholded into specks, and from where the player sits a rim covered in specks read as
+    scratched, blotted or dirty, never as a noble material; the dust was also fine noise over a
+    surface, which the player had already refused everywhere else. `fleck` stays a field of
+    `TableMaterials` and is drawn by nothing. The rings that remain are under half the way to
+    their second colour (`tableMaterials.test.ts`), and the render brings that colour 45% of the
+    way to the rim's before it draws them (`rimFinish`).
   - **A loft is wound the way its normals face, per triangle** (`loftGeometry`). A two-sided
     material lights a face wound against its normals from behind: the first cloth came out black
     under the lamp for exactly that. `tableMaterials.test.ts` checks every triangle. A ring drawn
@@ -1255,15 +1300,245 @@ near-black table.
 - **In a room the render carries what is under the felt**, including its real shadow, so the CSS
   draws neither a thickness band nor a cast shadow over it: either hid the one thing the render
   adds.
-- **The rooms page lays the same table over a photograph of the render** (`content/TablesArticle.astro`,
-  `.roomTable` / `.roomGlow` in `content.css`, `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`,
-  `roomsPage.test.ts`). `make rooms` opens the `room-still-<id>` scene for each room — the room alone
-  at its signature hour under a clear sky, 16:9, at `?gfx=force` — with the table built under
-  exactly the ellipse `.roomTable` draws (centred, 70% by 50%), and writes
-  `src/assets/rooms/<id>.webp`. The hour is written twice — `SIGNATURE` on the page, the scene list
-  in `scenes.ts` — and the test pins the two. Re-shoot after touching a builder, the kit, the rig or
-  the passes.
+- **The rooms page shows a photograph of the render, and nothing over it** (`content/TablesArticle.astro`,
+  `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make rooms` opens the
+  `room-still-<id>` scene for each room — the room alone at its signature hour under a clear sky,
+  16:9, at `?gfx=force` — and writes `src/assets/rooms/<id>.webp`. The hour is written twice —
+  `SIGNATURE` on the page, the scene list in `scenes.ts` — and the test pins the two. Re-shoot after
+  touching a builder, the kit, the rig or the passes.
+  - **The page used to lay the board's CSS table over the still**, from before the render built the
+    table's top. Once it did, the still carried a lit cloth and a rail of its own, and the overlay
+    was a second, near-black felt and a rim of another colour drawn on top of them (2026-11-10:
+    Rune's page showed an olive CSS rim over the edge of a red oak one). The CSS table
+    (`.roomTable` / `.roomGlow` in `content.css`) is now only what stands in for a still that has
+    not been shot, on exactly the ellipse the render builds its table under (centred, 70% by 50%),
+    the way it stands in on the board when the frame does not lie under the felt.
 
+### The floor, the near ground and the table's top (the pass of 2026-11-10)
+
+Two passes at "better graphics" missed before this one. The first retuned the room's light; the
+second redrew the cards, which the player called perfect as they were and had put back. What they
+asked for, in their words, was the backgrounds and the tables. Looking at a frame with that in
+mind: the felt is 78% of the width, so the room is a strip a quarter of the frame tall and two
+flanks of floor, and the "background" a player sees for a whole match is mostly **the floor round
+the table and the few things standing on it**. Those were the weakest things in the render: one
+flat material from edge to edge, boxes with a bush on top, a table with no shade under it.
+
+- **The floor is drawn round the table** (`vista.ts: groundInlay`). Bands on the table's own plan
+  grown outwards, one in the other, in the room's materials: brass and cream marble on velvet's
+  black floor, two rings of light in a dark stage on neon's deck, a mat of rush bound in black and
+  gold under sakura's, a painted berth on the quay, a ring of dressed stone with the rune's light
+  cut round it, the pad's marking on the moon. Most of it is under the table; what shows is an
+  arc at the flanks and the near corners, which is enough to say the table was put there on
+  purpose. `y` is the floor's level, because orbit's plates and rune's cobbles stand proud of 0
+  and the first cut laid both inlays under the floor. None under snow.
+- **The table throws a shade** (`Kit.shade`, `pools.ts: Shade`). The lamp over the table lights
+  the table alone (the room's material takes no spot light, or it lights the foot through the
+  top), so the floor under the table was as bright as the floor beside it and the table floated.
+  The shade is an ellipse in the alpha of the pools' map, multiplied in on the ground alone and
+  before the pools' light, so a lamp still lights what the table left dark. `dark` went from 0.6
+  to 0.45 after sakura's near corners came out navy: the pass before this one had just taken the
+  black out of the floors.
+- **A dry floor can be polished** (`Kit.polished`). The wet street's smeared reflection
+  (`mirror.ts`) was only ever switched on by rain; the kit now carries its own figure and the
+  larger wins. Velvet's marble, neon's oiled deck, sakura's waxed boards and orbit's alloy plates
+  ask for it. **Marina does not and must not**: the mirror flips the room about its lowest water,
+  which there is 1.3 tiles under the deck, and a deck reflecting about that plane shows the room
+  at the wrong height. Velvet's floor went from a cream-and-brown chequer at a metre a tile (the
+  loudest thing in the room, and it said lino) to one dark slab with brass lines three metres
+  apart on the two diagonals. A brass stud at every crossing was tried first and read as coins
+  dropped on the floor.
+- **What stands near the table is turned, in a finish** (`pot`, `cask`, `bollard`, `brazier`,
+  velvet's `standardLamp`, its balusters and its column). `Kit.lathe` and `Finish` were the
+  table's alone; nothing says they have to be. A turned piece has no ink hull and a material that
+  takes a highlight, which is the difference between an urn and a box. Two failures on the way:
+  a black marble vase with its vein at the texture's own contrast was a scribble, and one in the
+  lacquer finish (specular 0.06, set that low for the rail) was a flat silhouette; it is plain
+  marble, no grain. And the palm that stood in the urn was wider at the foot than the urn's neck.
+- **Rune is lit by fire** (`brazier`): two bowls of coals at the near end of the square, their
+  pools on the cobbles. The first flame was three four-sided cones in pale yellow, and with the
+  bloom on it that is a flat yellow triangle; it is a round body under two tongues now, in deep
+  orange, because the bloom is what makes it pale.
+- **The table's top** (`vistaTable`). The rail's crown went from 5 to 7.5 cm, a second filet runs
+  at its foot, and sixteen lozenges of the room's metal are let into the racetrack (`Kit.patch`).
+  Neon's and orbit's lines are light (`TableMaterials.glow`, `Finish.lit`): on neon the rim was
+  black lacquer round a dark violet cloth on a dark deck, and the table had no edge at all.
+  Velvet's burl was `#6b3d1c`, which under a dusk sky beside a burgundy cloth came out the same
+  red as the cloth; it is `#8a5424`.
+
+`sceneGround.test.ts` pins the shade, the inlay (and its absence under snow), where a floor may be
+polished, the lozenges and the lines of light.
+### A painted room (`scene/plates.ts`, `scene/plate.ts`, `tools/plates`; velvet, 2026-11-10)
+
+Three passes on the block rooms in one day were each judged an improvement and none of them what
+was asked for. The player's words: "next gen", "là tu m'as juste fait évoluer les miens". Asked to
+choose, they chose a painted illustration in the manner of a card game's board, one mood a room,
+and one room first. Velvet is that room. Its block builder stays: it is what the painting is made
+from, and what is shown when the painting cannot be had.
+
+**How the painting is made.** The block room is rendered without its table and without the inlay
+round its foot (`?bare=1`: both follow the felt, and the felt is another shape in every frame) and
+the render is given to an image-edit model run locally (FLUX.2 Klein 4B in ComfyUI) to repaint.
+What was tried, in order:
+
+- *The whole frame, repainted in one go.* The result was the jump in quality that was wanted, and a
+  different camera: a frame that is three quarters empty floor is not a picture the model believes
+  in, so it raised the horizon from 13% of the frame to 25-40% and painted a handsome boulevard.
+  Laid under the game's horizon, all of that boulevard is above the top of the screen. Telling it
+  where the balustrade is changed nothing.
+- *Starting from the render's own latent, partly noised.* Bimodal: under about 0.95 of the noise
+  the block room comes back untouched, above it the camera moves as before.
+- *Two passes*, which is what `tools/plates/paint.py` does. The strip above the floor, cut off the
+  guide, is a panorama on its own terms, and painted alone it keeps every object where the guide
+  has it. That strip is pasted back over the guide, and the whole is given back with the top
+  declared finished: the floor is then the only thing left to paint, and it comes out under the
+  strip, in the guide's perspective, mirroring it.
+
+Marble veins needed asking down ("almost without veins"): the first floors were cracked glass, and
+fine pattern under the table's edge is what this game does not want.
+
+**How it is shown.** One painting, made through one lens, under frames that each solve their own.
+Fitting it to the frame's edges would be right at one size. A floor is a plane, and a plane seen
+from the same height through another focal length is the same picture scaled about the horizon, so
+the plate is laid by **its horizon on the frame's, scaled by the ratio of the two focal lengths**
+(`plateUv`), and its entry carries its lens. The first cut took the lens by scaling 1920x1080's
+numbers by 1.2, which is close and not right (the felt has parts in fixed pixels): the horizon was
+14 pixels out, and the test now compares the entry with `solveView` at the plate's own size. The
+guide is 16:9 because that is where the camera's lens is widest (84 degrees): a 4:3 guide, tried
+first for its extra floor, was 76 degrees and left every monitor asking for 150 columns a side
+that the painting did not have. Past the painting: sky stretches up, the sides and the foot are
+mirrored, and the floor under the foot goes down into its own darkest note. A phone's frame looks
+far further down than a monitor's, and that floor is under its hand and its buttons.
+
+**In the render.** The painting is a sheet on the far plane, drawn first, writing no depth: the
+finishing passes take it for sky, so no air and no occlusion are laid on it. Three things went
+wrong on the way:
+
+- *The tone curve.* The composite runs everything through ACES, and a painting is finished colour,
+  not light: its black marble came out black and its lamps white. A gain and a gamma chased it for
+  two tries and then the shader sent the painting through three's own ACES fit **backwards**
+  (`untone`: the two matrices and the rational curve, each inverted), so what the frame's curve
+  gives back is the painting.
+- *The lens blur.* The composite puts the sky out of focus with the far. A painting put out of
+  focus is a painting thrown away: none for a painted room.
+- *The bloom.* A painted lamp already has its halo, and the look's two blooms on top of it turned
+  the marquee into a smear: a painted room takes 0.3 of both (`AirOptions.bloomScale`).
+- *The mist.* Under a fog the mist is laid by where the ground is, and a painted floor has no
+  depth: it came out as white spikes standing on the balustrade. A painted room gets no mist pass,
+  and the plate carries the weather's air itself, as a veil in the sky's low colour, thickest
+  along the horizon (`LOOK.plate.veil`, scaled by the weather's own thickness).
+
+The table's shade is a sheet of its own on the ground (`makePlateShade`), since there is no floor
+material left to carry `pools.ts`'s. What moves in the block room (the airship, the gull) does not
+move here: they are low-poly sprites, and over a painting they are stickers.
+
+**What a painted room gives up.** Its hour: velvet is dusk whatever is dealt (`plateHour`), which
+the player chose over painting four of each. And the weather's marks on the room itself: rain
+still falls and fog still veils it, over a floor that is not wet and roofs that carry no snow.
+#### The five other rooms
+
+Velvet was shown first and the answer was "magnifique"; the five others were painted the same day,
+each from its block room at the hour the rooms page already showed it (neon at night, rune at
+dusk, orbit at night, sakura by day, marina at dawn), three strips and two floors a room, one of
+each kept (`plates.ts` records the seeds). What differed:
+
+- **Neon's guide needed its own scene** (`game-map-neon-clear`): the room's showcase scene is a
+  rainy night, and a guide is shot under a clear sky.
+- **Neon's floor would not go dark.** The block room's oiled deck mirrors the sky as a pink sheet,
+  and a floor given to the model that bright comes back that bright, twice. `paint.py floor --dim
+  0.3` takes the guide's floor down before it is given back, and the prompt asks for wet boards
+  that are almost black.
+- **A floor's prompt names what stands on it.** "The floor stays empty" is right for five rooms
+  and would have swept sakura's cushion and tea table off the veranda; its prompt keeps them where
+  they are.
+- **Lettering.** Velvet's marquee was asked for by name and came out right one time in two. The
+  others ask for no lettering at all, and still get a few marks on a crate or a far sign: small
+  enough to leave, and the reason a strip is chosen by eye among three.
+
+The table's lines of light on neon and orbit, its lozenges and its shade are the render's, over
+the painting, as they were over the blocks.
+#### The table beside a painting (`TableMaterials.paint`, `Kit.band`, `tools/plates/trim.py`)
+
+With the six rooms painted, the table was the one rendered thing left in the frame, and its plain
+varnish read as a computer's. It cannot be painted the way a room is: the table is the felt cast
+back onto its plane, a wide oval on a monitor and nearly a circle on a phone, and one picture of
+it fits one frame. What it is made of has no such problem. The render dresses it in two strips,
+each a moulding painted square on, four times as long as it is tall:
+
+- `rail`: the top of the rim, one band from the outer edge over the rail's crown and across the
+  racetrack to the cloth. Its upper half is the rail, its lower half the racetrack.
+- `side`: an apron under the edge, 22 cm, straight. The swept edges (knife, ogee, bullnose) are
+  the plain table's; a moulding painted flat wants a flat face, and a taller one than they had.
+
+`Kit.band` lays a strip `repeats` times round with its `v` given ring by ring, and the strip is
+mirrored end to end, so `repeats` is even and the strip never has to tile: asked for a seamless
+texture the model draws a moulding with two turned ends, on white, with a margin; `trim.py --ship`
+finds the rows that are the moulding and leaves a tenth at each end.
+
+What went wrong on the way:
+
+- *Teeth.* The first rails were dense with ornament (two rows of fans, lozenges, burl eyes), and
+  the rail is forty pixels across on a monitor: laid at its true shape it was a row of teeth
+  round the cloth, which is the fine pattern this game refuses. The prompts now ask for one row
+  of large ornaments, about eight a strip, and smooth wood with no eyes or knots; and the strips
+  are drawn out along the table (`LOOK.table.stretch`, 1.7 for the rail).
+- *Runes that were letters.* Asked for carved runes, the model wrote capitals. Rune's rail is a
+  braid of knotwork with an iron boss; no strip asks for anything that could be read.
+- *A painting in the dark.* A painted strip carries its own light, and lit only by the room it
+  was a dark band on the near side, where every face is in shade: the `painted` finish shows 0.72
+  of its own colour whatever falls on it. The cloth went from 0.3 to 0.42 on the same pass: beside
+  a painting it was the darkest thing on screen.
+
+The cloth itself is not painted and must not be: it is what the cards are read against, and it
+keeps its inlay (`FeltInlay`). Neon's and orbit's lines of light stay, drawn over the painting.
+### The band at the top: a landmark has to be large enough to be one
+
+The far ground is a strip some 270 pixels tall at 1080p, half of it sky. Three rooms had a
+landmark written into their builder that no frame showed, each for a different reason, and the
+arithmetic is worth keeping: with the camera's focal length near 1250 pixels at 16:9, a thing `H`
+tiles tall at `D` tiles is `1250 * H / D` pixels, and the air has taken 0.75 of its colour by a
+few hundred tiles (`LOOK.vista.haze`).
+
+- **Sakura's mountain was too large to see.** 1500 tiles tall at 5200: 360 pixels of it over a
+  horizon with 140 pixels of sky above it. Its foot filled the frame, its snow was over the top
+  edge, and what was left on screen was a flat tint the air had already turned into sky. It is
+  440 tall at 4300 now, deep blue under a white cap, whole in the band.
+- **Sakura's pagoda stood behind the near cherry.** Out on the left hill it was under the crown
+  that reaches in over the top-left corner at every frame. It stands in the gap of sky between the
+  two cherries, at 450 tiles rather than 600 and broader in the roof: at 600 it was twenty pixels
+  wide and read as a mast.
+- **Marina's lighthouse was five pixels wide.** On the right headland's point, 900 tiles out,
+  behind the jetty's lamps. It stands on a rock behind the breakwater, 430 tiles out, left of the
+  middle, where the low sun is beside it.
+- **Rune has peaks behind its folds**: six sharp cones with snow on their heads at 3500 tiles,
+  deep blue so something of them is left through the air. Faint on purpose.
+
+**A skyline's tower is piers, panes and a crown** (`vista.ts: skyline`). A box with rows of lit
+squares was a punch card: the face now carries piers a shade lighter than the wall, a lit pane is
+taller than it is wide, and a plain tower takes a setback, some a second one and a mast with its
+red light, some a band of light under the cornice (`crowns`, on by default). **The crown is drawn
+from the tower's own place** (`spotChance(x, z)`), never from the room's sequence: a draw added
+inside the skyline would have moved every palm and lamp planted after it.
+
+`sceneLandmarks.test.ts` projects the mountain and the lighthouse at three frames and compares
+the room's sequence with and without crowns.
+### The cloth's inlay (`FeltInlay.svelte`, `layout.ts: feltInlay`)
+
+The cloth is the largest object on screen and it was one colour from rail to rail. Fine noise is
+refused on every surface, and the mark was taken off the felt because only its wing tips ever
+showed. What is left to make a board of it is light and line:
+
+- the lamp's pool, in the room's own tint, and the cloth going down into shade towards the rail;
+- a double thread of the rim's metal (`--tbl-inlay`) inlaid round the cloth, **concentric with the
+  felt** like every other line round the table;
+- a medallion under the piles, a shade deeper than the cloth and ringed in the same thread. It is
+  a circle lying on the table, so it is drawn as **an ellipse of the cloth's own proportions**;
+- two studs on the thread, where it stands well clear of the medallion (`INLAY_STUD_CLEAR`). On a
+  phone's round table the thread passes beside the direction's arrows and a stud there was one
+  shape too many.
+
+One SVG, drawn over the rendered table and over the CSS one alike, so the cloth is the same cloth
+whichever carries it. Its lines pass under the opponents' hands, which is where a table's inlay is.
 ### What shines and what reflects
 - **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`;
   `kit.ts: litMaterial`; `sceneGloss.test.ts`). The room's one lit material mixes its roughness
@@ -1629,6 +1904,15 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   900) — played at the spec's own **delay**, so the colour callout still lands
   `COLOR_CALLOUT_DELAY_MS` after the card's under reduced motion too.
 
+## Surfaces are lit, not filled (`tokens.css`, the pass of 2026-11-10)
+
+The plates and the action bar were `--color-surface-card` from edge to edge: a flat navy shape
+with an outline. `--surface-lit` is the same hue as a gradient from a lighter top to a deeper foot,
+`--lip` a hairline of light on the upper edge and of shade on the lower, `--trim` a thread of gold
+just inside the ink, `--gloss` the band a saturated control carries over its own gradient. It is
+dressing: the outline, the hard shadow, every size and every state are untouched, the action bar's
+grid does not know about it, and a dead button stays the sunken slot (`actionBar.test.ts` still
+measures it).
 ## Player bubble (`<PlayerSlot />`)
 - Chunky sticker pill positioned by `seatLayout(...)` (see "Seat layout"), clockwise from the local
   seat. Size is `full` / `compact` / `mini` — the component mirrors `SEAT_DIMS`, it does not choose.
@@ -1661,15 +1945,15 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   `apple-touch-icon.png` as its raster twin — iOS ignores SVG icons. `locoMark.ts` is the source of
   truth for the geometry; the two icon files are static copies (a `<link rel=icon>` cannot import a
   module), so a change to the mark means editing all three.
-- **The felt watermark is bound by the oval's height, not its width**, even though the mark is
-  landscape: the felt is roughly a 2.7:1 ellipse, so a mark sized off the width lands half outside
-  the curve and `overflow:hidden` slices it into fragments. `aspect-ratio` is set explicitly — an
-  absolutely-positioned `<svg>` with one axis `auto` does not reliably take its intrinsic ratio.
-- **The table is near-black.** It used to be green felt, which fought the deck: a
+- **The felt carries no mark** (removed 2026-11-10). It was branded into the cloth at 7%, the way a
+  casino brands its baize, and sized to stay inside the oval. The piles stand on its middle, so the
+  only part of it anybody ever saw was the tips of the duck's wings either side of them: faint
+  spikes on the felt, read by the player as a rendering fault rather than as a brand. The mark has
+  the card backs, the deck and the wordmark; the cloth is its colour.
+- **The table is near-black without a room.** It used to be green felt, which fought the deck: a
   `#00ff6d` card on a `#1fbf8f` table loses its edge, and a card losing its edge is the one thing
   that must not happen. Dark also makes the table the stage and the cards the only bright objects on
-  it. The mark is branded into the felt at 7% — the piles sit on top of it, so anything more is a
-  table you have to look past.
+  it.
 - A near-black card back on a near-black table is 1.3:1 and its ink outline is as dark as both, so
   `CardBack` carries a **light inner rim**. Without it the deck has no edge and an opponent's mini
   fan is one black bar.
@@ -1782,13 +2066,23 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     The arc puts the next player at the **left** end of the top row, so a table flows 6 o'clock → 9
     → 12 → 3, which is clockwise. Same fact `clockwiseOpponents` is named after; an arrow pointing
     the wrong way is worse than no arrow.
-  - **Laid down in perspective, with a thickness**: a flat SVG in a box tipped back
-    (`perspective(900px) rotateX(62deg)`, steeper than a pile: at the piles' own tilt a circle this
-    wide reached the seats and the pill), the same arrow a few pixels lower in shade under it.
-    Translucent near-white washed with the room's accent: a saturated arrow would read as a suit.
-  - The heading lives in the **arrowheads**, never in the motion: the slow turn with the play (60s a
-    lap) is a second readout, so a frozen ring (reduced motion, a paused clip, a screenshot) still
-    reads.
+  - **Laid down in perspective**: a flat SVG in a box tipped back (`perspective(900px)
+    rotateX(62deg)`, steeper than a pile: at the piles' own tilt a circle this wide reached the
+    seats and the pill). Near-white washed with the room's accent: a saturated arrow would read as
+    a suit.
+  - **Each arrow is a stroke of light, and its head is where it can be seen** (the pass of
+    2026-11-10). Two things made the old ring a grey smudge round the piles rather than a
+    direction. Laid flat, the circle passes *behind* the piles above and below them, and at a
+    sweep of 130° both heads ended there: the one part of an arrow that says which way was the
+    part nobody saw, and what showed was two blunt grey arcs. `ARROW_SWEEP` is 84° now, so each
+    arrow is a short arc beside the piles with its head clear of them (`layout.test.ts` checks the
+    tip against the width of the pair). And it was an even translucent band with a shaded copy
+    under it for thickness; it is a gradient along the arrow's own run instead, nothing at the
+    tail and full at the head, so the heading is said by the shape and by which end is lit.
+  - The heading lives in the **arrowheads**, never in the motion: the arrows running a few degrees
+    the way the play runs, lit as they set off and gone before they snap back (`dirFlow`, 3.6s), is
+    a second readout, so a frozen ring (reduced motion, a paused clip, a screenshot) still reads.
+    It was a full turn in 60s, which carried both heads behind the piles for most of every minute.
   - `<GameBoard />` keys it on the direction, so a Reverse remounts it and replays the half turn.
   - Scenes `game-my-turn` (cw) and `game-reversed` (ccw) cover both headings in the showcase.
 - **The deck falls** on the victory screen only, and once (`CardFall.svelte`). Losing screens do not
@@ -2127,6 +2421,19 @@ definition out of reach the moment it is uploaded.
 
 `coverCard.test.ts` pins the ratio, the 40px floor and the no-other-text rule.
 
+## The entry screen's two hands (`HomeHands.svelte`)
+
+The entry screen was the wordmark and four buttons on the flat canvas, which is the rule (no
+painted ambience, the landings are flat) applied until nothing was left. The rule's second half is
+that objects carry the life, and the game's objects are its cards: two fans of the real `<Card />`
+rise out of the bottom corners, each turning round a point under the fold, at a size no card has
+at the table. They rise once, card by card, and then hold still.
+
+They are decoration, so: `aria-hidden`, `pointer-events: none`, no role and no tab stop, and
+clipped by their own `overflow: hidden` layer, because `.container` scrolls and an absolutely
+placed card hanging under the fold would hand the one-viewport screen a scrollbar. Drawn from
+75rem wide and 40rem tall only; under that the corners are where the column, the live strip and
+the sideways composition live.
 ## Ambience and celebration
 
 The brief this pass answered was "everything that feels soulless". Four things, each small, each in

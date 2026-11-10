@@ -17,6 +17,19 @@
  * surface, and the same place in two colour schemes is two places.
  */
 import { TIMES, WEATHERS, isTime, isWeather, type TimeOfDay, type Weather } from '../scene/sky'
+import { plateHour } from '../scene/plates'
+import marinaRail from '../../assets/plates/marina-rail.webp?url'
+import marinaSide from '../../assets/plates/marina-side.webp?url'
+import neonRail from '../../assets/plates/neon-rail.webp?url'
+import neonSide from '../../assets/plates/neon-side.webp?url'
+import orbitRail from '../../assets/plates/orbit-rail.webp?url'
+import orbitSide from '../../assets/plates/orbit-side.webp?url'
+import runeRail from '../../assets/plates/rune-rail.webp?url'
+import runeSide from '../../assets/plates/rune-side.webp?url'
+import sakuraRail from '../../assets/plates/sakura-rail.webp?url'
+import sakuraSide from '../../assets/plates/sakura-side.webp?url'
+import velvetRail from '../../assets/plates/velvet-rail.webp?url'
+import velvetSide from '../../assets/plates/velvet-side.webp?url'
 
 export type MapId = 'neon' | 'rune' | 'velvet' | 'orbit' | 'sakura' | 'marina'
 
@@ -61,6 +74,18 @@ export interface TableMaterials {
   pedestal: PedestalKind
   /** The pedestal is stone and this is its vein (Velvet's black marble). */
   baseVein?: string
+  /**
+   * The two painted strips the render dresses the table in (`tools/plates/trim.py`,
+   * `vista.ts: vistaTable`): the top of the rim from its outer edge in to the
+   * cloth, and the apron under it from the top down. The render only; without
+   * them the table is its materials above.
+   */
+  paint?: { rail: string; side: string }
+  /**
+   * The metal lines round the top are lines of light, in this colour: a room
+   * that has its own electricity (the render only; the CSS table keeps `inlay`).
+   */
+  glow?: string
 }
 
 export interface MapDef {
@@ -106,6 +131,8 @@ export const MAPS: Record<MapId, MapDef> = {
       grain: '#2c2640',
       edge: 'knife',
       pedestal: 'tulip',
+      glow: '#ff5fe0',
+      paint: { rail: neonRail, side: neonSide },
     },
     accent: '#c56bff',
     accentDeep: '#5a1e9c',
@@ -124,6 +151,7 @@ export const MAPS: Record<MapId, MapDef> = {
       grain: '#3b2412',
       edge: 'square',
       pedestal: 'turned',
+      paint: { rail: runeRail, side: runeSide },
     },
     accent: '#ffab52',
     accentDeep: '#6d3410',
@@ -134,7 +162,7 @@ export const MAPS: Record<MapId, MapDef> = {
     table: {
       felt: '#6e1729',
       feltDeep: '#2a0610',
-      rim: '#6b3d1c',
+      rim: '#8a5424',
       rimLight: '#f3cf94',
       base: '#141214',
       inlay: '#e9c46e',
@@ -143,6 +171,7 @@ export const MAPS: Record<MapId, MapDef> = {
       edge: 'ogee',
       pedestal: 'deco',
       baseVein: '#d9d2c6',
+      paint: { rail: velvetRail, side: velvetSide },
     },
     accent: '#f0c46a',
     accentDeep: '#5e3a12',
@@ -161,6 +190,8 @@ export const MAPS: Record<MapId, MapDef> = {
       grain: '#5c646f',
       edge: 'knife',
       pedestal: 'tripod',
+      glow: '#5fe0ff',
+      paint: { rail: orbitRail, side: orbitSide },
     },
     accent: '#4fd6ff',
     accentDeep: '#123a63',
@@ -181,6 +212,7 @@ export const MAPS: Record<MapId, MapDef> = {
       fleck: '#e8c065',
       edge: 'bullnose',
       pedestal: 'legs',
+      paint: { rail: sakuraRail, side: sakuraSide },
     },
     accent: '#ff8fb8',
     accentDeep: '#7a2a4a',
@@ -199,6 +231,7 @@ export const MAPS: Record<MapId, MapDef> = {
       grain: '#4a2a10',
       edge: 'bullnose',
       pedestal: 'capstan',
+      paint: { rail: marinaRail, side: marinaSide },
     },
     accent: '#5fc8ff',
     accentDeep: '#153f5e',
@@ -241,7 +274,8 @@ export function resolveScene(
 ): SceneSpec | null {
   const map = resolveMap(mapId)
   if (!map) return null
-  const t: TimeOfDay = isTime(time) ? time : 'day'
+  // A painted room has one hour, its painting's, whatever hour was dealt.
+  const t: TimeOfDay = plateHour(map.id, isTime(time) ? time : 'day')
   const w: Weather = isWeather(weather) && map.weathers.includes(weather) ? weather : 'clear'
   return { map, time: t, weather: w }
 }

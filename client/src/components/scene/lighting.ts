@@ -166,15 +166,25 @@ export function makeLights(rig: LightRig, q: RenderQuality): Lights {
 /**
  * The lamp over the table (`LOOK.table.lamp`): a warm cone straight down onto
  * the cloth from above its middle, the one light in the room that is the
- * table's. No shadow — the sun's is the one map — and the corner where the
- * rail meets the cloth is the occlusion's.
+ * table's. It casts the table's own shadow onto what it stands on and the
+ * floor round it; the corner where the rail meets the cloth is the
+ * occlusion's.
  */
 export function makeTableLamp(rig: LightRig, centre: [number, number, number]): SpotLight {
   const l = LOOK.table.lamp
   const lamp = new SpotLight(new Color(l.color), l.day + (l.night - l.day) * rig.dark, 0, (l.angle * Math.PI) / 180, l.penumbra, 0)
   lamp.position.set(centre[0], centre[1] + l.height, centre[2])
   lamp.target.position.set(centre[0], centre[1], centre[2])
-  lamp.castShadow = false
+  // Its own small shadow map, drawn once like the sun's: without one the
+  // lamp lit the pedestal and the floor straight through the table top, and
+  // a chrome foot under a table came out brighter than the cloth over it.
+  lamp.castShadow = true
+  lamp.shadow.mapSize.set(l.shadowMap, l.shadowMap)
+  lamp.shadow.camera.near = 0.5
+  lamp.shadow.camera.far = l.height + centre[1] + 2
+  lamp.shadow.bias = -0.0008
+  lamp.shadow.normalBias = 0.02
+  lamp.shadow.radius = 3
   return lamp
 }
 

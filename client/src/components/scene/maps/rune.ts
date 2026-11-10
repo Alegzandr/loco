@@ -15,39 +15,66 @@ import type { Builder } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix, type Hex } from '../sky'
 import type { Kit } from '../kit'
-import { hills, vistaTable } from './vista'
+import { brazier, cask, groundInlay, hills, vistaTable } from './vista'
+import type { Finish } from '../kit'
 import { bat, gull, smoke } from './vistaLife'
 
 const COBBLE = 0x9c8a74
 const COBBLE2 = 0x8a7864
-const PLASTER = 0xefe2c6
-const TIMBER = 0x4a2e1c
+/** The bed the cobbles are set in: their own stone a shade down, never the meadow under them. */
+const MORTAR = 0x6f6152
+const PLASTER = 0xead9b8
+const PLASTER2 = 0xe2cda6
+const TIMBER = 0x5c3b25
+const STONE = 0x8d8578
 const ROOF = [0x8a3a2a, 0x6e3a2e, 0x7a4a32] as const
+const SHUTTER = [0x3f6f66, 0x7a3b2e, 0x46557a] as const
 const MEADOW = 0x6f8f4a
 const PINE = 0x2f4f3a
 const RUNE = 0x9d6bff
 const WARM = 0xffc27a
+const DARK_PANE = 0x2a2a38
+
+/** A timber on a façade: thin, proud of the plaster by a hair, never outlined. */
+const BEAM = 0.14
 
 /**
  * A gabled house, half-timbered, its gable end facing `+z` (the camera) or
- * its long side (`side`). Windows lit tonight at the hour's share.
+ * its long side (`side`): a stone course at its foot, posts and a rail with a
+ * brace in each end bay, and two windows in their frames with shutters, lit
+ * tonight at the hour's share. A plain block with four black bars on it was
+ * what this was, and a street of them read as cartons.
  */
 function house(k: Kit, x: number, z: number, w: number, d: number, h: number, roof: Hex, o: { side?: boolean; y?: number } = {}) {
   const rng = k.rng
   const y = o.y ?? 0
   const rot = o.side ? Math.PI / 2 : 0
-  k.box(x, y, z, w, h, d, PLASTER, { rot })
-  // Timbers on the face towards the camera.
+  const plaster = rng.chance(0.5) ? PLASTER : PLASTER2
+  k.box(x, y, z, w, h, d, plaster, { rot })
   const fw = o.side ? d : w
   const fz = z + (o.side ? w : d) / 2 + 0.04
-  for (let i = 0; i <= 3; i++) k.box(x - fw / 2 + (i / 3) * fw, y, fz, 0.18, h, 0.08, TIMBER, { outline: false, cap: false })
-  k.box(x, y + h * 0.5, fz, fw, 0.18, 0.08, TIMBER, { outline: false, cap: false })
-  for (let i = 0; i < 2; i++) {
-    const wx = x - fw / 4 + i * (fw / 2)
-    const litHere = k.rig.lampsOn && rng.chance(Math.max(0.25, k.rig.windowsLit))
-    k.box(wx, y + h * 0.62, fz + 0.02, 0.8, 0.9, 0.06, litHere ? WARM : 0x2a2a38, { glow: litHere, outline: false, cap: false })
+  // The stone course the frame stands on.
+  k.box(x, y, fz - 0.02, fw + 0.12, 0.7, 0.14, STONE, { outline: false, cap: false })
+  // Posts, the rail at mid height, the plate under the eaves.
+  for (let i = 0; i <= 3; i++) k.box(x - fw / 2 + (i / 3) * fw, y + 0.7, fz, BEAM, h - 0.7, 0.08, TIMBER, { outline: false, cap: false })
+  for (const ry of [h * 0.5, h - BEAM]) k.box(x, y + ry, fz, fw, BEAM, 0.08, TIMBER, { outline: false, cap: false })
+  // A brace in each end bay, leaning in towards the middle.
+  const bay = fw / 3
+  const rise = h * 0.5 - 0.7
+  const len = Math.hypot(bay, rise)
+  for (const sgn of [-1, 1]) {
+    k.box(x + sgn * (fw / 2 - bay / 2), y + 0.7 + rise / 2, fz, len, BEAM, 0.08, TIMBER, { tilt: sgn * Math.atan2(rise, bay), outline: false, cap: false })
   }
-  k.prism(x, y + h, z, (o.side ? d : w) + 0.5, h * 0.7, (o.side ? w : d) + 0.4, k.top(roof), { rot: o.side ? 0 : Math.PI / 2 })
+  const shutter = rng.pick(SHUTTER)
+  for (let i = 0; i < 2; i++) {
+    const wx = x - fw / 6 + i * (fw / 3)
+    const wy = y + h * 0.5 + (h * 0.5 - 1.0) / 2 - 0.1
+    const litHere = k.rig.lampsOn && rng.chance(Math.max(0.25, k.rig.windowsLit))
+    k.box(wx, wy - 0.07, fz + 0.01, 0.94, 1.14, 0.06, TIMBER, { outline: false, cap: false })
+    k.box(wx, wy, fz + 0.03, 0.8, 1.0, 0.06, litHere ? WARM : DARK_PANE, { glow: litHere, outline: false, cap: false })
+    for (const sgn of [-1, 1]) k.box(wx + sgn * 0.66, wy - 0.03, fz + 0.02, 0.36, 1.06, 0.06, shutter, { outline: false, cap: false })
+  }
+  k.prism(x, y + h, z, (o.side ? d : w) + 0.7, h * 0.7, (o.side ? w : d) + 0.6, k.top(roof), { rot: o.side ? 0 : Math.PI / 2 })
   if (rng.chance(0.6)) k.box(x + fw * 0.25, y + h + h * 0.3, z, 0.5, 1.4, 0.5, 0x6a5a50)
 }
 
@@ -60,25 +87,62 @@ export const rune: Builder = (k) => {
 
   // ─── The ground ─────────────────────────────────────────────────────────
   k.box(0, -0.3, -2600, 9000, 0.3, 5300, k.ground(MEADOW), { outline: false, cap: false })
-  // Cobbles in the square, laid in rows across.
-  for (let z = -16; z < view.eye[2] + 2; z += 0.55) {
+  // Cobbles in the square, laid in rows across, set in a bed that comes up
+  // nearly flush with them: a joint is a shallow line of darker stone. Over
+  // the bare meadow each joint was a trench with grass at the bottom of it,
+  // and from the table the square read as tiles floating on a lawn.
+  const near = view.eye[2] + 2
+  k.box(0, -0.1, (near - 16.4) / 2, 29.2, 0.125, near + 16.4, k.ground(MORTAR), { outline: false, cap: false, gloss: k.wetGloss() })
+  for (let z = -16; z < near; z += 0.55) {
     const off = (Math.round(z / 0.55) % 2) * 0.35
     for (let x = -14 + off; x < 14; x += 0.7) {
-      k.box(x, -0.05, z, 0.64, 0.1, 0.5, k.ground(mix(COBBLE, COBBLE2, rng.range(0, 1))), { outline: false, cap: true, gloss: k.wetGloss() })
+      k.box(x, -0.05, z, 0.66, 0.1, 0.51, k.ground(mix(COBBLE, COBBLE2, rng.range(0, 1))), { outline: false, cap: true, gloss: k.wetGloss() })
     }
   }
 
+  // The table's ground: a ring of dressed flagstone let into the cobbles, a
+  // line of the rune's light cut round it. Lit after dark, the same violet
+  // as the standing stone's.
+  groundInlay(k, [
+    { out: 1.62, color: 0x5d574f },
+    { out: 1.5, color: RUNE, glow: true },
+    { out: 1.44, color: 0x7d766c },
+    { out: 0.5, color: 0x5d574f },
+    { out: 0.42, color: 0x6f685f },
+  ], 0.05)
+  k.pool(0, 0, 5.5, WARM, 0.22)
+  // A brazier either side of the square's near end: the fire the square is
+  // lit by after dark, warm on the cobbles under a violet sky.
+  const wrought: Finish = { kind: 'metal', color: 0x35333a }
+  brazier(k, -5.4, -5.2, wrought)
+  brazier(k, 4.6, -4.4, wrought)
+
   // ─── Near: the tavern on the left ───────────────────────────────────────
-  // Its long wall faces the square, running away from the camera.
+  // Its long wall faces the square, running away from the camera: a stone
+  // course, the frame on it with a brace in each end bay, two windows in
+  // their shutters over a box of flowers, and the door between them.
   const tx = -9.6
+  const wall = tx + 2.04
   k.box(tx, 0, -9, 4, 6.2, 12, PLASTER)
-  for (let z = -14.5; z <= -3.5; z += 2.2) k.box(tx + 2.04, 0, z, 0.08, 6.2, 0.2, TIMBER, { outline: false, cap: false })
-  for (const y of [0.9, 3.2, 6.0]) k.box(tx + 2.04, y, -9, 0.08, 0.2, 12, TIMBER, { outline: false, cap: false })
-  // Two windows and the door, on the wall towards the table.
-  for (const z of [-5.2, -12.4]) k.box(tx + 2.08, 3.6, z, 0.06, 1.1, 1.2, on ? WARM : 0x2a2a38, { glow: on, outline: false, cap: false })
-  k.box(tx + 2.08, 0, -8.6, 0.06, 2.2, 1.3, 0x3a2418, { outline: false, cap: false })
-  if (on) k.halo(tx + 2.8, 0, -8.6, 2.2, WARM, 0.35)
-  k.prism(tx, 6.2, -9, 12.6, 3, 4.8, k.top(ROOF[0]), { rot: Math.PI / 2 })
+  k.box(wall - 0.02, 0, -9, 0.14, 0.8, 12.1, STONE, { outline: false, cap: false })
+  for (const z of [-14.9, -12.7, -10.5, -8.3, -6.1, -3.9, -3.1]) k.box(wall, 0.8, z, 0.08, 5.4, BEAM, TIMBER, { outline: false, cap: false })
+  for (const y of [3.1, 6.2 - BEAM]) k.box(wall, y, -9, 0.08, BEAM, 12, TIMBER, { outline: false, cap: false })
+  for (const [z0, z1, lean] of [[-14.9, -12.7, 1], [-6.1, -3.9, -1]] as const) {
+    const run = z1 - z0
+    const rise = 3.1 - 0.8
+    k.box(wall, 0.8 + rise / 2, (z0 + z1) / 2, Math.hypot(run, rise), BEAM, 0.08, TIMBER, { tilt: lean * Math.atan2(rise, run), rot: Math.PI / 2, outline: false, cap: false })
+  }
+  for (const z of [-5.0, -11.6]) {
+    k.box(wall + 0.01, 3.55, z, 0.06, 1.34, 1.44, TIMBER, { outline: false, cap: false })
+    k.box(wall + 0.03, 3.62, z, 0.06, 1.2, 1.3, on ? WARM : DARK_PANE, { glow: on, outline: false, cap: false })
+    for (const sgn of [-1, 1]) k.box(wall + 0.02, 3.6, z + sgn * 0.98, 0.06, 1.24, 0.5, SHUTTER[0], { outline: false, cap: false })
+    // A window box under it: the one bit of green on the wall.
+    k.box(wall + 0.14, 3.3, z, 0.26, 0.2, 1.5, 0x6b4a30, { cap: false })
+    for (let i = 0; i < 5; i++) k.sphere(wall + 0.14, 3.56, z - 0.6 + i * 0.3, 0.13, i % 2 ? 0xd9534f : 0x5f9a4a, { seg: 5, outline: false })
+  }
+  k.door(wall + 0.01, 0, -8.3, 1.3, 2.3, 0x4a2c1a, { facing: 'x', frame: TIMBER })
+  if (on) k.halo(tx + 2.8, 0, -8.3, 2.2, WARM, 0.3)
+  k.prism(tx, 6.2, -9, 12.8, 3, 5.0, k.top(ROOF[0]), { rot: Math.PI / 2 })
   // The sign on its bracket, and the lantern under it.
   k.box(tx + 3, 4.6, -4.2, 2, 0.1, 0.1, 0x2b2b30, { cap: false })
   k.box(tx + 3.6, 3.6, -4.2, 0.08, 0.9, 1.1, 0x7a4a2a, { cap: false })
@@ -92,10 +156,9 @@ export const rune: Builder = (k) => {
   const cx = 7.2
   const cz = -7.5
   k.stall(cx, cz, -0.35, 0xc8513f, 0xf3e6c8)
-  for (const [dx, dz] of [[-1.9, 1.0], [-2.5, 0.2]]) {
-    k.cyl(cx + dx, 0, cz + dz, 0.34, 0.8, 0x8a5a2f, { seg: 10 })
-    k.cyl(cx + dx, 0.62, cz + dz, 0.36, 0.06, 0x2a2a2a, { seg: 10, outline: false, cap: false })
-  }
+  const oak: Finish = { kind: 'wood', color: 0x8a5a2f, grain: 'straight', grainColor: 0x4f2f14 }
+  const hoop: Finish = { kind: 'metal', color: 0x3a3a40 }
+  for (const [dx, dz] of [[-1.9, 1.0], [-2.5, 0.2]]) cask(k, cx + dx, cz + dz, oak, hoop)
   k.lantern(cx - 1.2, 2.1, cz + 0.9, on ? 0xffc27a : 0x6a5a40, 0.22)
   if (on) k.halo(cx - 1.2, 0, cz + 0.9, 2.4, WARM, 0.35)
   // The standing stone, its rune lit after dark. Out on the square between the
@@ -104,9 +167,16 @@ export const rune: Builder = (k) => {
   // violet panel with a white slab floating on it.
   const sx = 5.2
   const sz = -17
-  k.box(sx, 0, sz, 1.3, 3.6, 0.8, 0x7e7f86, { rot: -0.2 })
-  k.box(sx - 0.06, 1.8, sz + 0.42, 0.5, 1.1, 0.04, on ? RUNE : 0x5a5a66, { rot: -0.2, glow: on, outline: false, cap: false })
-  if (on) k.halo(sx, 0, sz + 1, 2.5, RUNE, 0.3)
+  // A menhir, not a slab: five-sided, narrowing to a blunt top, its rune cut
+  // as three strokes. A squared block with a lit panel on it read, from the
+  // table, as a violet pillar with a window in it.
+  k.cyl(sx, 0, sz, 0.8, 3.5, 0x7e7f86, { seg: 5, rTop: 0.5, rot: 0.4 })
+  const stroke = (dx: number, y: number, w: number, h: number, tilt = 0) =>
+    k.box(sx + dx, y, sz + 0.62, w, h, 0.05, on ? RUNE : 0x5a5a66, { tilt, glow: on, outline: false, cap: false })
+  stroke(-0.12, 1.3, 0.09, 1.3)
+  stroke(0.06, 2.3, 0.42, 0.09, -0.6)
+  stroke(0.06, 2.0, 0.42, 0.09, 0.6)
+  if (on) k.halo(sx, 0, sz + 1, 1.8, RUNE, 0.22)
 
   // ─── Middle: the street, the well, the meadow ───────────────────────────
   for (let i = 0; i < 6; i++) {
@@ -145,6 +215,12 @@ export const rune: Builder = (k) => {
     k.cone(x, bole, z, hh * 0.28, hh, mix(PINE, 0x3f5f45, rng.range(0, 1)), { seg: 6, outline: false })
   }
   hills(k, -3000, 3000, -2600, 240, 0x5a6a8a, 12, -1)
+  // Peaks behind them, snow on their heads: the edge of the country the
+  // village is in. Sharp, where the folds in front are round.
+  for (const [x, r, h] of [[-2300, 520, 300], [-1250, 430, 250], [-420, 380, 205], [820, 470, 280], [1700, 400, 230], [2600, 540, 310]] as const) {
+    k.cone(x, -1, -3500, r, h, 0x34446e, { seg: 7, outline: false, rot: x * 0.01 })
+    k.cone(x, h * 0.58 - 1, -3500 + 30, r * 0.43, h * 0.43, 0xffffff, { seg: 7, outline: false, rot: x * 0.01 })
+  }
   // The tower: a round keep narrowing up, a pointed cap, windows lit the
   // wrong colour, a light at the top that is on at every hour.
   // Far enough that its light, forty metres up, sits just under the frame's

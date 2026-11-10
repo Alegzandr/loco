@@ -270,10 +270,11 @@ const LIT_FRAG = /* glsl */ `
   uniform sampler2D tScene;
   uniform sampler2D tAo;
   uniform float uIntensity;
+  uniform float uFloor;
   varying vec2 vUv;
   void main() {
     vec4 c = texture2D(tScene, vUv);
-    float ao = texture2D(tAo, vUv).x;
+    float ao = max(texture2D(tAo, vUv).x, uFloor);
     c.rgb *= mix(1.0, ao, uIntensity);
     gl_FragColor = c;
   }
@@ -591,6 +592,8 @@ export interface AirOptions {
   bloom: number
   /** How much more the air spreads a light than a clear night does: the weather's (`LOOK.vista.haze.weather`), 0 on a clear night. */
   glow: number
+  /** The share of both blooms the frame takes, 0-1 (1 when absent): a painted room's lamps already carry their halo. */
+  bloomScale?: number
 }
 
 /** The projection and its inverse, which every pass that reconstructs a position reads (`VIEW_PARS`). */
@@ -799,7 +802,7 @@ export function renderWithPost(
 
     // ─── The lit frame: scene × occlusion ──────────────────────────────────
     const litRT = make(width, height, { half })
-    const lit = shader(LIT_FRAG, { tScene: { value: sceneRT.texture }, tAo: { value: aoA.texture }, uIntensity: { value: opts.ao ? LOOK.ao.intensity : 0 } })
+    const lit = shader(LIT_FRAG, { tScene: { value: sceneRT.texture }, tAo: { value: aoA.texture }, uIntensity: { value: opts.ao ? LOOK.ao.intensity : 0 }, uFloor: { value: LOOK.ao.floor } })
     pass(lit, litRT)
 
     // ─── Bloom, at a quarter ───────────────────────────────────────────────
@@ -855,9 +858,10 @@ export function renderWithPost(
     // A darker room blooms more: at noon the lamps are off and what is bright
     // is the sky and the snow, which must not glow; at midnight the lamps are
     // the light.
-    const bloomStrength = opts.bloom ? LOOK.post.bloomStrength + rig.dark * LOOK.post.bloomDark + air.bloom : 0
+    const bloomScale = air.bloomScale ?? 1
+    const bloomStrength = opts.bloom ? (LOOK.post.bloomStrength + rig.dark * LOOK.post.bloomDark + air.bloom) * bloomScale : 0
     // The wide glow is the lamps', so it is the night's: at noon the lamps are off.
-    const bloomWide = opts.bloom ? rig.dark * LOOK.post.bloomWide * (1 + air.glow) : 0
+    const bloomWide = opts.bloom ? rig.dark * LOOK.post.bloomWide * (1 + air.glow) * bloomScale : 0
     const composite = shader(COMPOSITE_FRAG, {
       tScene: { value: litRT.texture },
       tBlur: { value: blurA.texture },

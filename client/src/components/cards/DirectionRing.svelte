@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { directionArrows, directionArrowBox } from './layout'
+  import { directionArrows, directionArrowBox, ARROW_SWEEP, DIRECTION_RADIUS } from './layout'
 
   type Props = {
     /** The middle of the deck and discard pair, in board space: what the arrows turn round. */
@@ -14,6 +14,17 @@
 
   const box = directionArrowBox()
   const arrows = $derived(directionArrows(direction))
+  // Where each arrow starts and where it points, on the circle: the line its
+  // light runs along, faint at the tail and full at the head: the same sweep
+  // `directionArrows` draws, centred on each side of the piles.
+  const SWEEP = ARROW_SWEEP
+  const runs = $derived(
+    [0, Math.PI].map((middle) => {
+      const flow = direction >= 0 ? 1 : -1
+      const at = (t: number) => ({ x: box / 2 + Math.cos(t) * DIRECTION_RADIUS, y: box / 2 + Math.sin(t) * DIRECTION_RADIUS })
+      return { from: at(middle - (flow * SWEEP) / 2), tip: at(middle + (flow * SWEEP) / 2) }
+    }),
+  )
 </script>
 
 <!--
@@ -23,13 +34,17 @@
   it answers is "who plays after me", and the answer is a turn round the
   table, which is what a circle drawn round the middle of it says. A viewer
   with no controls has to read it from a clip, so the heading is in the
-  arrowheads and holds still under reduced motion; the slow turn is the second
-  readout of the same fact, never the only one.
+  arrowheads and holds still under reduced motion; the arrows running that
+  way is the second readout of the same fact, never the only one.
 
   Laid on the table in perspective, so the circle is seen the way the piles
-  are: the far side smaller, the band's thickness showing under it.
-  Translucent: it is a direction, not an object, and the piles and the cards
-  thrown on them always win.
+  are: the far side smaller. Each arrow is a stroke of light on the cloth,
+  nothing at its tail and full at its head, so the heading is said twice: by
+  the head's shape and by which end is lit. An even translucent band with a
+  shaded copy under it for thickness was what this was, and round the piles
+  it read as a grey smudge rather than as a direction. It is still a
+  direction and not an object: the piles and the cards thrown on them always
+  win.
 
   Keyed on `direction` by its parent, so a Reverse remounts it and replays the
   half turn — the moment the whole card exists for.
@@ -45,16 +60,17 @@
   <div class="turn" class:ccw={direction < 0}>
     <svg viewBox="0 0 {box} {box}" width={box} height={box} aria-hidden="true">
       <defs>
-        <linearGradient id="arrowFace" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" class="faceHi" />
-          <stop offset="1" class="faceLo" />
-        </linearGradient>
+        {#each runs as run, i (i)}
+          <linearGradient id="arrowRun{i}" gradientUnits="userSpaceOnUse" x1={run.from.x} y1={run.from.y} x2={run.tip.x} y2={run.tip.y}>
+            <stop offset="0" class="tail" />
+            <stop offset="0.55" class="body" />
+            <stop offset="1" class="head" />
+          </linearGradient>
+        {/each}
       </defs>
       {#each arrows as d, i (i)}
-        <!-- The band's thickness: the same arrow a little further down the table, in shade. -->
-        <path class="side" {d} transform="translate(0 5)" />
-        <path class="face" {d} />
-        <path class="edge" {d} />
+        <path class="face" {d} fill="url(#arrowRun{i})" />
+        <path class="edge" {d} stroke="url(#arrowRun{i})" />
       {/each}
     </svg>
   </div>
@@ -75,17 +91,20 @@
     width: 100%;
     height: 100%;
     transform-origin: 50% 50%;
-    /* The half turn a Reverse makes, then the slow turn with the play. Both a
-       transform on an element of its own: composited, never a repaint. */
+    /* The half turn a Reverse makes, then the arrows running a few degrees
+       the way the play runs, over and over: lit as they set off, gone before
+       they snap back. A transform and an opacity on an element of its own:
+       composited, never a repaint. A full slow turn was what this did, and
+       it carried both heads behind the piles for most of every minute. */
     animation:
       dirReverse 0.7s var(--ease-bounce) both,
-      dirDrift 60s linear 0.7s infinite;
+      dirFlow 3.6s linear 0.7s infinite;
   }
 
   .turn.ccw {
     animation:
       dirReverse 0.7s var(--ease-bounce) both,
-      dirDriftBack 60s linear 0.7s infinite;
+      dirFlowBack 3.6s linear 0.7s infinite;
   }
 
   svg {
@@ -93,33 +112,36 @@
     overflow: visible;
   }
 
-  .side {
-    fill: rgba(4, 2, 12, 0.3);
-  }
-
   .face {
-    fill: url(#arrowFace);
+    fill-opacity: 0.5;
   }
 
-  /* A light edge round the band: glass catching the room's light. */
+  /* The same run of light as a line round the stroke: what keeps the head
+     crisp on a pale cloth and under a rain. */
   .edge {
     fill: none;
-    stroke: color-mix(in srgb, var(--scene-tint, #ffffff) 50%, #ffffff);
-    stroke-opacity: 0.4;
     stroke-width: 1.5;
     stroke-linejoin: round;
   }
 
   /* Near-white washed with the room's accent: a saturated arrow would read as
      a suit, and the table's whole colour vocabulary belongs to the suits. */
-  .faceHi {
-    stop-color: color-mix(in srgb, #ffffff 82%, var(--map-accent, #e6f2fa));
-    stop-opacity: 0.36;
+  .tail,
+  .body,
+  .head {
+    stop-color: color-mix(in srgb, #ffffff 78%, var(--map-accent, #e6f2fa));
   }
 
-  .faceLo {
-    stop-color: color-mix(in srgb, #ffffff 70%, var(--map-accent, #e6f2fa));
-    stop-opacity: 0.18;
+  .tail {
+    stop-opacity: 0;
+  }
+
+  .body {
+    stop-opacity: 0.42;
+  }
+
+  .head {
+    stop-opacity: 0.95;
   }
 
   @keyframes dirReverse {
@@ -133,15 +155,33 @@
     }
   }
 
-  @keyframes dirDrift {
-    to {
-      transform: rotate(360deg);
+  @keyframes dirFlow {
+    0% {
+      transform: rotate(-7deg);
+      opacity: 0;
+    }
+    20%,
+    70% {
+      opacity: 1;
+    }
+    100% {
+      transform: rotate(7deg);
+      opacity: 0;
     }
   }
 
-  @keyframes dirDriftBack {
-    to {
-      transform: rotate(-360deg);
+  @keyframes dirFlowBack {
+    0% {
+      transform: rotate(7deg);
+      opacity: 0;
+    }
+    20%,
+    70% {
+      opacity: 1;
+    }
+    100% {
+      transform: rotate(-7deg);
+      opacity: 0;
     }
   }
 

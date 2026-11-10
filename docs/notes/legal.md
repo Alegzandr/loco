@@ -158,6 +158,22 @@ redistributes the font files and the licence has to travel with them. It does, a
 game. Regenerate it from `node_modules/@fontsource-variable/*/LICENSE` if either
 font is bumped or replaced.
 
+## Generated art is back: the painted plates (2026-11-10)
+
+Velvet is shown as a painting (`client/src/assets/plates/velvet.webp`, `docs/notes/visual.md`,
+"A painted room"), and the paragraph below was kept for this day. What is the same and what is not:
+
+- **Still probably not protectable, still not offered under MIT.** `NOTICE.md` says so again. The
+  input is this project's own render and its own prompt, which is more authorship than a bare
+  prompt and still not a settled claim; nothing here leans on one.
+- **No account and no service terms this time.** The earlier images came off a paid OpenAI
+  account. A plate is painted on the owner's machine by FLUX.2 Klein 4B, so what attaches is the
+  licence the weights were published under, not a provider's terms. **That licence is the one
+  thing to read before a plate reaches production**, and it is the owner's to read: this note
+  records where the question is, not an answer to it.
+- **Nothing leaves the player's browser for it.** The plate is a file on this origin, like the
+  stills on the rooms page; `img-src 'self'` is untouched.
+
 ## The rooms are code, and the photographs they replaced are gone
 
 The four rooms used to be generated images shipped as static files, and this note carried a
@@ -166,7 +182,7 @@ a paid OpenAI account whose terms asked nothing, and **deliberately not licensed
 offering a licence over something that may not be protectable would have been the one false
 statement in the set. `NOTICE.md` said the same.
 
-None of that applies any more. A room is now a builder in `client/src/components/scene/maps/`, a few
+None of that applied once the rooms were rebuilt (and some of it applies again: see above). A room is now a builder in `client/src/components/scene/maps/`, a few
 hundred lines of TypeScript placing coloured blocks, rendered in the browser by three.js (MIT, and
 listed in `NOTICE.md` like every other dependency). It is authored the way the rest of the client is
 authored, it is covered by `LICENSE` the way the rest of the client is, and there is no third party

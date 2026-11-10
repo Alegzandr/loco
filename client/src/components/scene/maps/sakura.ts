@@ -18,11 +18,14 @@
 import type { Builder } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix, scale } from '../sky'
-import { deck, hills, vistaTable } from './vista'
+import { deck, groundInlay, hills, pot, vistaTable } from './vista'
+import type { Finish } from '../kit'
 import { gull, petal } from './vistaLife'
 
-const CEDAR = 0x6b3f2a
-const CEDAR2 = 0x5c3524
+// Pale boards: the veranda is under its own roof at every hour, and a dark
+// cedar in that shade was the bottom third of the frame gone black.
+const CEDAR = 0x9a6a48
+const CEDAR2 = 0x8a5c3e
 const POST = 0x3d2418
 const LACQUER = 0xc23a2f
 const ROOF = 0x3a3f4a
@@ -41,7 +44,18 @@ export const sakura: Builder = (k) => {
 
   // ─── Near: the veranda ──────────────────────────────────────────────────
   const EDGE = -6
-  deck(k, EDGE, view.eye[2] + 2, 30, CEDAR, CEDAR2, { plank: 0.3 })
+  // The boards are waxed: the lanterns and the garden's light lie along them.
+  k.polished(0.3)
+  deck(k, EDGE, view.eye[2] + 2, 30, CEDAR, CEDAR2, { plank: 0.3, gloss: 0.45 })
+  // The table stands on a round mat of rush, bound in black and gold.
+  groundInlay(k, [
+    { out: 1.5, color: 0x1f1512 },
+    { out: 1.42, color: 0xd9b25a, gloss: 0.5 },
+    { out: 1.36, color: 0x1f1512 },
+    { out: 1.16, color: 0xc9b87a },
+    { out: 0.18, color: 0xb8a468 },
+  ])
+  k.pool(0, 0, 5, 0xffd9a0, 0.2)
   // Its rail: a low lacquered bar on short posts.
   k.box(0, 0.7, EDGE - 0.2, 30, 0.1, 0.12, LACQUER, { cap: false })
   for (let x = -14; x <= 14; x += 2.2) k.box(x, 0, EDGE - 0.2, 0.12, 0.72, 0.12, POST, { outline: false, cap: false })
@@ -63,13 +77,35 @@ export const sakura: Builder = (k) => {
     for (const y of [2.2, 2.6]) k.cyl(x, y, EDGE + 0.6, 0.37, 0.03, POST, { seg: 14, outline: false, cap: false })
     k.cyl(x, 2.01, EDGE + 0.6, 0.18, 0.06, POST, { seg: 8, cap: false, outline: false })
     k.cyl(x, 2.73, EDGE + 0.6, 0.18, 0.06, POST, { seg: 8, cap: false, outline: false })
-    if (on) k.halo(x, 2.4, EDGE + 0.6, 0.7, 0xffc27a, 0.3, false)
+    if (on) {
+      k.halo(x, 2.4, EDGE + 0.6, 0.7, 0xffc27a, 0.3, false)
+      k.pool(x, EDGE + 0.9, 3.4, 0xffb86a, 0.34)
+    }
   }
   // A cushion on the boards to the left, and tea to the right: a low
   // lacquered table on four legs, a pot with its spout and handle side on to
   // the camera, two cups. Legs and a thin top, so it reads as a table and
   // never as a crate; a profile, so the pot reads as a pot under snow too.
-  k.box(-5.0, 0, -1.2, 1.0, 0.18, 1.0, 0x7a4a8a)
+  // A dwarf pine in a glazed pot at the foot of the left post, trained to one
+  // side: three pads of needles on a leaning trunk.
+  {
+    const bx = -4.7
+    const bz = -5.2
+    // Frosted under snow, never whitened: three white balls in a lantern's
+    // light were three balls of dough.
+    const needle = (c: number) => (k.rig.snow ? mix(c, 0xdfe7ee, 0.22) : c)
+    pot(k, bx, bz, 0.5, 0.42, { kind: 'marble', color: 0x2f5a78 }, { kind: 'metal', color: 0xe6bc62 })
+    k.cyl(bx + 0.1, 0.6, bz, 0.07, 0.75, 0x4a2c22, { seg: 6, tilt: -0.5, outline: false, cap: false })
+    k.cyl(bx + 0.42, 1.06, bz, 0.05, 0.6, 0x4a2c22, { seg: 6, tilt: -1.15, outline: false, cap: false })
+    for (const [dx, dy, r] of [[0.18, 1.0, 0.34], [0.72, 1.22, 0.3], [0.4, 1.5, 0.26]] as const) {
+      k.sphere(bx + dx, dy, bz, r, needle(0x3f7a4a), { seg: 8, outline: false })
+      k.sphere(bx + dx + 0.08, dy + 0.1, bz + 0.1, r * 0.7, needle(0x5a9a5c), { seg: 7, outline: false })
+    }
+  }
+  const silk: Finish = { kind: 'cloth', color: 0xb5332b }
+  const gilt: Finish = { kind: 'metal', color: 0xe6bc62 }
+  k.lathe(-5.0, 0, -1.2, [[0, 0], [0.5, 0], [0.58, 0.05], [0.6, 0.11], [0.56, 0.17], [0.4, 0.2], [0, 0.17]], silk, { seg: 28 })
+  k.lathe(-5.0, 0, -1.2, [[0, 0.168], [0.07, 0.172], [0.08, 0.2], [0, 0.21]], gilt, { seg: 12 })
   {
     const tx = 4.8
     const tz = -1.6
@@ -80,14 +116,14 @@ export const sakura: Builder = (k) => {
     k.box(tx, top - 0.06, tz, 1.3, 0.06, 0.8, LACQUER, { cap: false })
     const POT = 0xe8e2d6
     const px = tx - 0.15
-    k.cyl(px, top, tz, 0.17, 0.2, POT, { seg: 14, rTop: 0.13, cap: false })
-    k.cyl(px, top + 0.2, tz, 0.09, 0.03, scale(POT, 0.85), { seg: 12, cap: false, outline: false })
-    k.sphere(px, top + 0.25, tz, 0.035, POST, { seg: 6, outline: false })
+    // Turned and glazed: the pot's belly, its lid and the two cups.
+    const glaze: Finish = { kind: 'marble', color: POT }
+    k.lathe(px, top, tz, [[0, 0], [0.11, 0], [0.17, 0.05], [0.185, 0.11], [0.15, 0.18], [0.1, 0.2], [0.1, 0.215], [0.04, 0.24], [0.045, 0.265], [0, 0.275]], glaze, { seg: 24 })
     k.cyl(px - 0.24, top + 0.1, tz, 0.03, 0.16, POT, { axis: 'x', seg: 6, rTop: 0.02, cap: false })
     k.box(px + 0.2, top + 0.05, tz, 0.04, 0.12, 0.04, POST, { outline: false, cap: false })
     k.box(px + 0.17, top + 0.15, tz, 0.08, 0.03, 0.04, POST, { outline: false, cap: false })
     k.box(px + 0.17, top + 0.04, tz, 0.08, 0.03, 0.04, POST, { outline: false, cap: false })
-    for (const dx of [0.3, 0.48]) k.cyl(tx + dx, top, tz + 0.12, 0.055, 0.08, 0xf4efe6, { seg: 10, rTop: 0.07, cap: false })
+    for (const dx of [0.3, 0.48]) k.lathe(tx + dx, top, tz + 0.12, [[0, 0], [0.035, 0], [0.05, 0.02], [0.07, 0.08], [0.062, 0.08], [0.045, 0.025], [0, 0.02]], glaze, { seg: 16 })
   }
 
   // ─── Cherry branches over the top corners ───────────────────────────────
@@ -188,11 +224,17 @@ export const sakura: Builder = (k) => {
   hills(k, 200, 1200, -760, 45, 0x5a8060, 7, -1)
   hills(k, -2600, 2600, -1800, 120, 0x6a8a8a, 12, -1)
   // The pagoda, five roofs, standing on the near hill's shoulder.
-  const px = -330
-  const pz = -560
-  const py = 26
+  // In the gap of sky between the two cherries, left of the bridge: out on
+  // the left hill it stood behind the near tree's crown at every frame.
+  // Near enough to be a building and not a mark on the sky: at 600 tiles it
+  // was twenty pixels wide and the air had most of it.
+  const px = -46
+  const pz = -450
+  const py = 9
+  k.cyl(px, -1, pz, 80, py + 1, 0x5f8558, { seg: 16, rTop: 14, outline: false })
   for (let t = 0; t < 5; t++) {
-    const w = 11 - t * 1.6
+    // Broad in the roof: at this distance a slender pagoda is a mast.
+    const w = 17 - t * 2.4
     const y = py + t * 6
     k.box(px, y, pz, w * 0.7, 4.4, w * 0.7, 0xe8dcc8, { cap: false })
     k.box(px, y + 4.2, pz, w * 1.3, 0.6, w * 1.3, ROOF, { cap: true })
@@ -204,11 +246,17 @@ export const sakura: Builder = (k) => {
     const x = px + rng.range(-160, 160)
     const z = pz + rng.range(-60, 80)
     const hh = rng.range(10, 18)
-    k.cone(x, rng.range(0, 20), z, hh * 0.3, hh, mix(0x2f5a3f, 0x3f6a48, rng.range(0, 1)), { seg: 6, outline: false })
+    // Clear of the pagoda itself, and standing on the mound's slope.
+    if (Math.abs(x - px) < 16) continue
+    k.cone(x, Math.max(0, py * (1 - Math.abs(x - px) / 80)) - 1, z, hh * 0.3, hh, mix(0x2f5a3f, 0x3f6a48, rng.range(0, 1)), { seg: 6, outline: false })
   }
   // The mountain: a broad cone, snow on its upper third.
-  k.cone(900, -1, -5200, 2800, 1500, 0x5f7596, { seg: 28, outline: false })
-  k.cone(900, 900, -5200 + 200, 1130, 600, 0xf2f4f8, { seg: 28, outline: false })
+  // Sized to stand whole in the band of sky: at 1500 tall its foot filled the
+  // frame and its snow was over the top edge, so the air took all of it and
+  // there was no mountain. Deep blue under the snow, which is what is left
+  // to see through four kilometres of air.
+  k.cone(1150, -1, -4300, 1500, 440, 0x2f4470, { seg: 28, outline: false })
+  k.cone(1150, 262, -4300 + 60, 605, 180, 0xffffff, { seg: 28, outline: false })
   // ─── What moves: petals past the eaves, a pair of birds far off ─────────
   const petals = Array.from({ length: 12 }, (_, i) =>
     petal(`petal-${i}`, [rng.range(-10, 10), rng.range(3.6, 5), rng.range(-12, -6)], [rng.range(0.6, 2.4), rng.range(1.5, 4)], { duration: rng.range(7000, 11_000), delay: rng.range(0, 11_000), color: rng.pick(PINK) }),

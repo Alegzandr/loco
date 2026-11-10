@@ -69,22 +69,25 @@ function sample(kind: GrainKind, u: number, v: number, seed: number): [number, b
       // Rings running along u, wandering: the level lines of a stretched noise.
       const warp = fbm(u, v, 2, 6, 3, seed)
       const ring = Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * (v * 9 + warp * 4)), 2.4)
-      const pores = fbm(u, v, 8, 96, 2, seed + 101) > 0.62 ? 0.35 : 0
-      return [Math.min(1, ring * 0.55 + pores), false]
+      // Rings and nothing else, and soft: pores drawn as dots over them made a
+      // varnished edge look scratched from where the player sits.
+      return [ring * 0.34, false]
     }
     case 'burl': {
       const n = fbm(u, v, 5, 5, 4, seed)
-      const ring = Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * n * 7), 1.5)
-      const eye = fbm(u, v, 24, 24, 2, seed + 7) > 0.7 ? 0.8 : 0
-      return [Math.min(1, ring * 0.6 + eye), false]
+      const ring = Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * n * 4), 1.5)
+      // The swirl without its eyes: thresholded, they were black blots.
+      return [ring * 0.22, false]
     }
     case 'lacquer': {
       const cloud = fbm(u, v, 3, 3, 3, seed)
-      return [Math.max(0, cloud - 0.35) * 0.9, hash(Math.floor(u * 256), Math.floor(v * 256), seed + 3) > 0.985]
+      // Depth under the glass and no dust in it: sown flecks were fine noise
+      // over a surface, which the player refuses everywhere.
+      return [Math.max(0, cloud - 0.35) * 0.5, false]
     }
     case 'brushed': {
       const line = fbm(u, v, 2, 128, 2, seed)
-      return [Math.max(0, line - 0.3) * 0.8, false]
+      return [Math.max(0, line - 0.3) * 0.4, false]
     }
     case 'marble': {
       const warp = fbm(u, v, 3, 3, 4, seed)

@@ -20,11 +20,18 @@ bug, not a decision.
 The source code in this repository is released under the MIT licence
 (see [`LICENSE`](LICENSE)).
 
-That covers everything in the repository that is authored here, the rooms
-included: a room is a scene builder under `client/src/components/scene/maps/`,
-rendered in the browser by [three.js](https://threejs.org) (MIT). The rooms used
-to be generated images, kept outside the licence for the reason
-[`docs/notes/legal.md`](docs/notes/legal.md) still records; they are code now.
+That covers everything in the repository that is authored here, the rooms'
+builders included: a room is a scene builder under
+`client/src/components/scene/maps/`, rendered in the browser by
+[three.js](https://threejs.org) (MIT).
+
+**It does not cover the painted plates** under `client/src/assets/plates/`.
+A plate is a generated image: an image model, run locally, repainting this
+project's own render of the room (`tools/plates/`). Such an image is probably
+not protectable at all, and offering a licence over something that may not be
+is the one statement here that could be false, so none is offered: the plates
+are unencumbered rather than owned. The reasoning, and what it rests on, is in
+[`docs/notes/legal.md`](docs/notes/legal.md).
 
 ## Third-party services
 
