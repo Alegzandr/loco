@@ -276,7 +276,7 @@ async fn an_unknown_message_is_refused_and_a_malformed_one_is_named() {
     let m = read_msg(&mut ws).await;
     assert_eq!(
         m,
-        json!({"type": "error", "error": "invalid message format", "server_now": m["server_now"]})
+        json!({"type": "error", "error": "invalid message format", "server_now": m["server_now"], "turn": 0, "drawn_count": 0}),
     );
     send_msg(&mut ws, json!({"type": "nope"})).await;
     assert_eq!(read_msg(&mut ws).await["error"], "unknown message type");
@@ -364,8 +364,9 @@ fn rows(n: usize) -> Vec<LiveStream> {
         .map(|i| LiveStream {
             login: format!("chan{i}"),
             name: format!("C{i}"),
-            viewers: 100 - i as i64,
-            ..Default::default()
+            viewers: 100 - i as i32,
+            lang: String::new(),
+            thumb: String::new(),
         })
         .collect()
 }

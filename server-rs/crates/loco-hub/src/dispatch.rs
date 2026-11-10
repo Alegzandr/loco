@@ -24,7 +24,6 @@ use std::sync::atomic::Ordering;
 /// is not an index into the hands). Until then every type is refused exactly
 /// the way Go refused one it did not know.
 pub(crate) fn dispatch(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
-    let kind = msg.kind.clone();
     let result = catch_unwind(AssertUnwindSafe(|| {
         #[cfg(any(test, feature = "testkit"))]
         {
@@ -36,10 +35,10 @@ pub(crate) fn dispatch(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
             if let Some(p) = probe {
-                p(&kind);
+                p(&client_type(&msg));
             }
         }
-        route(core, c, msg);
+        route(core, c, &msg);
     }));
     if let Err(p) = result {
         core.hub
@@ -48,7 +47,7 @@ pub(crate) fn dispatch(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
             .fetch_add(1, Ordering::Relaxed);
         let seat = c.seat();
         tracing::warn!(
-            r#type = %kind,
+            r#type = %client_type(&msg),
             conn = %c.conn_id,
             code = %seat.as_ref().map_or("", |s| s.code.as_str()),
             player = seat.as_ref().map_or(-1, |s| s.id as i64),
@@ -59,8 +58,17 @@ pub(crate) fn dispatch(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
     }
 }
 
-fn route(_core: &mut HubCore, c: &Arc<Client>, _msg: ClientMsg) {
+fn route(_core: &mut HubCore, c: &Arc<Client>, _msg: &ClientMsg) {
     c.send_error("unknown message type");
+}
+
+/// A client message's `type`, for a log line. Only ever computed off the hot
+/// path: on a panic, or for a test probe.
+pub fn client_type(msg: &ClientMsg) -> String {
+    serde_json::to_value(msg)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_owned))
+        .unwrap_or_default()
 }
 
 /// Hands a message's work to the table the sender sits at. A full box means

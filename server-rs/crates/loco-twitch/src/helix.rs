@@ -196,7 +196,7 @@ impl Poller {
                 login: login.clone(),
                 name,
                 lang: clean_lang(&s.language),
-                viewers: s.viewer_count,
+                viewers: i32::try_from(s.viewer_count).unwrap_or(i32::MAX),
                 thumb: String::new(), // filled in by the thumbnail pass, when there is one
             });
         }

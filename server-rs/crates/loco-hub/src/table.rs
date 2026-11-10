@@ -9,7 +9,7 @@
 use crate::actor::{Deadlines, Phase};
 use crate::client::Client;
 use crate::room::{Room, Status};
-use crate::wire::{LatencyEntry, Outgoing, ServerMsg, now_ms};
+use crate::wire::{LatencyEntry, Outgoing, msg, now_ms};
 use axum::extract::ws::Utf8Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -306,7 +306,7 @@ impl Table {
 
     /// Marshals once and sends the same bytes to every seated socket.
     pub fn broadcast_all<M: Outgoing>(&self, mut msg: M) {
-        msg.stamp(now_ms());
+        msg.stamp_now(now_ms());
         let Ok(s) = serde_json::to_string(&msg) else {
             return;
         };
@@ -327,7 +327,7 @@ impl Table {
         let entries: Vec<LatencyEntry> = (0..self.room.players.len())
             .map(|i| {
                 let mut e = LatencyEntry {
-                    player_index: i,
+                    player_index: i as i32,
                     rtt_ms: -1,
                     bot: false,
                 };
@@ -341,7 +341,7 @@ impl Table {
             })
             .collect();
         if measured {
-            self.broadcast_all(ServerMsg::latency(entries));
+            self.broadcast_all(msg::latency(entries));
         }
     }
 }

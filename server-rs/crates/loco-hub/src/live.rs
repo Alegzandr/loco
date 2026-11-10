@@ -4,7 +4,7 @@
 use crate::Hub;
 use crate::client::Client;
 use crate::hub::HubCore;
-use crate::wire::{LiveStream, ServerMsg};
+use crate::wire::{LiveStream, msg};
 use axum::extract::ws::Utf8Bytes;
 use std::sync::atomic::Ordering;
 
@@ -31,7 +31,7 @@ impl HubCore {
         // Not stamped, as in Go: the bytes are kept and sent later, to sockets
         // arriving after this instant, and a server_now from the past would
         // be a clock reading the client should not trust.
-        let msg = ServerMsg::live_streams(rows);
+        let msg = msg::live_streams(rows);
         let body = match serde_json::to_string(&msg) {
             Ok(b) => b,
             Err(e) => {

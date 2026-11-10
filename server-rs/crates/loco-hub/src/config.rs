@@ -101,15 +101,6 @@ impl HubConfig {
     }
 }
 
-/// Go's `time.ParseDuration`, for the positive values an env file carries:
-/// `90s`, `1m30s`, `1.5h`, `250ms`. Negative or malformed is `None`.
-///
-/// One implementation, in `loco-twitch` (which may not import the hub, while
-/// the hub already depends on it for the live-streams DTO).
-pub fn parse_go_duration(s: &str) -> Option<Duration> {
-    loco_twitch::parse_go_duration(s)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

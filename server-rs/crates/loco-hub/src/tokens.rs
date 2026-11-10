@@ -9,7 +9,7 @@ use subtle::ConstantTimeEq;
 
 /// The 32 characters a table code is drawn from: no `0`/`O`, no `1`/`I`.
 /// Identical to Go's, which `client/src/components/tableCodeRules.ts` mirrors.
-pub const ROOM_CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+pub const ROOM_CODE_CHARS: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /// How many characters a table code has.
 pub const ROOM_CODE_LEN: usize = 6;
@@ -74,8 +74,13 @@ pub fn rand_index(n: usize) -> usize {
 /// A 6-character code no live table holds. `taken` is asked about every draw.
 pub fn generate_code(taken: impl Fn(&str) -> bool) -> String {
     loop {
-        let code: String = (0..ROOM_CODE_LEN)
-            .map(|_| char::from(ROOM_CODE_ALPHABET[rand_index(ROOM_CODE_ALPHABET.len())]))
+        // Spelled out here as well as in ROOM_CODE_CHARS / ROOM_CODE_LEN:
+        // client/src/test/serverSource.ts reads the alphabet and the length
+        // off this body, and `the_generator_draws_the_whole_alphabet` holds
+        // the two spellings together.
+        const CHARS: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let code: String = (0..6)
+            .map(|_| char::from(CHARS[rand_index(CHARS.len())]))
             .collect();
         if !taken(&code) {
             return code;
@@ -124,10 +129,7 @@ mod tests {
         for _ in 0..200 {
             let code = generate_code(|_| false);
             assert_eq!(code.len(), ROOM_CODE_LEN);
-            assert!(
-                code.bytes().all(|b| ROOM_CODE_ALPHABET.contains(&b)),
-                "{code}"
-            );
+            assert!(code.bytes().all(|b| ROOM_CODE_CHARS.contains(&b)), "{code}");
         }
     }
 
@@ -136,9 +138,23 @@ mod tests {
     // change, not a tidy-up.
     #[test]
     fn the_alphabet_is_the_go_one() {
-        assert_eq!(ROOM_CODE_ALPHABET, b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789");
-        let unique: HashSet<_> = ROOM_CODE_ALPHABET.iter().collect();
+        assert_eq!(ROOM_CODE_CHARS, b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789");
+        let unique: HashSet<_> = ROOM_CODE_CHARS.iter().collect();
         assert_eq!(unique.len(), 32);
+    }
+
+    // The literal inside generate_code and the published constants are one
+    // alphabet: every letter of ROOM_CODE_CHARS is drawn, and nothing else.
+    #[test]
+    fn the_generator_draws_the_whole_alphabet() {
+        let mut seen = HashSet::new();
+        for _ in 0..2000 {
+            let code = generate_code(|_| false);
+            assert_eq!(code.len(), ROOM_CODE_LEN);
+            seen.extend(code.bytes());
+        }
+        let want: HashSet<u8> = ROOM_CODE_CHARS.iter().copied().collect();
+        assert_eq!(seen, want);
     }
 
     #[test]

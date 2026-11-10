@@ -2,7 +2,7 @@
 //! its latency probe and the seat it holds. Port of `server/hub/client.go`.
 
 use crate::hub::{Inbound, Shared};
-use crate::wire::{ClientMsg, Outgoing, ServerMsg, now_ms};
+use crate::wire::{Outgoing, decode_client, msg, now_ms};
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
@@ -208,7 +208,7 @@ impl Client {
 
     /// Marshals a message, stamps `server_now`, and queues it.
     pub fn send<M: Outgoing>(&self, mut msg: M) {
-        msg.stamp(now_ms());
+        msg.stamp_now(now_ms());
         match serde_json::to_string(&msg) {
             Ok(s) => self.send_bytes(Utf8Bytes::from(s)),
             Err(e) => tracing::warn!("marshal error: {e}"),
@@ -244,9 +244,9 @@ impl Client {
 
     /// Refuses something. The single funnel every refusal goes through, which
     /// is what lets the dispatch boundary count them.
-    pub fn send_error(&self, msg: &str) {
+    pub fn send_error(&self, text: &str) {
         self.refusals.fetch_add(1, Ordering::Relaxed);
-        self.send(ServerMsg::error(msg));
+        self.send(msg::error(text));
     }
 
     /// Counts a refusal the server deliberately does not answer (a Contre-LOCO!
@@ -408,10 +408,10 @@ impl Client {
                 }
                 continue;
             }
-            let parsed: ClientMsg = match serde_json::from_slice(data) {
+            let parsed = match decode_client(data) {
                 Ok(m) => m,
-                Err(_) => {
-                    self.send_error("invalid message format");
+                Err(refusal) => {
+                    self.send_error(refusal);
                     continue;
                 }
             };

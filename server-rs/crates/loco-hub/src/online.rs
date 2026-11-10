@@ -7,7 +7,7 @@
 
 use crate::client::Client;
 use crate::hub::HubCore;
-use crate::wire::ServerMsg;
+use crate::wire::msg;
 use std::sync::atomic::Ordering;
 
 impl HubCore {
@@ -24,7 +24,7 @@ impl HubCore {
                 continue;
             }
             c.online_sent.store(n as i64, Ordering::Relaxed);
-            c.send(ServerMsg::players_online(n));
+            c.send(msg::players_online(n));
         }
     }
 
@@ -33,6 +33,6 @@ impl HubCore {
     pub(crate) fn send_players_online(&self, c: &Client) {
         let n = self.players_online();
         c.online_sent.store(n as i64, Ordering::Relaxed);
-        c.send(ServerMsg::players_online(n));
+        c.send(msg::players_online(n));
     }
 }

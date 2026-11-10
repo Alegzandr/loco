@@ -119,7 +119,7 @@ fn or(v: String, fallback: &str) -> String {
 
 /// Go's `time.ParseDuration`, for the positive values an env file carries:
 /// `90s`, `1m30s`, `1.5h`, `250ms`. A negative or malformed value is `None`.
-/// The hub and the binary use this one too (`loco_hub::config::parse_go_duration`).
+/// The binary reads `LOCO_DRAIN_TIMEOUT` with this one too.
 pub fn parse_go_duration(s: &str) -> Option<Duration> {
     let mut rest = s.strip_prefix('+').unwrap_or(s);
     if rest.starts_with('-') {

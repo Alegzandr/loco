@@ -12,7 +12,7 @@ use crate::Hub;
 use crate::actor::Phase;
 use crate::client::Client;
 use crate::hub::{Control, HubCore};
-use crate::wire::ServerMsg;
+use crate::wire::msg;
 use std::sync::atomic::Ordering;
 
 /// The wire string every drained-away action answers with. The client maps it
@@ -58,7 +58,7 @@ impl HubCore {
         shared.metrics.matchmaking_queue.store(0, Ordering::Relaxed);
         for c in queued {
             c.send_error(DRAIN_REFUSAL);
-            c.send(ServerMsg::matchmaking_cancelled());
+            c.send(msg::matchmaking_cancelled());
         }
 
         // Every table is told once — every table, not only the ones playing:
@@ -67,7 +67,7 @@ impl HubCore {
         // sitting at one is that table's to say.
         for t in self.tables.values() {
             t.post_from_timer("drain_notice", |table, _| {
-                table.broadcast_all(ServerMsg::server_updating());
+                table.broadcast_all(msg::server_updating());
             });
         }
 
