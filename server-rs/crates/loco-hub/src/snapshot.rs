@@ -278,12 +278,29 @@ impl HubCore {
             .metrics()
             .bots_active
             .fetch_add(bots as i32, std::sync::atomic::Ordering::Relaxed);
+        t.timings = std::sync::Arc::new(self.hub.config().timings.clone());
+        // Every human seat enters its reconnect window exactly as if its
+        // player had just dropped: the state the rest of the hub already knows
+        // how to end when nobody comes back.
+        for seat in 0..players {
+            if !t.is_bot(seat) {
+                t.schedule_reconnect_expiry(seat, now);
+            }
+        }
+        let hub = self.hub.clone();
         let handle = self.open_table(t);
-        // TODO(handler port): arm every seat's reconnect expiry
-        // (`scheduleReconnectExpiry`), then — as the table's first job — the
-        // turn clock, the bot and the empty-room cleanup, exactly as Go's
-        // restoreRoom did, through `handle.post_critical(.., "restore_arm", 1s, ..)`.
-        let _ = handle;
+        // The turn clock restarts whole (the error is in the player's favour),
+        // the bot is armed, and nobody being here yet starts the cleanup.
+        handle.post_critical(
+            &hub,
+            "restore_arm",
+            std::time::Duration::from_secs(1),
+            |t, cx| {
+                t.schedule_turn_timer(cx);
+                t.maybe_schedule_bot(cx);
+                t.schedule_room_cleanup();
+            },
+        );
         tracing::info!(
             code,
             players,

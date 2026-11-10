@@ -680,7 +680,15 @@ async fn drain_notifies_every_table_and_empties_the_queue() {
     lobby.seat(&seated, 0);
     open(&th.hub, lobby).await;
     let q = queued.clone();
-    th.hub.on_loop(move |core| core.queue.push(q)).await;
+    th.hub
+        .on_loop(move |core| {
+            core.queue.push(loco_hub::matchmaking::QueuedPlayer {
+                client: q,
+                nickname: "Q".into(),
+                since: tokio::time::Instant::now(),
+            })
+        })
+        .await;
 
     th.hub.begin_drain();
 

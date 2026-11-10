@@ -203,7 +203,8 @@ async fn serve(sink: &AsyncLog) -> std::process::ExitCode {
             "debug mode enabled (LOCO_E2E=1) — debug_set_state is unauthenticated; do NOT use in production"
         );
     }
-    // TODO(handler port): hub::apply_bot_timing_env(), before the hub starts.
+    // The bot timing override (LOCO_E2E only) is read by HubConfig::from_env,
+    // before the hub starts, so no bot is armed on the shipped timing first.
     let hub = Hub::start(cfg);
     hub.set_log_sink(sink.clone());
 

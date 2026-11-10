@@ -9,8 +9,7 @@
 use crate::actor::{Deadlines, Phase};
 use crate::client::Client;
 use crate::room::{Room, Status};
-use crate::wire::{LatencyEntry, Outgoing, msg, now_ms};
-use axum::extract::ws::Utf8Bytes;
+use crate::wire::{LatencyEntry, msg};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -64,8 +63,25 @@ pub struct Table {
     pub solo: bool,
     pub streamer_mode: bool,
 
+    /// The map-loading gate. `Some` means the table is shut: no turn clock,
+    /// no bots, no gameplay message accepted. See `maploading.rs`.
+    pub loading: Option<MapLoadState>,
+
+    /// The clocks this table runs on: the hub's, copied in when it opens.
+    pub timings: Arc<crate::config::Timings>,
+
     /// Every deadline this table has armed. See `actor.rs`.
     pub deadlines: Deadlines,
+    /// Mints keys for the deadlines that must not replace each other (one
+    /// per reconnect hold, whose seat number can be re-based under it).
+    pub(crate) next_key: i32,
+}
+
+/// The gate between `game_started` and the first legal move.
+#[derive(Clone, Debug)]
+pub struct MapLoadState {
+    pub ready: BTreeSet<usize>,
+    pub started_at: Instant,
 }
 
 impl std::fmt::Debug for Table {
@@ -99,7 +115,10 @@ impl Table {
             matchmade_at: None,
             solo: false,
             streamer_mode: false,
+            loading: None,
+            timings: Arc::new(crate::config::Timings::default()),
             deadlines: Deadlines::default(),
+            next_key: 0,
         }
     }
 
@@ -266,7 +285,6 @@ impl Table {
     /// the tokens, the bots and the history survive: they describe who is at
     /// the table, not what they were playing.
     ///
-    /// TODO(handler port): the map-loading gate goes here too (`loading`).
     pub fn reset_for_next_match(&mut self) {
         self.rematch_offers.clear();
         self.afk.clear();
@@ -275,7 +293,94 @@ impl Table {
         self.match_started_at = None;
         self.turn_started_at = None;
         self.empty_at = None;
+        self.loading = None;
         self.deadlines.clear();
+    }
+
+    pub fn is_loading(&self) -> bool {
+        self.loading.is_some()
+    }
+
+    /// A key for a deadline that must never replace another of its kind.
+    pub fn unique_key(&mut self, kind: &'static str) -> crate::actor::DeadlineKey {
+        self.next_key = self.next_key.wrapping_add(1);
+        crate::actor::DeadlineKey {
+            kind,
+            seat: self.next_key,
+        }
+    }
+
+    /// Whether every seat other than this one is an absent human: no socket
+    /// at it, no bot behind it, and no hold still running. It is what tells a
+    /// lone survivor apart from a quitter.
+    pub fn abandoned_by(&self, seat: usize) -> bool {
+        (0..self.room.players.len())
+            .filter(|&i| i != seat)
+            .all(|i| !self.is_bot(i) && self.client(i).is_none() && !self.away_at.contains_key(&i))
+    }
+
+    /// The seats that can still act in the match: a bot, or a human who is
+    /// here or inside their reconnect window, and not retired.
+    pub fn playable_seats(&self) -> usize {
+        (0..self.room.players.len())
+            .filter(|&seat| {
+                if self.is_bot(seat) {
+                    return true;
+                }
+                if self.room.is_retired(seat as i32) {
+                    return false;
+                }
+                self.client(seat).is_some() || self.away_at.contains_key(&seat)
+            })
+            .count()
+    }
+
+    /// The seat held for a disconnected player of that nickname, if any.
+    pub fn find_held_seat(&self, nickname: &str) -> Option<usize> {
+        self.away_at.keys().copied().find(|&s| {
+            self.room
+                .players
+                .get(s)
+                .is_some_and(|p| p.nickname == nickname)
+        })
+    }
+
+    /// The seat a forfeit is awarded to: somebody still here, else somebody
+    /// held, else anybody not retired. -1 when nobody is left.
+    pub fn remaining_seat(&self, away_seat: usize) -> Option<usize> {
+        let n = self.room.players.len();
+        let here = (0..n).find(|&s| s != away_seat && self.client(s).is_some());
+        here.or_else(|| {
+            (0..n).find(|&s| {
+                s != away_seat && self.away_at.contains_key(&s) && !self.room.is_retired(s as i32)
+            })
+        })
+        .or_else(|| (0..n).find(|&s| s != away_seat && !self.room.is_retired(s as i32)))
+    }
+
+    /// Appends the match that has just ended. The room's arrays are copied:
+    /// a reset nils them, and a record holding them would be the next match.
+    pub fn record_finished_match(&mut self, now: SystemTime) {
+        let room = &self.room;
+        let n = room.players.len();
+        let mut rec = MatchRecord {
+            rounds_won: vec![0; n],
+            scores: vec![0; n],
+            winner: -1,
+            duration_ms: match_duration_ms(self.match_started_at, now),
+        };
+        for i in 0..n {
+            rec.rounds_won[i] = i64::from(room.rounds_won.get(i).copied().unwrap_or(0));
+            rec.scores[i] = i64::from(room.scores.get(i).copied().unwrap_or(0));
+        }
+        if let Some(i) = room
+            .players
+            .iter()
+            .position(|p| p.nickname == room.match_winner)
+        {
+            rec.winner = i as i64;
+        }
+        self.match_history.push(rec);
     }
 
     /// Takes a socket out of `members` without touching anything else. Only
@@ -303,18 +408,6 @@ impl Table {
     }
 
     // ── sending ─────────────────────────────────────────────────────────────
-
-    /// Marshals once and sends the same bytes to every seated socket.
-    pub fn broadcast_all<M: Outgoing>(&self, mut msg: M) {
-        msg.stamp_now(now_ms());
-        let Ok(s) = serde_json::to_string(&msg) else {
-            return;
-        };
-        let bytes = Utf8Bytes::from(s);
-        for c in self.members.iter().flatten() {
-            c.send_bytes(bytes.clone());
-        }
-    }
 
     /// Fans this table's per-seat round trips out, if it is playing and
     /// something has been measured. A payload of all `-1` says exactly what

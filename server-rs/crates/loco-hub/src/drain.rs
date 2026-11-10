@@ -56,7 +56,8 @@ impl HubCore {
         // cruellest possible outcome.
         let queued = std::mem::take(&mut self.queue);
         shared.metrics.matchmaking_queue.store(0, Ordering::Relaxed);
-        for c in queued {
+        for q in queued {
+            let c = q.client;
             c.send_error(DRAIN_REFUSAL);
             c.send(msg::matchmaking_cancelled());
         }

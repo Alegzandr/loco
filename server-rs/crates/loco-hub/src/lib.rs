@@ -11,24 +11,39 @@
 #![forbid(unsafe_code)]
 
 pub mod actor;
+pub mod bots;
+pub mod broadcast;
 pub mod client;
+pub mod clock;
 pub mod config;
+pub mod convert;
+pub mod debug;
 pub mod dispatch;
 pub mod drain;
+pub mod emotes;
+pub mod gameplay;
 pub mod gotime;
 pub mod hub;
 pub mod live;
 pub mod logsink;
+pub mod maploading;
+pub mod matchmaking;
 pub mod metrics;
 pub mod online;
+pub mod presence;
 pub mod privacy;
+pub mod rematch;
 pub mod room;
+pub mod rooms;
 pub mod serve;
 pub mod snapshot;
+pub mod solo;
+pub mod statedto;
 pub mod table;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 pub mod tokens;
+pub mod turntimer;
 pub mod wire;
 
 pub use actor::{DeadlineKey, Deadlines, Phase, TableCtx, TableHandle, TableJob, TableSender};

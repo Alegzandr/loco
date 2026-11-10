@@ -305,8 +305,12 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
         .unwrap_or_else(|e| e.into_inner())
         .clone();
     let result = catch_unwind(AssertUnwindSafe(|| {
+        // Go fired its probe at the top of a message's handler, never a
+        // timer's: a client job is that.
         #[cfg(any(test, feature = "testkit"))]
-        if let Some(p) = probe {
+        if let Some(p) = probe
+            && client.is_some()
+        {
             p(&table.code);
         }
         run(table, ctx);
