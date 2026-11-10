@@ -2,18 +2,19 @@
 //! the actor, the drain and the snapshot. Ports the parts of hub_test.go,
 //! hardening_test.go, actor_test.go, drain_test.go, snapshot_test.go,
 //! online_test.go and live_test.go that stand without a game; the rest come
-//! with the handler port, on the same harness.
+//! with the handler port, on the same harness. The Go-named ports of those
+//! files are `drain.rs`, `snapshot.rs`, `online.rs`, `live.rs`, `actor.rs`;
+//! what stays here are the structural checks they do not repeat.
 
 use loco_hub::actor::{DeadlineKey, Phase, TableJob};
 use loco_hub::room::{Room, Status, new_room};
 use loco_hub::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};
 use loco_hub::table::MatchRecord;
 use loco_hub::testkit::*;
-use loco_hub::wire::LiveStream;
 use loco_hub::{Client, DRAIN_REFUSAL, Hub, HubConfig, Table};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 fn cfg() -> HubConfig {
@@ -84,34 +85,6 @@ async fn metrics_endpoint_is_prometheus_text_under_the_go_names() {
     ] {
         assert!(body.lines().any(|l| l == line), "missing {line:?}:\n{body}");
     }
-    th.stop().await;
-}
-
-#[tokio::test]
-async fn hub_reports_log_drops_on_metrics() {
-    let th = new_test_hub().await;
-    assert_eq!(
-        th.hub.metrics_stats().log_lines_dropped,
-        0,
-        "a hub with no sink reports drops"
-    );
-    // A sink that never drains: the thread is wedged inside the first write.
-    struct Stuck;
-    impl std::io::Write for Stuck {
-        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-            std::thread::sleep(Duration::from_secs(3600));
-            Ok(0)
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let sink = loco_hub::AsyncLog::new(Stuck, 1);
-    th.hub.set_log_sink(sink.clone());
-    for _ in 0..10 {
-        sink.write_line(b"x\n");
-    }
-    assert!(th.hub.metrics_stats().log_lines_dropped >= 8);
     th.stop().await;
 }
 
@@ -232,42 +205,6 @@ async fn a_foreign_origin_is_refused_before_the_upgrade() {
 
 // ── the pumps ───────────────────────────────────────────────────────────────
 
-// The first thing this server says to a socket is the count.
-#[tokio::test]
-async fn players_online_sent_on_connect() {
-    let th = new_test_hub().await;
-    let mut ws = dial_ws(&th).await;
-    let m = read_raw(&mut ws).await;
-    assert_eq!(m["type"], "players_online");
-    assert_eq!(m["players_online"], 1);
-    assert!(
-        m["server_now"].as_i64().unwrap() > 0,
-        "no server_now on {m}"
-    );
-    th.stop().await;
-}
-
-#[tokio::test]
-async fn players_online_updates_when_somebody_arrives_and_is_silent_otherwise() {
-    let mut c = cfg();
-    c.timings.players_online_period = Duration::from_millis(50);
-    let th = new_test_hub_with(c).await;
-    let mut a = dial_ws(&th).await;
-    assert_eq!(read_raw(&mut a).await["players_online"], 1);
-    let mut b = dial_ws(&th).await;
-    read_raw(&mut b).await;
-    let m = read_raw(&mut a).await;
-    assert_eq!(m["type"], "players_online");
-    assert_eq!(m["players_online"], 2);
-    // Unchanged: nothing more, tick after tick.
-    let quiet = tokio::time::timeout(Duration::from_millis(300), read_raw(&mut a)).await;
-    assert!(
-        quiet.is_err(),
-        "an unchanged count was sent again: {quiet:?}"
-    );
-    th.stop().await;
-}
-
 #[tokio::test]
 async fn an_unknown_message_is_refused_and_a_malformed_one_is_named() {
     let th = new_test_hub().await;
@@ -357,145 +294,7 @@ async fn pings_measure_the_round_trip() {
     th.stop().await;
 }
 
-// ── live streams ────────────────────────────────────────────────────────────
-
-fn rows(n: usize) -> Vec<LiveStream> {
-    (0..n)
-        .map(|i| LiveStream {
-            login: format!("chan{i}"),
-            name: format!("C{i}"),
-            viewers: 100 - i as i32,
-            lang: String::new(),
-            thumb: String::new(),
-        })
-        .collect()
-}
-
-#[tokio::test]
-async fn live_streams_reach_a_seatless_socket_capped_for_the_wire() {
-    let th = new_test_hub().await;
-    let mut ws = dial_ws(&th).await;
-    read_raw(&mut ws).await;
-    th.hub.publish_live(rows(9));
-    let m = read_msg_of_type(&mut ws, "live_streams").await;
-    assert_eq!(
-        m["live_streams"].as_array().unwrap().len(),
-        loco_hub::live::LIVE_WIRE_MAX
-    );
-    // The same version is not sent twice.
-    th.hub.on_loop(|_| ()).await;
-    assert!(stays_silent(&mut ws, Duration::from_millis(150)).await);
-    th.stop().await;
-}
-
-#[tokio::test]
-async fn live_streams_sent_on_connect_and_an_empty_list_is_told() {
-    let th = new_test_hub().await;
-    th.hub.publish_live(rows(2));
-    th.hub.on_loop(|_| ()).await;
-    let mut ws = dial_ws(&th).await;
-    let m = read_msg_of_type(&mut ws, "live_streams").await;
-    assert_eq!(m["live_streams"].as_array().unwrap().len(), 2);
-    th.hub.publish_live(Vec::new());
-    let m = read_msg_of_type(&mut ws, "live_streams").await;
-    assert_eq!(
-        m["live_streams"],
-        json!([]),
-        "an empty list must still be a list"
-    );
-    th.stop().await;
-}
-
-#[tokio::test]
-async fn publish_live_never_blocks() {
-    let th = new_test_hub().await;
-    let start = std::time::Instant::now();
-    for _ in 0..5000 {
-        th.hub.publish_live(rows(1));
-    }
-    assert!(start.elapsed() < Duration::from_secs(1));
-    th.stop().await;
-}
-
 // ── the actor ───────────────────────────────────────────────────────────────
-
-// A panic on a table's task costs one job, and the table keeps answering.
-#[tokio::test]
-async fn table_panic_costs_one_message_not_the_table() {
-    let th = new_test_hub().await;
-    let panicking = Arc::new(AtomicBool::new(true));
-    let p = panicking.clone();
-    th.hub.set_table_probe(move |_| {
-        if p.load(Ordering::SeqCst) {
-            panic!("audit probe");
-        }
-    });
-    open(&th.hub, Table::new("AAAAAA", new_room("AAAAAA"))).await;
-    let (c, mut rx) = Client::detached(&th.hub);
-    let ran = Arc::new(AtomicUsize::new(0));
-
-    let post = |c: &Arc<Client>, ran: &Arc<AtomicUsize>| {
-        let ran = ran.clone();
-        let job = TableJob::new("set_max_players", move |_, _| {
-            ran.fetch_add(1, Ordering::SeqCst);
-        })
-        .from_client(c.clone());
-        let hub = th.hub.clone();
-        async move {
-            hub.on_loop(move |core| core.tables["AAAAAA"].post(job).is_ok())
-                .await
-        }
-    };
-
-    assert!(post(&c, &ran).await);
-    let refusal: Value = serde_json::from_str(rx.recv().await.unwrap().as_str()).unwrap();
-    assert_eq!(
-        refusal["error"], "server error",
-        "a panicking job must answer an error"
-    );
-    assert_eq!(th.hub.metrics_stats().handler_panics, 1);
-
-    panicking.store(false, Ordering::SeqCst);
-    assert!(post(&c, &ran).await);
-    let ran2 = ran.clone();
-    assert!(
-        eventually(Duration::from_secs(2), move || ran2.load(Ordering::SeqCst)
-            == 1)
-        .await,
-        "the table went quiet"
-    );
-    th.stop().await;
-}
-
-// One table held still inside a job does not hold up another.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn one_slow_table_does_not_hold_up_another() {
-    let th = new_test_hub().await;
-    open(&th.hub, Table::new("SLOWWW", new_room("SLOWWW"))).await;
-    open(&th.hub, Table::new("FASTTT", new_room("FASTTT"))).await;
-    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
-    let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
-    let done = Arc::new(AtomicBool::new(false));
-    let d = done.clone();
-    th.hub
-        .on_loop(move |core| {
-            let r = release_rx.clone();
-            let _ = core.tables["SLOWWW"].post(TableJob::new("held", move |_, _| {
-                let _ = r.lock().unwrap().recv_timeout(Duration::from_secs(5));
-            }));
-            let _ = core.tables["FASTTT"].post(TableJob::new("play", move |_, _| {
-                d.store(true, Ordering::SeqCst)
-            }));
-        })
-        .await;
-    let d = done.clone();
-    assert!(
-        eventually(Duration::from_secs(2), move || d.load(Ordering::SeqCst)).await,
-        "the second table waited on the first"
-    );
-    release_tx.send(()).unwrap();
-    th.stop().await;
-}
 
 // A deadline lives in the table's state and fires on its own task; arming the
 // same key again replaces it, so the stale one never runs.
@@ -584,39 +383,6 @@ async fn a_deleted_room_stops_and_forgets_its_bots() {
         "a deleted table still takes jobs"
     );
     hub.stop().await;
-}
-
-// Stop does not return while the loop is still inside a handler.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stop_waits_for_the_loop_to_leave_the_handler() {
-    let hub = Hub::start(cfg());
-    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
-    let entered = Arc::new(AtomicBool::new(false));
-    let e = entered.clone();
-    let h2 = hub.clone();
-    tokio::spawn(async move {
-        h2.on_loop(move |_| {
-            e.store(true, Ordering::SeqCst);
-            let _ = release_rx.recv_timeout(Duration::from_secs(5));
-        })
-        .await
-    });
-    let e = entered.clone();
-    assert!(eventually(Duration::from_secs(2), move || e.load(Ordering::SeqCst)).await);
-    let stopper = tokio::spawn({
-        let hub = hub.clone();
-        async move { hub.stop().await }
-    });
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(
-        !stopper.is_finished(),
-        "stop returned while the loop was inside a handler"
-    );
-    release_tx.send(()).unwrap();
-    tokio::time::timeout(Duration::from_secs(2), stopper)
-        .await
-        .expect("stop never returned after the loop was released")
-        .unwrap();
 }
 
 // ── the drain ───────────────────────────────────────────────────────────────
@@ -837,18 +603,6 @@ async fn snapshot_match_survives_a_restart() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-#[tokio::test]
-async fn snapshot_lobbies_are_not_saved() {
-    let dir = tempdir("lobbies");
-    let path = snap_path(&dir);
-    let hub = Hub::start(cfg());
-    open(&hub, Table::new("LOBBYY", new_room("LOBBYY"))).await;
-    hub.save_snapshot(&path).await.unwrap();
-    assert!(!path.exists(), "an empty snapshot was written");
-    hub.stop().await;
-    let _ = std::fs::remove_dir_all(dir);
-}
-
 fn write_snapshot(path: &std::path::Path, schema: i64, saved_at: SystemTime) {
     let file = SnapshotFile {
         schema_version: schema,
@@ -903,15 +657,6 @@ async fn snapshot_malformed_is_nothing_to_restore() {
     assert!(!path.exists());
     hub.stop().await;
     let _ = std::fs::remove_dir_all(dir);
-}
-
-#[tokio::test]
-async fn snapshot_no_file_is_not_an_error() {
-    let hub = Hub::start(cfg());
-    hub.load_snapshot(&tempdir("none").join("absent.json"))
-        .await
-        .unwrap();
-    hub.stop().await;
 }
 
 #[tokio::test]

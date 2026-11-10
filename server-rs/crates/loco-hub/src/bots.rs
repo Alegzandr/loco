@@ -614,7 +614,7 @@ impl Table {
     }
 
     /// A refused bot move gives the turn up, never the table.
-    fn bot_recover(&mut self, cx: &TableCtx, seat: usize) {
+    pub(crate) fn bot_recover(&mut self, cx: &TableCtx, seat: usize) {
         if self.room.status != Status::Playing {
             return;
         }
