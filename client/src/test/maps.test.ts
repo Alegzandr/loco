@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
+import { readServer, serverLabel, serverMapList, serverMapWeathers } from './serverSource'
 import {
   MAPS,
   MAP_IDS,
@@ -18,40 +17,20 @@ import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
 import { plateHour } from '../components/scene/plates'
 
-const REPO = path.resolve(__dirname, '..', '..', '..')
-const mapsGo = readFileSync(path.join(REPO, 'server', 'game', 'maps.go'), 'utf8')
+const mapsSrc = readServer('game', 'maps')
 
-/**
- * The Go constants of one string type, in the order its All-slice lists them.
- * `var MapIDs = []MapID{MapNeon, ...}` names constants; `MapNeon MapID = "neon"`
- * gives each its value.
- */
-function goList(sliceName: string, typeName: string): string[] {
-  const slice = mapsGo.match(new RegExp(`var ${sliceName} = \\[\\]${typeName}\\{([^}]+)\\}`))
-  expect(slice, `${sliceName} not found in server/game/maps.go`).toBeTruthy()
-  return slice![1]
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((name) => {
-      const val = mapsGo.match(new RegExp(`${name}\\s+${typeName} = "([a-z]+)"`))
-      expect(val, `${name} has no value in maps.go`).toBeTruthy()
-      return val![1]
-    })
+/** The server's values of one string type, in the order its list names them. */
+function goList(listName: string, typeName: string): string[] {
+  const list = serverMapList(mapsSrc, listName, typeName)
+  expect(list, `${listName} not found in ${serverLabel('game', 'maps')}`).toBeTruthy()
+  return list!
 }
 
-/** `MapWeathers` off the Go source, id → weathers. */
+/** `MapWeathers` off the server's source, id → weathers. */
 function goMapWeathers(): Record<string, string[]> {
-  const block = mapsGo.match(/var MapWeathers = map\[MapID\]\[\]Weather\{([\s\S]+?)\n\}/)
-  expect(block, 'MapWeathers not found in server/game/maps.go').toBeTruthy()
-  const out: Record<string, string[]> = {}
-  for (const line of block![1].split('\n')) {
-    const m = line.match(/(Map[A-Z][a-z]+):\s*\{([^}]+)\}/)
-    if (!m) continue
-    const id = mapsGo.match(new RegExp(`${m[1]}\\s+MapID = "([a-z]+)"`))![1]
-    out[id] = m[2].split(',').map((w) => mapsGo.match(new RegExp(`${w.trim()}\\s+Weather = "([a-z]+)"`))![1])
-  }
-  return out
+  const weathers = serverMapWeathers(mapsSrc)
+  expect(weathers, `MapWeathers not found in ${serverLabel('game', 'maps')}`).toBeTruthy()
+  return weathers!
 }
 
 describe('map registry', () => {

@@ -27,37 +27,35 @@ import {
   CATCH_NEAR_GRACE_MS,
 } from '../components/catchAvailability'
 
-const REPO = path.resolve(__dirname, '..', '..', '..')
-// A Windows checkout with core.autocrlf hands these files over in CRLF, and the
-// patterns below are written against LF, which is what CI checks out.
-const read = (...p: string[]) => readFileSync(path.join(REPO, 'server', ...p), 'utf8').replace(/\r\n/g, '\n')
+import {
+  REPO,
+  readServer,
+  serverCodeAlphabet,
+  serverDurationMs,
+  serverInt,
+  serverLabel,
+  serverRoomCodeRule,
+} from './serverSource'
 
 describe('the table code, against the server', () => {
   // hub.roomCodeRe is what join_room is validated against.
-  const rooms = read('hub', 'rooms.go')
-  const re = rooms.match(/roomCodeRe = regexp\.MustCompile\(`\^\[([^\]]+)\]\{(\d+)\}\$`\)/)
-
   it('is refused by the same regex the server holds', () => {
-    expect(re, 'roomCodeRe not found in server/hub/rooms.go').toBeTruthy()
-    expect(re![1]).toBe(TABLE_CODE_CHARS)
-    expect(Number(re![2])).toBe(TABLE_CODE_LENGTH)
+    const rule = serverRoomCodeRule()
+    expect(rule, `the room code rule not found in ${serverLabel('hub', 'rooms')}`).toBeTruthy()
+    expect(rule!.chars).toBe(TABLE_CODE_CHARS)
+    expect(rule!.length).toBe(TABLE_CODE_LENGTH)
   })
 
   // hub.generateCode is what a code is actually drawn from. It is a second copy
   // of the same alphabet server-side, so it is pinned here too: a code the
   // server can produce and its own regex would refuse is a table nobody joins.
   it('is drawn from that same alphabet', () => {
-    const tokens = read('hub', 'tokens.go')
-    // Scoped to generateCode's own body: the session token in the same file
-    // draws its own bytes, and matching that one would pin the code's length to
-    // a number that has nothing to do with it.
-    const body = tokens.slice(tokens.indexOf('func (h *Hub) generateCode()'))
-    expect(body, 'generateCode not found in server/hub/tokens.go').toBeTruthy()
-    const chars = body.match(/const chars = "([^"]+)"/)
-    const size = body.match(/make\(\[\]byte, (\d+)\)/)
-    expect(chars, 'the code alphabet was not found in generateCode').toBeTruthy()
-    expect(chars![1]).toBe(TABLE_CODE_CHARS)
-    expect(Number(size![1])).toBe(TABLE_CODE_LENGTH)
+    // Scoped to generateCode's own body (see serverCodeAlphabet): the session
+    // token in the same file draws its own bytes.
+    const drawn = serverCodeAlphabet()
+    expect(drawn, `the code alphabet was not found in ${serverLabel('hub', 'tokens')}`).toBeTruthy()
+    expect(drawn!.chars).toBe(TABLE_CODE_CHARS)
+    expect(drawn!.length).toBe(TABLE_CODE_LENGTH)
   })
 
   // The four characters are dropped because a code is read out loud off a
@@ -73,12 +71,12 @@ describe('the table code, against the server', () => {
 })
 
 describe('the nickname, against the server', () => {
-  const nickname = read('game', 'nickname.go')
+  const nickname = readServer('game', 'nickname')
 
   it('is capped at the same number of characters', () => {
-    const max = nickname.match(/NicknameMaxRunes = (\d+)/)
-    expect(max, 'NicknameMaxRunes not found in server/game/nickname.go').toBeTruthy()
-    expect(Number(max![1])).toBe(NICKNAME_MAX_CHARS)
+    const max = serverInt(nickname, 'NicknameMaxRunes')
+    expect(Number.isInteger(max), `NicknameMaxRunes not found in ${serverLabel('game', 'nickname')}`).toBe(true)
+    expect(max).toBe(NICKNAME_MAX_CHARS)
   })
 
   // The client is allowed to be looser than the server (the word list is not
@@ -138,12 +136,12 @@ describe('the nickname, against the server', () => {
  * anything else in this suite.
  */
 describe('the catch offer, against the server', () => {
-  const room = read('game', 'room.go')
+  const room = readServer('game', 'room')
 
   it('opens on the same hand size the server does', () => {
-    const near = room.match(/const catchNearHand = (\d+)/)
-    expect(near, 'catchNearHand not found in server/game/room.go').toBeTruthy()
-    expect(Number(near![1])).toBe(CATCH_LIVE_MAX_HAND)
+    const near = serverInt(room, 'catchNearHand')
+    expect(Number.isInteger(near), `catchNearHand not found in ${serverLabel('game', 'room')}`).toBe(true)
+    expect(near).toBe(CATCH_LIVE_MAX_HAND)
   })
 
   // The late half of the wager, and the one relationship that matters: the
@@ -152,9 +150,8 @@ describe('the catch offer, against the server', () => {
   // the last late press still has to make. Equal would put a press made on the
   // final live frame outside the server's window by exactly one network hop.
   it('offers the late press inside the window the server still charges for', () => {
-    const grace = room.match(/\n\tcatchGrace = (\d+) \* time\.(Second|Millisecond)\n/)
-    expect(grace, 'catchGrace not found in server/game/room.go').toBeTruthy()
-    const ms = Number(grace![1]) * (grace![2] === 'Second' ? 1000 : 1)
+    const ms = serverDurationMs(room, 'catchGrace')
+    expect(Number.isInteger(ms), `catchGrace not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(CATCH_LATE_GRACE_MS).toBeGreaterThan(0)
     expect(CATCH_LATE_GRACE_MS).toBeLessThan(ms)
   })
@@ -162,9 +159,8 @@ describe('the catch offer, against the server', () => {
   // Same relationship for the two-card picture's late half: the button's near
   // grace sits under the server's by a round trip.
   it('offers the spasm after a draw out of two inside the window the server charges for', () => {
-    const grace = room.match(/\n\tcatchNearGrace = (\d+) \* time\.(Second|Millisecond)\r?\n/)
-    expect(grace, 'catchNearGrace not found in server/game/room.go').toBeTruthy()
-    const ms = Number(grace![1]) * (grace![2] === 'Second' ? 1000 : 1)
+    const ms = serverDurationMs(room, 'catchNearGrace')
+    expect(Number.isInteger(ms), `catchNearGrace not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(CATCH_NEAR_GRACE_MS).toBeGreaterThan(0)
     expect(CATCH_NEAR_GRACE_MS).toBeLessThan(ms)
   })
@@ -174,15 +170,15 @@ describe('the catch offer, against the server', () => {
 // without asking. Read off the component's source, because the constants live
 // in a `<script>` block nothing can import.
 describe('the seat count, against the server', () => {
-  const room = read('game', 'room.go')
+  const room = readServer('game', 'room')
   const waiting = readFileSync(path.join(REPO, 'client', 'src', 'components', 'WaitingRoom.svelte'), 'utf8').replace(/\r\n/g, '\n')
-  const goConst = (name: string) => Number(room.match(new RegExp(`${name}\\s*=\\s*(\\d+)`))?.[1])
+  const goConst = (name: string) => serverInt(room, name)
   const svelteConst = (name: string) => Number(waiting.match(new RegExp(`const ${name} = (\\d+)`))?.[1])
 
   it('offers exactly the range the server accepts', () => {
     // NaN equals NaN under toBe, so a constant that moved is caught here first.
     for (const n of [goConst('serverMinPlayers'), goConst('serverMaxPlayers')]) {
-      expect(Number.isInteger(n), 'constant not found in server/game/room.go').toBe(true)
+      expect(Number.isInteger(n), `constant not found in ${serverLabel('game', 'room')}`).toBe(true)
     }
     expect(svelteConst('MIN_PLAYERS')).toBe(goConst('serverMinPlayers'))
     expect(svelteConst('MAX_PLAYERS')).toBe(goConst('serverMaxPlayers'))

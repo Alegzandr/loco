@@ -22,8 +22,17 @@ import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
 import type { CardKind } from '../types/protocol'
 import { LANGS } from '../seo/meta'
+import {
+  readServer,
+  serverCardValue,
+  serverDeckBody,
+  serverInt,
+  serverKindAppends,
+  serverLabel,
+  serverNumberRange,
+  serverNumberScoresFace,
+} from './serverSource'
 
-const REPO = path.resolve(__dirname, '..', '..', '..')
 const CLIENT = path.resolve(__dirname, '..', '..')
 const article = readFileSync(path.join(CLIENT, 'src', 'content', 'RulesArticle.astro'), 'utf8')
 
@@ -643,20 +652,18 @@ describe('the block that answers "what is different"', () => {
     // Same rule as the deck table: a number typed here is right on the day it is
     // written, and this is the copy nobody plays against, so it goes wrong
     // silently.
-    const src = readFileSync(path.join(REPO, 'server', 'game', 'room.go'), 'utf8')
-    const m = /initialHandSize\s*=\s*(\d+)/.exec(src)
-    expect(m, 'initialHandSize not found — this test is reading the wrong file').toBeTruthy()
-    expect(HAND_SIZE).toBe(Number(m![1]))
+    const size = serverInt(readServer('game', 'room'), 'initialHandSize')
+    expect(Number.isInteger(size), `initialHandSize not found in ${serverLabel('game', 'room')}`).toBe(true)
+    expect(HAND_SIZE).toBe(size)
   })
 
   it('takes the number range from the deck the server builds', () => {
-    const src = readFileSync(path.join(REPO, 'server', 'game', 'deck.go'), 'utf8')
-    const body = /func NewDeck\(\)[^]*?\n}/.exec(src)?.[0]
-    expect(body, 'NewDeck() not found').toBeTruthy()
-    const m = /for v := (\d+); v <= (\d+); v\+\+/.exec(body!)
-    expect(m, 'the number loop not found').toBeTruthy()
-    expect(NUMBER_LOW).toBe(Number(m![1]))
-    expect(NUMBER_HIGH).toBe(Number(m![2]))
+    const body = serverDeckBody()
+    expect(body, `the deck builder not found in ${serverLabel('game', 'deck')}`).toBeTruthy()
+    const range = serverNumberRange(body!)
+    expect(range, 'the number loop not found').toBeTruthy()
+    expect(NUMBER_LOW).toBe(range!.low)
+    expect(NUMBER_HIGH).toBe(range!.high)
   })
 
   it('states the numbers it claims, in both languages', () => {
@@ -687,15 +694,13 @@ describe('the deck table', () => {
   it('describes the deck the server actually builds', () => {
     // `NewDeck()` is the deck. Reading it here rather than trusting the table is
     // what makes this a check instead of a restatement of the fixture.
-    const src = readFileSync(path.join(REPO, 'server', 'game', 'deck.go'), 'utf8')
-    const body = /func NewDeck\(\)[^]*?\n}/.exec(src)?.[0]
-    expect(body, 'NewDeck() not found — this test is reading the wrong file').toBeTruthy()
+    const body = serverDeckBody()
+    expect(body, `the deck builder not found in ${serverLabel('game', 'deck')}`).toBeTruthy()
 
     // The loop is `for _, col := range [4 colours]`, values 1..9, and a fixed
     // `for i := 0; i < 4` for the three wilds, so a kind's total is how many
     // times it is appended inside a loop body times that loop's span.
-    const appends = (goKind: string) =>
-      (body!.match(new RegExp(`Kind: ${goKind}\\b`, 'g')) ?? []).length
+    const appends = (goKind: string) => serverKindAppends(body!, goKind)
     const expected: Record<CardKind, number> = {
       number: appends('Number') * 4 * 9,
       skip: appends('Skip') * 4 * 2,
@@ -737,17 +742,13 @@ describe('the deck table', () => {
   })
 
   it('scores exactly as the server does', () => {
-    // server/game/card.go is the only authority on points in the repo; the page
-    // is a second statement of it, free to drift. This is what stops it.
-    const src = readFileSync(path.join(REPO, 'server', 'game', 'card.go'), 'utf8')
-    const fn = /func CardValue\([^]*?\n}/.exec(src)?.[0]
-    expect(fn, 'CardValue() not found — this test is reading the wrong file').toBeTruthy()
-
-    /** What the Go switch returns for a Go card-kind name. */
+    // The server's card module is the only authority on points in the repo; the
+    // page is a second statement of it, free to drift. This is what stops it.
+    /** What the server's CardValue returns for a domain card-kind name. */
     const goValue = (goKind: string): number => {
-      const m = new RegExp(`case[^:\\n]*\\b${goKind}\\b[^:\\n]*:\\s*\\n\\s*return (\\d+)`).exec(fn!)
-      expect(m, `CardValue has no case for ${goKind}`).toBeTruthy()
-      return Number(m![1])
+      const v = serverCardValue(goKind)
+      expect(v, `CardValue has no case for ${goKind} in ${serverLabel('game', 'card')}`).toBeDefined()
+      return v!
     }
 
     const goName: Record<Exclude<CardKind, 'number'>, string> = {
@@ -762,9 +763,9 @@ describe('the deck table', () => {
 
     for (const entry of DECK) {
       if (entry.kind === 'number') {
-        // Face value: no single figure, and the Go switch returns c.Value.
+        // Face value: no single figure, and the server returns the card's value.
         expect(entry.points).toBeNull()
-        expect(fn).toMatch(/case Number:\s*\n\s*return c\.Value/)
+        expect(serverNumberScoresFace()).toBe(true)
         continue
       }
       expect(entry.points, entry.kind).toBe(goValue(goName[entry.kind]))
