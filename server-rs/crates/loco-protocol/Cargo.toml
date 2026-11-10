@@ -11,11 +11,9 @@ serde_json.workspace = true
 ts-rs.workspace = true
 schemars.workspace = true
 
-[features]
-# Pins the wire enums to `loco-game` (tests/enums.rs). Empty until that crate is
-# merged; the merge makes it `["dep:loco-game"]` with `loco-game` an optional
-# dependency. Until then the enums are pinned to the Go server's instead.
-domain = []
+[dev-dependencies]
+# tests/enums.rs pins the wire enums to the domain's.
+loco-game.workspace = true
 
 [lints]
 workspace = true

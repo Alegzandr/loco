@@ -2,8 +2,7 @@
 //!
 //! The domain owns these values (`loco-game`'s colours, kinds and the formats a
 //! room accepts); this module is the spelling they travel under, and
-//! `tests/enums.rs` pins one to the other in both directions once `loco-game`
-//! is in the workspace.
+//! `tests/enums.rs` pins one to the other in both directions.
 //!
 //! They exist because this crate is the single source the TypeScript client is
 //! generated from. A field typed `String` here generates a field typed
