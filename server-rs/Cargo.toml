@@ -50,6 +50,7 @@ insta = { version = "1", features = ["json"] }
 criterion = "0.7"
 # Added by the server crates (agent D).
 httpdate = "1"
+sha2 = "0.10"
 
 [profile.release]
 panic = "unwind"
