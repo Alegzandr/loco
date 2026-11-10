@@ -137,10 +137,7 @@ async fn seat_cancels_the_pending_cleanup() {
     let hub = Hub::start(HubConfig::default());
     let mut tbl = Table::new("AAAAAA", new_room("AAAAAA"));
     tbl.schedule_room_cleanup();
-    assert!(
-        tbl.empty_at.is_some(),
-        "schedule_room_cleanup did not stamp the table"
-    );
+    assert!(tbl.cleanup_pending(), "schedule_room_cleanup armed nothing");
 
     let (c, _rx) = Client::detached(&hub);
     // Go called the hub's seatClient; its Rust half that does the work is
@@ -148,7 +145,7 @@ async fn seat_cancels_the_pending_cleanup() {
     tbl.seat(&c, 0);
 
     assert!(
-        tbl.empty_at.is_none(),
+        !tbl.cleanup_pending(),
         "a seated table is still counting down to deletion"
     );
     hub.stop().await;

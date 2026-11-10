@@ -47,10 +47,11 @@ impl Table {
         );
         self.broadcast_loading_progress();
         let timeout = self.timings.map_load_timeout;
-        self.deadlines
-            .arm(MAP_LOAD, started_at + timeout, move |t, cx| {
-                t.handle_map_load_timeout(cx, started_at)
-            });
+        // Opening the gate disarms this, and a new gate re-arms it: a fire is
+        // always this gate's.
+        self.deadlines.arm(MAP_LOAD, started_at + timeout, |t, cx| {
+            t.handle_map_load_timeout(cx)
+        });
         self.maybe_open_table(cx);
     }
 
@@ -127,12 +128,9 @@ impl Table {
         self.maybe_schedule_bot(cx);
     }
 
-    fn handle_map_load_timeout(&mut self, cx: &TableCtx, started_at: Instant) {
-        let Some(st) = self.loading.as_ref() else {
+    fn handle_map_load_timeout(&mut self, cx: &TableCtx) {
+        if self.loading.is_none() {
             return;
-        };
-        if st.started_at != started_at {
-            return; // this timer belongs to a previous gate
         }
         tracing::warn!(waiting_on = ?self.pending_loaders(), "map load timeout");
         self.open_gate(cx, "timeout");

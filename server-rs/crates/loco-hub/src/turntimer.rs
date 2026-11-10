@@ -37,7 +37,7 @@ impl Table {
         // is shown: the grace is the server's patience and never on the wire.
         let at = now + self.timings.turn_timeout + self.timings.turn_timeout_grace;
         self.deadlines
-            .arm(TURN, at, move |t, cx| t.handle_turn_timeout(cx, turn, now));
+            .arm(TURN, at, move |t, cx| t.handle_turn_timeout(cx, turn));
     }
 
     /// The deadline the client is shown, in unix ms, or 0 when no human turn
@@ -54,18 +54,20 @@ impl Table {
         }
     }
 
-    fn still_the_same_turn(&self, seat: i32, started: Instant) -> bool {
+    /// Every turn re-arms the one `TURN` key, so a fire is always the latest
+    /// turn's; what can still have moved under it without a re-arm is the
+    /// match ending or a fixture rewriting the turn.
+    fn still_the_same_turn(&self, seat: i32) -> bool {
         self.room.status == Status::Playing
             && self
                 .room
                 .state
                 .as_ref()
                 .is_some_and(|s| s.current_turn == seat)
-            && self.turn_started_at == Some(started)
     }
 
-    pub(crate) fn handle_turn_timeout(&mut self, cx: &TableCtx, seat: i32, started: Instant) {
-        if !self.still_the_same_turn(seat, started) {
+    pub(crate) fn handle_turn_timeout(&mut self, cx: &TableCtx, seat: i32) {
+        if !self.still_the_same_turn(seat) {
             return;
         }
         tracing::info!(player = seat, "turn timeout, auto-acting");

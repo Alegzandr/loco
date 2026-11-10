@@ -36,7 +36,9 @@ pub fn valid_room_code(code: &str) -> bool {
             .all(|b| ROOM_CODE_CHARS.as_bytes().contains(&b))
 }
 
-const CLEANUP: DeadlineKey = DeadlineKey::table("room_cleanup");
+/// The empty-room cleanup. Seating anybody disarms it (`Table::seat`), so a
+/// cleanup that fires is never a stale one.
+pub(crate) const CLEANUP: DeadlineKey = DeadlineKey::table("room_cleanup");
 
 /// One network's recent tally of table codes that led nowhere.
 #[derive(Clone, Copy, Debug)]
@@ -515,23 +517,24 @@ impl Table {
         }));
     }
 
-    /// Starts the clock that deletes the room if it stays empty. Seating
-    /// anybody clears `empty_at`, which is what the fire re-checks.
+    /// Starts the clock that deletes the room if it stays empty. Go stamped
+    /// the table and had the fire compare stamps; here seating anybody
+    /// disarms the deadline, so there is no stale fire to recognise.
     pub fn schedule_room_cleanup(&mut self) {
-        let now = Instant::now();
-        self.empty_at = Some(now);
-        let at = now + self.timings.empty_room_timeout;
+        let at = Instant::now() + self.timings.empty_room_timeout;
         self.deadlines
-            .arm(CLEANUP, at, move |t, cx| t.handle_cleanup(cx, now));
+            .arm(CLEANUP, at, |t, cx| t.handle_cleanup(cx));
     }
 
-    fn handle_cleanup(&mut self, cx: &TableCtx, empty_at: Instant) {
-        if self.empty_at != Some(empty_at) {
-            tracing::info!("room cleanup skipped, room rejoined");
-            return;
-        }
+    /// Whether the empty-room cleanup is counting this table down.
+    pub fn cleanup_pending(&self) -> bool {
+        self.deadlines.when(CLEANUP).is_some()
+    }
+
+    fn handle_cleanup(&mut self, cx: &TableCtx) {
+        // Belt and braces: every seating path goes through `seat`, which
+        // disarms this, but a table with somebody at it is never deleted.
         if !self.all_seats_empty() {
-            self.empty_at = None;
             tracing::info!("room cleanup skipped, active members still present");
             return;
         }

@@ -109,7 +109,6 @@ pub struct Table {
     /// Wall clock, because it travels in the snapshot.
     pub match_started_at: Option<SystemTime>,
     pub turn_started_at: Option<Instant>,
-    pub empty_at: Option<Instant>,
     pub matchmade_at: Option<Instant>,
     pub solo: bool,
     pub streamer_mode: bool,
@@ -155,7 +154,6 @@ impl Table {
             match_history: Vec::new(),
             match_started_at: None,
             turn_started_at: None,
-            empty_at: None,
             matchmade_at: None,
             solo: false,
             streamer_mode: false,
@@ -307,8 +305,8 @@ impl Table {
         self.ensure(id);
         self.seats[id].occupant = Occupant::Human(c.clone());
         c.sit_at(&self.code, id);
-        // Somebody is here, so any cleanup counting this table down is stale.
-        self.empty_at = None;
+        // Somebody is here: the empty-room cleanup stops counting.
+        self.deadlines.disarm(crate::rooms::CLEANUP);
     }
 
     /// Empties a seat without removing it: the player has the reconnect window
@@ -396,7 +394,6 @@ impl Table {
         }
         self.match_started_at = None;
         self.turn_started_at = None;
-        self.empty_at = None;
         self.loading = None;
         self.deadlines.clear();
     }

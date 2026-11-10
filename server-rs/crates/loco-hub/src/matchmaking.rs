@@ -222,21 +222,22 @@ impl Table {
     }
 
     /// The reveal's deal, armed twice: every other dropped job is lossy, this
-    /// one is unbounded. The fire is idempotent on the pairing instant.
+    /// one is unbounded. The second fire finds the table dealt and does nothing.
     fn schedule_matchmaking_start(&mut self, paired_at: Instant) {
         let m = &self.timings.matchmaking;
         let first = paired_at + m.reveal_delay;
         let backstop = first + m.reveal_backstop;
-        self.deadlines.arm(REVEAL, first, move |t, cx| {
-            t.handle_matchmaking_start(cx, paired_at)
-        });
-        self.deadlines.arm(REVEAL_BACKSTOP, backstop, move |t, cx| {
-            t.handle_matchmaking_start(cx, paired_at)
+        // A rematch re-arms both keys, so neither fire can belong to an
+        // earlier pairing; the status check is what makes the second a no-op.
+        self.deadlines
+            .arm(REVEAL, first, |t, cx| t.handle_matchmaking_start(cx));
+        self.deadlines.arm(REVEAL_BACKSTOP, backstop, |t, cx| {
+            t.handle_matchmaking_start(cx)
         });
     }
 
-    fn handle_matchmaking_start(&mut self, cx: &TableCtx, paired_at: Instant) {
-        if self.matchmade_at != Some(paired_at) || self.room.status != Status::Lobby {
+    fn handle_matchmaking_start(&mut self, cx: &TableCtx) {
+        if !self.is_matchmade() || self.room.status != Status::Lobby {
             return;
         }
         // A held seat counts as present: a reload during the reveal keeps it.
