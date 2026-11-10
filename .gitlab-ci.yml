@@ -73,17 +73,52 @@ protocol_check:
   image: golang:1.26.5-alpine
   tags:
     - devops
-  # The client's protocol types and validation schemas are generated from
-  # server/protocol. This regenerates them and fails if the result differs from
-  # what is committed, which is the whole reason the generator is worth having:
-  # without it, generation is a suggestion and the two files drift back into
-  # being hand-maintained copies the moment somebody edits one directly.
+  # Until the Rust server takes over, server/protocol still describes what the
+  # running server writes, but the client's two generated files are no longer
+  # its to write: protocol_check_rs owns them, and the parity fixtures there are
+  # what holds the Go wire and the Rust types together. This job keeps the Go
+  # generator honest about its own source (it still refuses a const block that
+  # disagrees with its All* slice) by generating into a scratch directory.
+  # Deleted with server/ at the cutover.
   #
   # No cache on purpose. The generator is stdlib-only and compiles in about a
   # second, and a third job pushing a Go cache key would race the two that
   # already do (see backend_lint's note).
   script:
-    - cd server && go run ./cmd/protocolgen -src protocol -out ../client/src/types -check
+    - cd server && go run ./cmd/protocolgen -src protocol -out "$(mktemp -d)"
+
+protocol_check_rs:
+  stage: test
+  image: rust:1.97-bookworm
+  tags:
+    - devops
+  # The client's protocol types and validation schemas are generated from
+  # server-rs/crates/loco-protocol. This regenerates them and fails if the
+  # result differs from what is committed, which is the whole reason the
+  # generator is worth having: without it, generation is a suggestion and the
+  # two files drift back into being hand-maintained copies the moment somebody
+  # edits one directly. It also runs the crate's tests, the parity fixtures
+  # captured from the Go server among them, and the converter's refusals.
+  #
+  # Node comes from the distribution: the converter is dependency-free and
+  # needs nothing newer.
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+    CARGO_TARGET_DIR: $CI_PROJECT_DIR/server-rs/target
+  cache:
+    - key:
+        prefix: cargo-protocol
+        files:
+          - server-rs/Cargo.lock
+      paths:
+        - .cargo/registry/
+        - server-rs/target/
+  script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs >/dev/null
+    - node --test tools/protocol/valibot.test.mjs
+    - cd server-rs
+    - cargo test -p loco-protocol
+    - cargo run -q -p protocolgen -- --check
 
 backend_test:
   stage: test
@@ -445,6 +480,8 @@ build:
     - job: backend_lint
       artifacts: false
     - job: protocol_check
+      artifacts: false
+    - job: protocol_check_rs
       artifacts: false
     - job: backend_test
       artifacts: false

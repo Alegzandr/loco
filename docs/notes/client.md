@@ -1172,9 +1172,12 @@ nothing here decides anything.
 ## Protocol validation (client)
 
 **Both type files are generated. Neither is edited.** `client/src/types/protocol.ts` and
-`client/src/types/protocolSchemas.ts` come out of `server/cmd/protocolgen`, which reads
-`server/protocol/`. Change the Go, run `make protocol`, commit both. `protocol_check` in CI
-regenerates and fails on any difference, so a hand edit is undone by the next run rather than merged.
+`client/src/types/protocolSchemas.ts` come out of `server-rs/crates/protocolgen`, which reads
+`server-rs/crates/loco-protocol`. Change the Rust, run `make protocol`, commit both.
+`protocol_check_rs` in CI regenerates and fails on any difference (CRLF and LF compare equal), so a
+hand edit is undone by the next run rather than merged. Until the cutover the Go server is still the
+one answering, and the crate's parity fixtures (frames captured from it) are what keep the two
+honest; see `docs/protocol.md`.
 
 The wire used to be described three times: the Go structs, a hand-written TypeScript file, and a
 hand-written file of schemas. Nothing checked that the three agreed, and the failure is silent by
@@ -1185,22 +1188,30 @@ that a mirror can be pinned and a copy can be deleted, and these two were copies
 - `webSocket` runs `v.safeParse(serverMsgSchema, …)` on every payload. Dev: invalid → log and
   drop, which is what surfaces drift in tests. Prod: log and pass through, so one new server field
   cannot take the client offline.
-- **The generator refuses rather than guesses.** An unknown type, a slice of pointers, or a const
-  block out of step with its `All*` slice stops the build. Each of those has exactly one dishonest
-  TypeScript spelling available, and every one of them type-checks: emitting `unknown` for a type it
-  cannot read would mean the client silently stopped reading a field. `cmd/protocolgen/main_test.go`
-  covers the refusals, because the happy path is already covered from the other end by
-  `protocol_check` plus every client test that runs against the committed output.
-- **`ClientMsg` and `ServerMsg` are marked `//protocolgen:envelope`**, which makes every field but
-  `type` optional on the client. They are one flat struct standing in for thirty message types, and
-  `turn` and `drawn_count` carry no `omitempty` because a zero is a real value there. Mirroring that
-  literally would generate a validator that refuses every message not about a turn, which is the
-  client being stricter than the server: the direction nothing answers.
-- **The wire enums live in `server/protocol/enums.go`** rather than as bare `string` fields, because
-  a `string` in Go generates a `string` in TypeScript and would have thrown away a narrowing the
-  hand-written client always had. `enums_test.go` pins them to `game.Color.String()`,
-  `game.Kind.String()` and the formats `Room.SetFormat` accepts, by walking the domain rather than
-  listing it: a hand-written list there would be a third copy and would go on passing.
+- **The converter refuses rather than guesses.** `tools/protocol/valibot.mjs` understands the handful
+  of JSON Schema constructions the protocol uses and stops the build on anything else (`anyOf`, a
+  nullable required field, `pattern`, `minimum`, an open map, a recursive type…), naming the path.
+  Each of those has a Valibot spelling that type-checks and means something nobody decided:
+  approximating it would put an unwritten rule in front of every message. `valibot.test.mjs`
+  (`node --test`, run by `protocol_check_rs` and `make protocol`) covers the refusals; the happy path
+  is covered from the other end by the drift check plus every client test that runs against the
+  committed output.
+- **`ServerMsg` is a union, and the client narrows it by `type`.** One variant per message, so
+  `msg.streamer_mode` does not type-check on `room_created`, which never carries it. The old
+  generator made every envelope field optional because one flat struct stood in for thirty message
+  types; per variant, a field is required exactly when the server always writes it (`turn` on
+  `turn_changed`, `drawn_count` on `card_drawn`) and optional everywhere Go had `omitempty` or a
+  pointer. The validator is never stricter than the Go server, because the parity fixtures are Go's
+  own frames read by the same types.
+- **`Option<T>` is `T`, optional, in the schema, never `T | null`.** `schemars` spells an `Option` as
+  nullable, which is what serde would read; the server never writes a `null`, so
+  `generate.rs: AbsentNotNull` takes it out of every non-required property, and the validator agrees
+  with the `x?: T` that `ts-rs` writes.
+- **The wire enums live in `loco-protocol/src/enums.rs`** rather than as bare strings, because a
+  string in Rust generates a `string` in TypeScript and would throw away a narrowing the client
+  always had. `tests/enums.rs` pins them to `loco-game` by walking the domain (colours and kinds
+  through their integer spelling, formats through what `Room::set_format` accepts) rather than
+  listing it, and to the Go server's `enums.go` until the cutover.
 
 **Valibot, not Zod.** Zod 4 JIT-compiles each schema with `Function()` the first time it runs; under
 `script-src 'self'` the call is refused, Zod catches the throw and interprets instead, so the game

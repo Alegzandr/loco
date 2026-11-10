@@ -53,7 +53,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // The host may have been streaming for an hour before this player typed
         // the code. Absent on room_created, where the table is one message old
         // and this client is the host that owns the setting.
-        store.setTableStreamer(msg.streamer_mode ?? false)
+        store.setTableStreamer(msg.type === 'room_joined' ? (msg.streamer_mode ?? false) : false)
         store.setScreen('waiting')
         break
       }
@@ -287,7 +287,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
 
       case 'card_drawn':
         store.applyCardDrawn(
-          msg.cards?.length ? msg.cards : (msg.card ? [msg.card] : null),
+          msg.cards?.length ? msg.cards : null,
           msg.player_index ?? 0,
           msg.turn ?? 0,
           msg.has_drawn,

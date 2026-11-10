@@ -15,6 +15,7 @@ import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { UI } from '../content/ui'
 import { faqJsonLd } from '../content/faq'
+import { readServer, serverInt, serverLabel } from './serverSource'
 import {
   PAGES,
   LANGS,
@@ -267,9 +268,9 @@ describe('structured data', () => {
     // Pinned to the server's own range: a number typed here once said ten
     // after the table had been capped at seven, and a rich result promising
     // seats the server refuses is the one claim a player can check.
-    const room = readFileSync(path.join(CLIENT, '..', 'server', 'game', 'room.go'), 'utf8')
-    const goConst = (name: string) => Number(room.match(new RegExp(`${name}\\s*=\\s*(\\d+)`))?.[1])
-    expect(Number.isInteger(goConst('serverMaxPlayers')), 'serverMaxPlayers not found in server/game/room.go').toBe(true)
+    const room = readServer('game', 'room')
+    const goConst = (name: string) => serverInt(room, name)
+    expect(Number.isInteger(goConst('serverMaxPlayers')), `serverMaxPlayers not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(game.numberOfPlayers).toEqual({
       '@type': 'QuantitativeValue',
       minValue: goConst('serverMinPlayers'),

@@ -3,16 +3,20 @@
 
 GO_IMAGE        ?= golang:1.26.5-alpine
 GOLANGCI_IMAGE  ?= golangci/golangci-lint:v2.12-alpine
+RUST_IMAGE      ?= rust:1.97-bookworm
 SERVER_DIR      := $(CURDIR)/server
 CLIENT_DIR      := $(CURDIR)/client
 E2E_DIR         := $(CURDIR)/e2e
 
 DOCKER_GO = docker run --rm -v $(SERVER_DIR):/app -w /app
 DOCKER_LINT = docker run --rm -v $(SERVER_DIR):/app -w /app
-# protocolgen writes into client/, so it needs the repo rather than server/.
-DOCKER_GO_REPO = docker run --rm -v $(CURDIR):/repo -w /repo/server
+# protocolgen writes into client/ and reads tools/, so it needs the repo rather
+# than server-rs/. It also runs Node (tools/protocol/valibot.mjs turns the JSON
+# Schema into Valibot), which the Rust image does not carry.
+DOCKER_RUST_REPO = docker run --rm -v $(CURDIR):/repo -w /repo/server-rs
 
-PROTOCOLGEN = go run ./cmd/protocolgen -src protocol -out ../client/src/types
+PROTOCOLGEN = sh -c 'command -v node >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs >/dev/null; }; \
+	node --test ../tools/protocol/valibot.test.mjs >/dev/null && cargo run -q -p protocolgen -- "$$@"' protocolgen
 
 .PHONY: help dev down test test-server test-client test-e2e bench-server models models-check visual og rooms audio-verify csp lint lint-server lint-client build-server build-client protocol protocol-check
 
@@ -43,11 +47,11 @@ test-e2e: ## Run Playwright suite (expects server + dev client running OR will s
 bench-server: ## Time one pass of the event loop (not in CI) — see docs/notes/server.md
 	$(DOCKER_GO) $(GO_IMAGE) go test ./hub/ -run '^$$' -bench . -benchmem $(ARGS) 2>/dev/null
 
-protocol: ## Regenerate the client's protocol types + schemas from server/protocol
-	$(DOCKER_GO_REPO) $(GO_IMAGE) $(PROTOCOLGEN)
+protocol: ## Regenerate the client's protocol types + schemas from server-rs/crates/loco-protocol
+	$(DOCKER_RUST_REPO) $(RUST_IMAGE) $(PROTOCOLGEN)
 
-protocol-check: ## Fail if the generated protocol files have drifted from the Go source
-	$(DOCKER_GO_REPO) $(GO_IMAGE) $(PROTOCOLGEN) -check
+protocol-check: ## Fail if the generated protocol files have drifted from the Rust source
+	$(DOCKER_RUST_REPO) $(RUST_IMAGE) $(PROTOCOLGEN) --check
 
 models: ## Pack the rooms' models from .assets-in/unpacked into client/public/models — commit the result
 	node tools/models/pack.mjs $(ARGS)

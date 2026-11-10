@@ -357,11 +357,22 @@ Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
   - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs `server-bin` + Playwright,
     `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for that binary alone.
   - `backend_lint` (`golangci/golangci-lint:v2.12-alpine`): `cd server && golangci-lint run ./...`.
-  - `protocol_check` (`golang:1.26.5-alpine`): regenerates the client's protocol types and schemas
-    from `server/protocol/` and fails if the result differs from what is committed. Without it the
-    generator is a suggestion, and the two files drift back into being hand-maintained copies the
-    first time somebody edits one directly. No cache: the generator is stdlib-only and compiles in
-    about a second, and a third job pushing a Go cache key would race the two that already do.
+  - `protocol_check_rs` (`rust:1.97-bookworm`, plus the distribution's `nodejs`): runs the
+    converter's refusal tests (`node --test tools/protocol/valibot.test.mjs`), the `loco-protocol`
+    tests (the Go parity fixtures and the enum pins among them), then regenerates the client's
+    protocol types and schemas from `server-rs/crates/loco-protocol` and fails if the result differs
+    from what is committed. Without it the generator is a suggestion, and the two files drift back
+    into being hand-maintained copies the first time somebody edits one directly. Cached on
+    `server-rs/Cargo.lock` under its own key prefix.
+  - `protocol_check` (`golang:1.26.5-alpine`), until the cutover: runs the Go generator into a
+    scratch directory. The client files are no longer its to write; it is kept so the Go protocol
+    package still refuses a const block out of step with its `All*` slice while that server runs. No
+    cache: the generator is stdlib-only and compiles in about a second.
+- **The client tests that pin a copy to the server's source read it through
+  `client/src/test/serverSource.ts`**: one switch, `SERVER_SOURCE` (`'go'` until the cutover,
+  `LOCO_SERVER_SOURCE=rs` to read `server-rs` ahead of it), and a Go and a Rust spelling of every
+  constant, deck rule, card value and map list they read. Against `loco-game` every `game` reader
+  passes today; the room-code, code-alphabet and full-address readers wait for `loco-hub`.
 - `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
   Naming a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the
   build started the moment those two finished, so the lint and the entire Playwright suite were

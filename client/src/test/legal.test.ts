@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { LEGAL, LEGAL_UPDATED } from '../content/legal'
 import { LEGAL as LEGAL_PAGE, PAGES, LANGS, type Lang } from '../seo/meta'
 import { UI } from '../content/ui'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
+import { FULL_ADDRESS_READ, serverHubSources } from './serverSource'
 
 const CLIENT = path.resolve(__dirname, '../..')
-const ROOT = path.resolve(CLIENT, '..')
 
 /** Every string of every document, flattened, for one language. */
 function allCopy(lang: Lang): string {
@@ -190,12 +190,11 @@ describe('the promises the copy makes about the stack', () => {
     for (const fmt of logFormats) expect(fmt).not.toMatch(/\$remote_addr/)
   })
 
-  it('truncates it in the Go server too', () => {
-    const dir = path.join(ROOT, 'server', 'hub')
-    const offenders = readdirSync(dir)
-      .filter((f) => f.endsWith('.go') && !f.endsWith('_test.go') && f !== 'privacy.go')
-      .filter((f) => statSync(path.join(dir, f)).isFile())
-      .filter((f) => /RemoteAddr\(\)|[^(]r\.RemoteAddr/.test(readFileSync(path.join(dir, f), 'utf8')))
+  it('truncates it in the server too', () => {
+    // Every hub file but privacy's, the one that does the truncating.
+    const offenders = serverHubSources()
+      .filter(({ src }) => FULL_ADDRESS_READ.test(src))
+      .map(({ file }) => file)
 
     expect(offenders).toEqual([])
   })
