@@ -12,7 +12,7 @@
 
 use crate::Hub;
 use crate::hub::{Control, HubCore};
-use crate::room::{RoomPayload, RoomStatus};
+use crate::room::{Room, Status};
 use crate::table::{MatchRecord, Table};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -49,8 +49,8 @@ pub struct SnapshotFile {
 /// are Go's; map keys are seats written as strings, as `encoding/json` did.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RoomSnapshot {
-    /// TODO(after loco-game merges): `loco_game::Room`.
-    pub room: RoomPayload,
+    /// The domain's room, in Go's JSON: a Go snapshot deserialises into it.
+    pub room: Room,
     /// What lets the returning client prove it owns the seat, with the token
     /// it has had since it joined.
     #[serde(
@@ -105,7 +105,7 @@ impl RoomSnapshot {
     /// What a table hands the snapshot, or `None` when it has nothing in flight
     /// worth carrying across a restart.
     pub fn of(t: &Table) -> Option<RoomSnapshot> {
-        if t.room.status() != RoomStatus::Playing {
+        if t.room.status != Status::Playing {
             return None;
         }
         Some(RoomSnapshot {
@@ -240,11 +240,13 @@ impl HubCore {
     /// yet, by construction, so every seat enters its reconnect window exactly
     /// as if its player had just dropped.
     pub(crate) fn restore_room(&mut self, rs: RoomSnapshot) -> bool {
-        let room = rs.room;
-        let code = room.code().to_owned();
-        if code.is_empty() || !room.has_state() || room.status() != RoomStatus::Playing {
+        let mut room = rs.room;
+        let code = room.code.clone();
+        if code.is_empty() || room.state.is_none() || room.status != Status::Playing {
             return false;
         }
+        // The RNG never travels: a restored room has none until it is given one.
+        crate::room::reseed(&mut room);
         if self.tables.contains_key(&code) {
             tracing::warn!(
                 code,
@@ -252,7 +254,7 @@ impl HubCore {
             );
             return false;
         }
-        let players = room.players_len();
+        let players = room.players.len();
         let mut t = Table::new(&code, room);
         t.members = vec![None; players];
         t.tokens = rs.session_tokens;

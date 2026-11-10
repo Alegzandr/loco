@@ -37,6 +37,14 @@ pub fn generate_session_token() -> String {
     hex(&b)
 }
 
+/// The 32 bytes a room's RNG is seeded with. Drawn from the OS, because the
+/// deal is hidden state.
+pub fn room_seed() -> [u8; 32] {
+    let mut b = [0u8; 32];
+    os_fill(&mut b);
+    b
+}
+
 /// A short (8-hex-character) tag for log correlation. Not used for security;
 /// uniqueness within a server lifetime is sufficient.
 pub fn generate_conn_id() -> String {

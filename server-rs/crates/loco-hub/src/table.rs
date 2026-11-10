@@ -8,7 +8,7 @@
 
 use crate::actor::{Deadlines, Phase};
 use crate::client::Client;
-use crate::room::{RoomPayload, RoomStatus};
+use crate::room::{Room, Status};
 use crate::wire::{LatencyEntry, Outgoing, ServerMsg, now_ms};
 use axum::extract::ws::Utf8Bytes;
 use serde::{Deserialize, Serialize};
@@ -36,8 +36,7 @@ fn is_zero(v: &i64) -> bool {
 /// Everything the hub knows about one room code.
 pub struct Table {
     pub code: String,
-    /// TODO(after loco-game merges): `loco_game::Room`.
-    pub room: RoomPayload,
+    pub room: Room,
 
     /// Indexed by seat; `None` is a seat whose socket has gone. Never written
     /// directly: [`Table::seat`] and [`Table::drop_seat`] are the ways in.
@@ -82,7 +81,7 @@ impl std::fmt::Debug for Table {
 impl Table {
     /// Builds a table but does not start it: the caller finishes filling it in
     /// and then hands it to `HubCore::open_table`.
-    pub fn new(code: &str, room: RoomPayload) -> Table {
+    pub fn new(code: &str, room: Room) -> Table {
         Table {
             code: code.to_owned(),
             room,
@@ -107,9 +106,9 @@ impl Table {
     /// Whether a shutdown would interrupt something here. Recomputed after
     /// every job the table runs.
     pub fn phase(&self) -> Phase {
-        match self.room.status() {
-            RoomStatus::Playing => Phase::InFlight,
-            RoomStatus::Lobby if self.is_matchmade() => Phase::InFlight,
+        match self.room.status {
+            Status::Playing => Phase::InFlight,
+            Status::Lobby if self.is_matchmade() => Phase::InFlight,
             _ => Phase::Idle,
         }
     }
@@ -321,11 +320,11 @@ impl Table {
     /// something has been measured. A payload of all `-1` says exactly what
     /// the client's own default already says.
     pub fn send_latencies(&self) {
-        if self.room.status() != RoomStatus::Playing {
+        if self.room.status != Status::Playing {
             return;
         }
         let mut measured = false;
-        let entries: Vec<LatencyEntry> = (0..self.room.players_len())
+        let entries: Vec<LatencyEntry> = (0..self.room.players.len())
             .map(|i| {
                 let mut e = LatencyEntry {
                     player_index: i,
@@ -434,7 +433,7 @@ mod tests {
     // match_history_internal_test.go that need no game.
 
     fn table() -> Table {
-        Table::new("AAAAAA", RoomPayload::lobby("AAAAAA"))
+        Table::new("AAAAAA", crate::room::new_room("AAAAAA"))
     }
 
     #[tokio::test]

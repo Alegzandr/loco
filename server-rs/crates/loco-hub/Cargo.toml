@@ -15,6 +15,7 @@ testkit = ["dep:tokio-tungstenite"]
 # TODO(after loco-protocol merges): the LiveStream DTO comes from loco-protocol
 # and this dependency goes. The hub must never be a dependency of loco-twitch.
 loco-twitch.workspace = true
+loco-game.workspace = true
 axum.workspace = true
 futures-util.workspace = true
 ipnet.workspace = true

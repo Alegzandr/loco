@@ -5,7 +5,7 @@
 //! with the handler port, on the same harness.
 
 use loco_hub::actor::{DeadlineKey, Phase, TableJob};
-use loco_hub::room::RoomPayload;
+use loco_hub::room::{Room, Status, new_room};
 use loco_hub::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};
 use loco_hub::table::MatchRecord;
 use loco_hub::testkit::*;
@@ -20,13 +20,15 @@ fn cfg() -> HubConfig {
     HubConfig::default()
 }
 
-/// A room the way the Go server marshalled one mid-match: what the opaque
-/// payload reads is `Code`, `Status` (1 = playing), `Players` and `State`.
-fn playing_room(code: &str, players: usize) -> RoomPayload {
-    let ps: Vec<Value> = (0..players)
-        .map(|i| json!({ "Nickname": format!("P{i}") }))
-        .collect();
-    RoomPayload(json!({ "Code": code, "Status": 1, "Players": ps, "State": { "Hands": [] } }))
+/// A room with a match dealt, through the domain's own door.
+fn playing_room(code: &str, players: usize) -> Room {
+    let mut r = Room::from_u64_seed(code, 7);
+    for i in 0..players {
+        r.join(&format!("Joueur{i}")).expect("join");
+    }
+    r.start(loco_hub::wire::now_ms()).expect("start");
+    assert_eq!(r.status, Status::Playing);
+    r
 }
 
 async fn open(hub: &Hub, t: Table) {
@@ -57,7 +59,7 @@ async fn health_endpoint_counts_rooms_and_clients() {
     let th = new_test_hub().await;
     let mut ws = dial_ws(&th).await;
     read_raw(&mut ws).await; // registered: players_online arrives first
-    open(&th.hub, Table::new("AAAAAA", RoomPayload::lobby("AAAAAA"))).await;
+    open(&th.hub, Table::new("AAAAAA", new_room("AAAAAA"))).await;
     let (_, _, body) = http_get(&th, "/health").await;
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["rooms"], 1);
@@ -427,7 +429,7 @@ async fn table_panic_costs_one_message_not_the_table() {
             panic!("audit probe");
         }
     });
-    open(&th.hub, Table::new("AAAAAA", RoomPayload::lobby("AAAAAA"))).await;
+    open(&th.hub, Table::new("AAAAAA", new_room("AAAAAA"))).await;
     let (c, mut rx) = Client::detached(&th.hub);
     let ran = Arc::new(AtomicUsize::new(0));
 
@@ -468,8 +470,8 @@ async fn table_panic_costs_one_message_not_the_table() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn one_slow_table_does_not_hold_up_another() {
     let th = new_test_hub().await;
-    open(&th.hub, Table::new("SLOWWW", RoomPayload::lobby("SLOWWW"))).await;
-    open(&th.hub, Table::new("FASTTT", RoomPayload::lobby("FASTTT"))).await;
+    open(&th.hub, Table::new("SLOWWW", new_room("SLOWWW"))).await;
+    open(&th.hub, Table::new("FASTTT", new_room("FASTTT"))).await;
     let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
     let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
     let done = Arc::new(AtomicBool::new(false));
@@ -500,7 +502,7 @@ async fn one_slow_table_does_not_hold_up_another() {
 async fn a_rearmed_deadline_replaces_the_old_one() {
     let hub = Hub::start(cfg());
     let fired: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::default();
-    let mut t = Table::new("AAAAAA", RoomPayload::lobby("AAAAAA"));
+    let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
     let now = tokio::time::Instant::now();
     let key = DeadlineKey::seat("turn", 0);
     let f = fired.clone();
@@ -547,7 +549,7 @@ async fn a_deadline_can_rearm_from_its_own_job() {
             }
         }
     }
-    let mut t = Table::new("AAAAAA", RoomPayload::lobby("AAAAAA"));
+    let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
     t.deadlines.arm(
         DeadlineKey::table("tick"),
         tokio::time::Instant::now() + Duration::from_secs(1),
@@ -562,7 +564,7 @@ async fn a_deadline_can_rearm_from_its_own_job() {
 #[tokio::test]
 async fn a_deleted_room_stops_and_forgets_its_bots() {
     let hub = Hub::start(cfg());
-    let mut t = Table::new("AAAAAA", RoomPayload::lobby("AAAAAA"));
+    let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
     t.bots.insert(1);
     hub.metrics().bots_active.fetch_add(1, Ordering::Relaxed);
     open(&hub, t).await;
@@ -621,7 +623,7 @@ async fn stop_waits_for_the_loop_to_leave_the_handler() {
 #[tokio::test]
 async fn drain_done_immediately_when_nobody_is_playing() {
     let th = new_test_hub().await;
-    open(&th.hub, Table::new("LOBBYY", RoomPayload::lobby("LOBBYY"))).await;
+    open(&th.hub, Table::new("LOBBYY", new_room("LOBBYY"))).await;
     th.hub.begin_drain();
     tokio::time::timeout(Duration::from_secs(2), th.hub.drain_done())
         .await
@@ -646,7 +648,7 @@ async fn drain_done_only_once_the_last_match_ends() {
     th.hub
         .on_loop(|core| {
             let _ = core.tables["PLAYIN"].post(TableJob::new("finish", |t, _| {
-                t.room.0["Status"] = json!(2);
+                t.room.status = Status::Finished;
             }));
         })
         .await;
@@ -660,7 +662,7 @@ async fn drain_done_only_once_the_last_match_ends() {
 #[tokio::test]
 async fn a_matchmade_reveal_counts_as_in_flight() {
     let hub = Hub::start(cfg());
-    let mut t = Table::new("REVEAL", RoomPayload::lobby("REVEAL"));
+    let mut t = Table::new("REVEAL", new_room("REVEAL"));
     t.matchmade_at = Some(tokio::time::Instant::now());
     open(&hub, t).await;
     let phase = hub.on_loop(|core| core.tables["REVEAL"].phase()).await;
@@ -673,7 +675,7 @@ async fn drain_notifies_every_table_and_empties_the_queue() {
     let th = new_test_hub().await;
     let (seated, mut seated_rx) = Client::detached(&th.hub);
     let (queued, mut queued_rx) = Client::detached(&th.hub);
-    let mut lobby = Table::new("LOBBYY", RoomPayload::lobby("LOBBYY"));
+    let mut lobby = Table::new("LOBBYY", new_room("LOBBYY"));
     lobby.seat(&seated, 0);
     open(&th.hub, lobby).await;
     let q = queued.clone();
@@ -760,7 +762,7 @@ async fn snapshot_match_survives_a_restart() {
         duration_ms: 1234,
     });
     open(&first, t).await;
-    open(&first, Table::new("LOBBYY", RoomPayload::lobby("LOBBYY"))).await;
+    open(&first, Table::new("LOBBYY", new_room("LOBBYY"))).await;
     first.save_snapshot(&path).await.expect("save");
     first.stop().await;
 
@@ -800,11 +802,13 @@ async fn snapshot_match_survives_a_restart() {
                     t.match_started_at,
                     t.away_at.keys().copied().collect::<Vec<_>>(),
                     t.members.len(),
+                    t.room.is_seeded(),
                 ));
             }));
         })
         .await;
-    let (tok, bot, afk, flags, history, at, away, seats) = rx.await.unwrap();
+    let (tok, bot, afk, flags, history, at, away, seats, seeded) = rx.await.unwrap();
+    assert!(seeded, "a restored room was left without an RNG");
     assert!(tok && bot && flags);
     assert_eq!(afk, Some(1));
     assert_eq!(history[0].duration_ms, 1234);
@@ -829,7 +833,7 @@ async fn snapshot_lobbies_are_not_saved() {
     let dir = tempdir("lobbies");
     let path = snap_path(&dir);
     let hub = Hub::start(cfg());
-    open(&hub, Table::new("LOBBYY", RoomPayload::lobby("LOBBYY"))).await;
+    open(&hub, Table::new("LOBBYY", new_room("LOBBYY"))).await;
     hub.save_snapshot(&path).await.unwrap();
     assert!(!path.exists(), "an empty snapshot was written");
     hub.stop().await;
@@ -931,7 +935,7 @@ async fn snapshot_written_by_go_loads() {
         "schema_version": 5,
         "saved_at": saved,
         "rooms": [{
-            "room": playing_room("GOGOGO", 2).0,
+            "room": serde_json::to_value(playing_room("GOGOGO", 2)).unwrap(),
             "session_tokens": {"0": "abc", "1": "def"},
             "bot_slots": null,
             "afk_timeouts": null,
