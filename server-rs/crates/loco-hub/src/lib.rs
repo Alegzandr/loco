@@ -1,0 +1,43 @@
+//! The authoritative server's runtime: the hub, the tables, the sockets, the
+//! drain and the snapshot. A module per file of `server/hub/`, so
+//! `docs/notes/server.md` stays navigable ("Rust port" maps the two).
+//!
+//! The rules this crate exists to keep, briefly (the reasons are in the note):
+//! a table is one task that owns its state and nothing else reads it; the hub
+//! routes and the table decides; every crossing between them is non-blocking;
+//! a panic costs one message; and nothing outside `privacy.rs` reads a remote
+//! address.
+
+#![forbid(unsafe_code)]
+
+pub mod actor;
+pub mod client;
+pub mod config;
+pub mod dispatch;
+pub mod drain;
+pub mod gotime;
+pub mod hub;
+pub mod live;
+pub mod logsink;
+pub mod metrics;
+pub mod online;
+pub mod privacy;
+pub mod room;
+pub mod serve;
+pub mod snapshot;
+pub mod table;
+#[cfg(any(test, feature = "testkit"))]
+pub mod testkit;
+pub mod tokens;
+pub mod wire;
+
+pub use actor::{DeadlineKey, Deadlines, Phase, TableCtx, TableHandle, TableJob, TableSender};
+pub use client::Client;
+pub use config::{HubConfig, Limits, Timings};
+pub use drain::DRAIN_REFUSAL;
+pub use hub::{Hub, HubCore};
+pub use logsink::AsyncLog;
+pub use metrics::{HealthStats, LiveStats, MetricsStats};
+pub use serve::routes;
+pub use snapshot::{SNAPSHOT_SCHEMA_VERSION, SnapshotError};
+pub use table::Table;

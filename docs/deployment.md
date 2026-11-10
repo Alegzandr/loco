@@ -34,7 +34,13 @@ Production ignores it entirely: `deploy_prod` keys on `$CI_COMMIT_TAG =~ /^v.*/`
   Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
 - `backend_lint` (`golangci/golangci-lint:v2.12-alpine`): `cd server && golangci-lint run ./...`.
 
-`build` **needs all four**. `needs` is what actually gates a deploy: naming only `backend_test` and
+- `backend_test_rs` / `backend_lint_rs` (`rust:1.97-bookworm`): the Rust server in `server-rs/`, run
+  alongside the Go jobs until the cutover. The first is `cargo test --workspace --locked` plus the
+  `wasm32-unknown-unknown` build of `loco-game`; the second is `cargo fmt --check`, `cargo clippy -D
+  warnings` and `cargo deny check` (`server-rs/deny.toml`: permissive licences only, no open advisory,
+  crates.io only). Neither builds an image. See "The Rust image, prepared" below.
+
+`build` **needs every test job**, the Rust ones and `protocol_check_rs` included. `needs` is what actually gates a deploy: naming only `backend_test` and
 `frontend_test` let the build start as soon as those two finished, which made the lint and the whole
 Playwright suite advisory — red on `develop` still shipped to dev, and a version tag still shipped to
 prod.
@@ -356,6 +362,25 @@ including a full restart: a match on one hub, snapshot, a second hub loads it,
 and both players reconnect with their original tokens and get their hands back
 card for card. There is deliberately **no Playwright coverage**: the E2E suite
 cannot restart the server underneath itself.
+
+### The Rust image, prepared
+
+`server-rs/Dockerfile` is ready and **not wired into `build`** until the cutover
+(`docs/migration.md`, step 6). It is a static musl binary on `gcr.io/distroless/static:nonroot`:
+no shell, no package manager, no `wget`. Three things change with it, and all three have to move in
+the same change set as the switch:
+
+- **The runtime uid is 65532** (distroless `nonroot`), not 10001. The deploy's `chown` of
+  `${DATA_DIR}/snapshots` must follow, or the container cannot write its snapshot and every match in
+  flight is lost on the next deploy.
+- **The healthcheck is the binary**: `["CMD", "/loco-server", "healthcheck"]` (a `GET /health` on
+  loopback, exit 0 on a 200). `wget -qO- …/health` does not exist in the image.
+- **`/metrics` is Prometheus text** under the Go names, no longer JSON; `/health` stays JSON. The
+  E2E helpers that read `matchmaking_queue` move to the text format at the same time.
+
+`read_only`, `cap_drop: ALL`, `no-new-privileges`, the tmpfs `/tmp` and the `/data` bind mount carry
+over unchanged. `docker-compose.dev.yml` carries a commented `server` service running it under
+`cargo watch`, and `make test-server-rs` / `lint-server-rs` / `bench-server-rs` run it in Docker.
 
 ## Production readiness
 

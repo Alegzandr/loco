@@ -33,7 +33,7 @@ unicode-general-category = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
-tokio-tungstenite = "0.27"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
@@ -48,6 +48,9 @@ dprint-plugin-typescript = "=0.95"
 proptest = "1"
 insta = { version = "1", features = ["json"] }
 criterion = "0.7"
+# Added by the server crates (agent D).
+httpdate = "1"
+sha2 = "0.10"
 
 [profile.release]
 panic = "unwind"
