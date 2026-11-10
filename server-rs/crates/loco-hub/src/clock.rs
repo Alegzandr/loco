@@ -60,8 +60,19 @@ pub fn instant_of(ms: Millis) -> Instant {
 }
 
 /// Now as a wall-clock value, for what travels in the snapshot.
+///
+/// Sub-millisecond precision is kept: a match's duration is the difference
+/// of two of these, and a played match must never measure zero (zero is
+/// "cannot say" on the wire).
 pub fn system_now() -> SystemTime {
-    UNIX_EPOCH + Duration::from_millis(now_ms().max(0) as u64)
+    let a = anchor();
+    let now = Instant::now().into_std();
+    let base = UNIX_EPOCH + Duration::from_millis(a.unix_ms.max(0) as u64);
+    if now >= a.at {
+        base + now.duration_since(a.at)
+    } else {
+        base.checked_sub(a.at.duration_since(now)).unwrap_or(base)
+    }
 }
 
 /// A wall-clock value as unix milliseconds.
