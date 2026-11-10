@@ -16,7 +16,7 @@ import { OG_W, OG_H } from '../dev/OgCard.svelte'
 import { ORIGIN, OG_IMAGE, HOME, LANGS, absolute, social, type Lang } from '../seo/meta'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
-const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'Base.astro'), 'utf8')
+const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'Head.svelte'), 'utf8')
 
 /** The PNG a language's `og:image` points at, stripped of its cache buster. */
 function imageFor(lang: Lang): string {

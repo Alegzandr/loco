@@ -22,7 +22,9 @@ asserted the discard and the turn that `debug_set_state` had itself just configu
 months while the server rejected every interrupt with "interrupt window closed".
 
 Keep tests fast, targeted, non-brittle, and cover game rules over UI details. Review layout, colour
-and motion changes with `make visual` instead: reading four contact sheets catches what no assertion
+and motion changes with `make visual` instead (it also shoots the content pages and the 404, which
+share the game's shell since SvelteKit: `--pages=only` for those alone, `--pages=off` to skip them):
+reading four contact sheets catches what no assertion
 was going to describe. Assertions own behaviour, screenshots own appearance.
 
 Both browser harnesses (`make visual`, `make audio-verify`) launch the Chromium their `playwright`
@@ -157,9 +159,11 @@ deliberately not covered here" below.
 
 ## Playwright E2E
 - Lives in `e2e/` (separate `package.json`). `@playwright/test` + Chromium + Pixel 5.
-- Needs Go server `:8080`. Playwright starts an isolated dev server on `:4173`, with `--ignore-lock`
-  because `astro dev` is a singleton: without it a second invocation prints "dev server already
-  running", never binds 4173, and the suite times out because `make dev` happens to be up.
+- Needs Go server `:8080`. Playwright starts an isolated Vite dev server on `:4173` with
+  `--strictPort`, so a busy port fails loudly instead of moving the server one port over where the
+  suite would never find it. Vite takes no lock, so it runs beside `make dev` (Astro's dev server was
+  a singleton and needed `--ignore-lock`, plus clearing the agent-detection variables that made it
+  background itself; both are gone).
   - Local: `docker compose -f docker-compose.dev.yml up --build` then `cd e2e && npm test`.
   - CI: `backend_test` builds `server-bin`; `e2e_test` runs it + Playwright.
 - `window.__LOCO_E2E__` exposed in dev only (`import.meta.env.DEV`):
@@ -421,7 +425,7 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
   are protected CI/CD variables, so protecting the `v*` tags — which is what makes `deploy_prod` see
   them at all — also injected them into every other job of a tag pipeline. The server binary inherits
   the job's environment, the live poller switched itself on, and `/live.json` (proxied to `:8080` by
-  Vite, `astro.config.mjs`) started answering with whoever was streaming the game; `live.spec.ts`
+  Vite, `vite.config.ts`) started answering with whoever was streaming the game; `live.spec.ts`
   asserts the served paragraph stays put when nobody is, and it went red on a real channel being on
   air. **The fix belongs in the job, never in the spec**: a suite whose result depends on a stranger's
   stream is not a suite, and CI has no business calling a third party once a minute. Emptying the key
@@ -493,21 +497,22 @@ Browser (HTTPS) → Traefik (:443 websecure)
   an `add_header` must `include` it.** This is the one nginx rule that fails silently in the
   direction that matters: `add_header` is inherited into an inner level *only while that level
   declares none of its own*, so it is not "these are added to what the server block set", it is
-  "declare one here and you have replaced all of them". `location /_astro/` set `Cache-Control` and
-  by doing so shipped the entire JavaScript bundle and every `<Image />`-optimised asset with **no
+  "declare one here and you have replaced all of them". `location /_astro/` (the bundle's block under
+  Astro; `/_app/immutable/` since SvelteKit) set `Cache-Control` and by doing so shipped the entire
+  JavaScript bundle and every optimised image with **no
   CSP, no nosniff, no Referrer-Policy and no Permissions-Policy**.
   Nothing saw it, and the two checks that exist are why. `make csp` read headers off the
   `page.goto()` response — the document, which kept all four — and reported clean. `csp.test.ts`
   regexed `add_header` lines out of the config text and asserted their *values*, which were never
   wrong; the question was never what the headers said, it was which responses got them. A guard that
   reads a directive cannot see an inheritance rule.
-  The exposure that makes it worth fixing rather than noting is `nosniff`: anything under `/_astro/`
-  a browser can be talked into rendering as a document is a document **with no policy at all** on
-  this origin, and Astro emits optimised images there, SVG included. Nothing user-controlled lands in
+  The exposure that makes it worth fixing rather than noting is `nosniff`: anything under the bundle's
+  directory a browser can be talked into rendering as a document is a document **with no policy at
+  all** on this origin, and the build emits optimised images there, SVG included. Nothing user-controlled lands in
   that directory today, which is exactly the argument for closing it before something does.
   Both checks were fixed to see the shape rather than the values: `csp.test.ts` brace-matches every
   `location` block and fails on one that declares an `add_header` without the include, and
-  `tools/csp/check.mjs` now asserts the five headers on an actual `/_astro/` sub-resource response —
+  `tools/csp/check.mjs` now asserts the five headers on an actual `/_app/` sub-resource response —
   and reports a problem if the page pulled in no asset to check, so it cannot pass by finding
   nothing.
 - **`connect-src` uses `$http_host`, never `$host`.** `$host` drops the port, and a CSP host source
@@ -515,10 +520,13 @@ Browser (HTTPS) → Traefik (:443 websecure)
   invisible in production and blocks the socket everywhere else — a staging host on a non-default
   port, or anyone running the built image locally.
 - **No test can prove the page loads under the CSP, and one pins it to the app anyway.**
-  `client/src/test/csp.test.ts` reads `nginx.conf` next to the `.astro` markup and the client
-  sources, and couples each directive to whatever needs it: `script-src 'self'` beside the absence
-  of any `is:inline` script **and of any `client:*` island directive** (Astro's hydration runtime is
-  inline by construction, so one island is a blank production page), `'unsafe-inline'` in
+  `client/src/test/csp.test.ts` reads `nginx.conf` next to the Svelte markup and the client
+  sources, and couples each directive to whatever needs it: `script-src 'self' $loco_script_hashes`
+  beside the absence of any hand-written inline script, the generated include ahead of the header,
+  the hash reader (`scripts/csp-hashes.mjs`) run on a built-page fixture, the Dockerfile copying the
+  hashes from the builder, and — when a `build/` is on disk — every bootstrap in it covered by
+  `csp-hashes.conf` (SvelteKit's router starts from one inline script per page, so one page whose
+  hash is missing is a blank production page), `'unsafe-inline'` in
   `style-src` beside the inlined stylesheets and the per-card `style` attributes that force it,
   `$http_host` (never `$host`)
   twice in `connect-src`, no remote origin in the policy *or* in
@@ -616,27 +624,21 @@ future reader mistake the exclusions for neglect.
 ## Dev Docker Compose
 - `docker-compose.dev.yml` — hot-reload, no host Go/Node needed.
 - Backend: `golang:1.26.5-alpine`, bind `./server:/app`, `go run .`, `:8080`.
-- Frontend: `node:24-alpine` (Astro 7 declares `engines.node >= 22.12`), bind `./client:/app`,
+- Frontend: `node:24-alpine` (Vite 8 and SvelteKit 3 declare `engines.node >= 22.12`), bind `./client:/app`,
   `npm ci && npm run dev`, `:5173` (container 3000).
 - **No dev-server WS proxy** — browser connects directly to `ws://<host>:8080/ws` (the proxy is unreliable under Docker).
 - `VITE_WS_PORT=8080` env tells client which port (default 8080).
 - `hooks/webSocket.svelte.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
-- `astro.config.mjs`: no proxy. `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries
+- `vite.config.ts`: no proxy. `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries
   `VITE_HMR_CLIENT_PORT` so HMR dials the published 5173 rather than the container's 3000.
 - Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).
 - Start: `docker compose -f docker-compose.dev.yml up --build`.
-- **The client command drops `.astro/dev.json` before it starts, and it has to.** Astro 7's dev
-  server is a singleton holding that lock file, which lives on the bind mount and so outlives the
-  container that wrote it. A stale lock is supposed to clear itself: `checkExistingServer` asks
-  whether the recorded pid is alive. Across a container restart that question has no meaning — pids
-  begin again at 1, and the pid the dead server recorded (43, npm's own child) is alive again on
-  every boot, so the lock reads as held by a server that has not existed since the last Ctrl+C.
-  `astro dev` refuses, `restart: unless-stopped` tries again, and the stack loops on that refusal
-  forever. `--force` is the documented escape and is the wrong one here: it SIGKILLs that pid, which
-  now belongs to something else in the new container. The lock is only ever this container's, so
-  removing it is safe. **The capture harnesses answer the same singleton differently**
-  (`tools/lib/devserver.mjs`, `--ignore-lock`): they run on the host, where a lock may genuinely
-  belong to a dev server somebody is using.
+- **The client command is `npm ci && npm run dev`, and nothing else.** Under Astro it first deleted
+  `.astro/dev.json`, the dev server's singleton lock, which lived on the bind mount and read as held
+  after every container restart (pids begin again at 1). Vite takes no lock, so the line went with
+  Astro, and so did the capture harnesses' `--ignore-lock` (`tools/lib/devserver.mjs` passes
+  `--strictPort` instead). `npm ci` runs the `prepare` script, `svelte-kit sync`, so the generated
+  types exist before the server starts.
 
 ### An ad-hoc `docker run` from Git Bash on Windows corrupts its own paths
 Git Bash (MSYS) rewrites any argument that looks like a POSIX path list: the `:` separator becomes a

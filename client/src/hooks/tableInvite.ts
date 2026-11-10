@@ -22,7 +22,7 @@ import { clearSession, readSession } from './sessionPersistence'
  *  - **The code is a query parameter on that page, never a path segment.** Every
  *    URL here is a page the build emitted, and `/i/ABC234` is not one: a static
  *    build cannot emit a page per table, so resolving a path form would need a
- *    fallback in whoever serves the request. nginx can do that; `astro dev`
+ *    fallback in whoever serves the request. nginx can do that; `astro dev` (the dev server then)
  *    cannot be made to — Astro 7 routes ahead of the connect stack, so a Vite
  *    plugin's middleware never sees the URL, `astro:server:setup` at the head of
  *    the stack never sees it either, and a dynamic entry in `redirects` refuses

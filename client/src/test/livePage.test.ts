@@ -8,7 +8,7 @@ import { UI } from '../content/ui'
 const CLIENT = path.resolve(__dirname, '../..')
 const read = (p: string) => readFileSync(path.join(CLIENT, p), 'utf8')
 
-const article = read('src/content/LiveArticle.astro')
+const article = read('src/content/LiveArticle.svelte')
 const list = read('src/content/liveList.ts')
 const boot = read('src/content/page-boot.ts')
 
@@ -33,17 +33,23 @@ describe('the live page', () => {
   // The game links to this page from the home screen's strip, and it does it
   // through two constants rather than by importing the whole registry — which
   // carries every page's copy and is read at build time by markup no player
-  // downloads. Pinned here so the copy cannot drift from the page Astro emits.
+  // downloads. Pinned here so the copy cannot drift from the page the build emits.
   it('is where the game thinks it is', () => {
     expect(LIVE_PATH.en).toBe(LIVE.path.en)
     expect(LIVE_PATH.fr).toBe(LIVE.path.fr)
   })
 
-  // A content page mounts nothing. The list is filled by the one script these
-  // pages already load, so this article is markup like every other one.
-  it('ships no island and no inline script', () => {
-    expect(article).not.toMatch(/client:(load|idle|visible|media|only)/)
-    expect(article).not.toMatch(/is:inline/)
+  // The page is prerendered, and its prose has to be in the served HTML for a
+  // reader with no script and a crawler alike. So the article is markup and
+  // nothing else: no effect (which never runs on the server, so whatever it
+  // drew would be missing from the file), no inline script, no raw HTML. The
+  // list is filled by `page-boot.ts`, over what this already says.
+  it('is markup that renders on the server, with no script of its own', () => {
+    const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(article)?.[1] ?? ''
+    // Built rather than written out: a rune spelled in a plain .ts file is what
+    // runeScope.test.ts exists to refuse, even inside a pattern.
+    expect(script).not.toMatch(new RegExp(['\\$' + 'effect', 'onMount', '\\$' + 'state'].join('|')))
+    expect(article.slice(article.indexOf('</script>'))).not.toMatch(/<script|\{@html/)
   })
 
   // The paragraph that stands in for the list is *served*, not written by the

@@ -109,7 +109,7 @@ describe('reaching it', () => {
   it('is a real page in both languages', () => {
     for (const lang of LANGS) {
       const clean = LEGAL_PAGE.path[lang].replace(/^\/|\/$/g, '')
-      const file = path.join(CLIENT, 'src', 'pages', `${clean}.astro`)
+      const file = path.join(CLIENT, 'src', 'routes', clean, '+page.svelte')
       expect(readFileSync(file, 'utf8')).toContain('LegalArticle')
     }
   })
@@ -140,24 +140,33 @@ describe('reaching it', () => {
   })
 
   it('is linked from the footer of the game and of every content page', () => {
+    // One bar and one drawer since the site's chrome was unified, and both
+    // page layouts render them.
     const layouts = path.join(CLIENT, 'src', 'layouts')
-    for (const file of ['GamePage.astro', 'ContentPage.astro']) {
+    for (const file of ['SiteFooter.svelte', 'SiteDrawer.svelte']) {
       const src = readFileSync(path.join(layouts, file), 'utf8')
       expect(src, file).toMatch(/LEGAL\.path\[lang\]/)
       expect(src, file).toMatch(/legalNav/)
     }
+    for (const file of ['GamePage.svelte', 'ContentPage.svelte']) {
+      expect(readFileSync(path.join(layouts, file), 'utf8'), file).toMatch(/<SiteFooter\b/)
+    }
   })
 
   // The whole point of a page over a modal: no name typed, no seat taken, and
-  // nothing to run. A `client:` directive here would put the policy behind a
-  // script, and `nginx.conf` refuses those anyway (see csp.test.ts).
-  it('renders without shipping any JavaScript of its own', () => {
+  // nothing to run. The page is prerendered, so the policy is in the served
+  // HTML: an effect here would draw nothing on the server, and the policy would
+  // be behind a script for a reader who has none.
+  it('renders without needing any JavaScript of its own', () => {
     const article = readFileSync(
-      path.join(CLIENT, 'src', 'content', 'LegalArticle.astro'),
+      path.join(CLIENT, 'src', 'content', 'LegalArticle.svelte'),
       'utf8',
     )
-    expect(article).not.toMatch(/client:/)
-    expect(article).not.toMatch(/is:inline/)
+    const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(article)?.[1] ?? ''
+    // Built rather than written out: a rune spelled in a plain .ts file is what
+    // runeScope.test.ts exists to refuse, even inside a pattern.
+    expect(script).not.toMatch(new RegExp(['\\$' + 'effect', 'onMount', '\\$' + 'state'].join('|')))
+    expect(article.slice(article.indexOf('</script>'))).not.toMatch(/<script|\{@html/)
   })
 
   it('keeps the copy out of the bundle every player downloads', () => {

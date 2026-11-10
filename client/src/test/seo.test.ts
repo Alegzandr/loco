@@ -7,7 +7,7 @@
  *
  * So the registry in `src/seo/meta.ts` is the single source, and this file
  * asserts the properties that make it worth being one. It reads sources rather
- * than `dist/`: `npm run test` runs before `npm run build` in CI, and a test
+ * than `build/`: `npm run test` runs before `npm run build` in CI, and a test
  * that needed a build would simply not run there.
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
@@ -32,30 +32,27 @@ import {
   type Lang,
   type PageDef,
 } from '../seo/meta'
+import { documentFor } from '../seo/document'
+import { sitemapUrls } from '../seo/sitemap'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
-const PAGES_DIR = path.join(CLIENT, 'src', 'pages')
+const ROUTES_DIR = path.join(CLIENT, 'src', 'routes')
 const nginx = readFileSync(path.join(CLIENT, 'nginx.conf'), 'utf8')
-const astroConfig = readFileSync(path.join(CLIENT, 'astro.config.mjs'), 'utf8')
 
 /** Everything under src/content/: the prose and the data behind the pages. */
 function contentSources(dir = path.join(CLIENT, 'src', 'content'), out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     if (statSync(full).isDirectory()) contentSources(full, out)
-    else if (/\.(astro|tsx?|css)$/.test(entry)) out.push(full)
+    else if (/\.(svelte|tsx?|css)$/.test(entry)) out.push(full)
   }
   return out
 }
 
-/** The two source files Astro would accept for a given URL path. */
+/** The route file SvelteKit builds a given URL path from. */
 function candidateFiles(urlPath: string): string[] {
   const clean = urlPath.replace(/^\/|\/$/g, '')
-  if (clean === '') return [path.join(PAGES_DIR, 'index.astro')]
-  return [
-    path.join(PAGES_DIR, `${clean}.astro`),
-    path.join(PAGES_DIR, clean, 'index.astro'),
-  ]
+  return [path.join(ROUTES_DIR, clean, '+page.svelte')]
 }
 
 describe('the page registry', () => {
@@ -114,7 +111,7 @@ describe('the page registry', () => {
       for (const lang of LANGS) {
         const p = page.path[lang]
         expect(p, `${page.id}/${lang}`).toMatch(/^\//)
-        // `trailingSlash: 'always'` in astro.config.mjs, and the canonical is
+        // `trailingSlash: 'always'` in src/routes/+layout.ts, and the canonical is
         // built from this: the two must agree or every page canonicalises to a
         // URL that redirects.
         expect(p, `${page.id}/${lang} must end in a slash`).toMatch(/\/$/)
@@ -214,7 +211,7 @@ describe('hreflang', () => {
   it('names the apex, never the www. host', () => {
     // One of the two hosts is canonical and the other 301s to it. Which one is
     // an arbitrary choice, but it has to be the same one in `meta.ts`,
-    // `astro.config.mjs` and the redirect rule at the edge — and a canonical
+    // `vite.config.ts` and the redirect rule at the edge — and a canonical
     // pointing at a redirect is the failure that no page ever reports, because
     // both URLs answer 200 to a human.
     expect(ORIGIN).not.toMatch(/^https?:\/\/www\./)
@@ -337,7 +334,7 @@ describe('the one heading a crawler can read', () => {
   // `/` is a game: what stands where a title would is a drawing, and the only
   // <h1> the page had was one React mounted. A crawler reads the served HTML,
   // and every audit came back saying the home page had no heading at all.
-  const gamePage = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+  const gamePage = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.svelte'), 'utf8')
 
   it('is served as markup on the home page, in text, off the screen', () => {
     // `[^>]*` rather than a literal tag: the heading also carries its own
@@ -366,7 +363,7 @@ describe('the one heading a crawler can read', () => {
       for (const e of readdirSync(d)) {
         const full = path.join(d, e)
         if (statSync(full).isDirectory()) walk(full, out)
-        else if (e.endsWith('.tsx')) out.push(full)
+        else if (e.endsWith('.svelte')) out.push(full)
       }
       return out
     }
@@ -377,11 +374,42 @@ describe('the one heading a crawler can read', () => {
 })
 
 describe('what the server has to agree with', () => {
-  it('points robots.txt at the sitemap Astro actually emits', () => {
-    // Two independent files naming one artefact: @astrojs/sitemap writes
+  it('points robots.txt at the sitemap the build actually emits', () => {
+    // Two independent files naming one artefact: a prerendered route writes
     // `sitemap-index.xml`, and nginx advertises a path it was told by hand.
-    expect(astroConfig).toContain('sitemap(')
+    expect(existsSync(path.join(ROUTES_DIR, 'sitemap-index.xml', '+server.ts'))).toBe(true)
+    expect(existsSync(path.join(ROUTES_DIR, 'sitemap-0.xml', '+server.ts'))).toBe(true)
     expect(nginx).toContain('sitemap-index.xml')
+  })
+
+  it('lists every page of the registry, in every language, and nothing else', () => {
+    const xml = sitemapUrls()
+    const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])
+    const expected = PAGES.flatMap((p) => LANGS.map((l) => absolute(p.path[l])))
+    expect(locs.sort()).toEqual(expected.sort())
+    // Each with its alternates: the pair a crawler discovers here is the pair
+    // the page head declares.
+    for (const page of PAGES) {
+      for (const l of LANGS) {
+        expect(xml).toContain(`hreflang="${LOCALE[l]}" href="${absolute(page.path[l])}"`)
+      }
+    }
+  })
+
+  it('gives every document the language and the shape its page declares', () => {
+    // `<html>` and `<body>` are outside anything a component renders, so the
+    // server hook and the router both read them off `seo/document.ts`.
+    for (const page of PAGES) {
+      for (const l of LANGS) {
+        const doc = documentFor(page.path[l])
+        expect(doc.lang, page.path[l]).toBe(l)
+        expect(doc.servedLang, page.path[l]).toBe(l)
+        expect(doc.bodyClass, page.path[l]).toBe(page.id === HOME.id ? 'game' : 'doc')
+      }
+    }
+    expect(documentFor('/').altTitle).toBe(HOME.title.fr)
+    expect(documentFor('/fr/').altTitle).toBe(HOME.title.en)
+    expect(documentFor('/nope').bodyClass).toBeUndefined()
   })
 
   it('keeps dev hosts out of the index, and says nothing else there', () => {
@@ -397,7 +425,12 @@ describe('what the server has to agree with', () => {
     // soft 404, which Google reports as an error and which hides broken links.
     expect(nginx).toMatch(/try_files\s+\$uri\s+\$uri\/\s+=404/)
     expect(nginx).toContain('error_page 404 /404.html')
-    expect(existsSync(path.join(PAGES_DIR, '404.astro'))).toBe(true)
+    expect(existsSync(path.join(ROUTES_DIR, '404', '+page.svelte'))).toBe(true)
+    // Built as a file, not a directory, and with no script: it is served at
+    // whatever address was missed.
+    const opts = readFileSync(path.join(ROUTES_DIR, '404', '+page.ts'), 'utf8')
+    expect(opts).toMatch(/trailingSlash = 'never'/)
+    expect(opts).toMatch(/csr = false/)
   })
 
   it('compresses what is worth compressing and caches what is immutable', () => {

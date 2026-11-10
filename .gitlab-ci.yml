@@ -228,7 +228,7 @@ backend_test:
 
 frontend_test:
   stage: test
-  # Astro 7 declares engines.node >= 22.12; the image is the current LTS.
+  # Vite 8 and SvelteKit 3 declare engines.node >= 22.12; the image is the current LTS.
   image: node:24-alpine
   tags:
     - devops

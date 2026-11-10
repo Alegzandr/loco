@@ -23,7 +23,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
 3. Type is display-weight and large — a spectator reads it at 720p, not a designer at arm's length.
 
 - Fonts: **Fredoka Variable** (display) + **Nunito Variable** (body), self-hosted via
-  `@fontsource-variable/*` and imported in `layouts/Base.astro`, not from the game's entry: the
+  `@fontsource-variable/*` and imported by the root layout (`routes/+layout.svelte`), not from the game's entry: the
   content pages mount no application at all and still have to be typeset. No CDN — the CSP stays closed.
 - Press feedback (hover lifts, active travels *into* the ledge) is written per component. `tokens.css`
   used to carry a `.btn-chunky` for it, plus a family of `.t-*` type classes, both described as what
@@ -1342,7 +1342,7 @@ near-black table.
 - **In a room the render carries what is under the felt**, including its real shadow, so the CSS
   draws neither a thickness band nor a cast shadow over it: either hid the one thing the render
   adds.
-- **The rooms page shows a photograph of the render, and nothing over it** (`content/TablesArticle.astro`,
+- **The rooms page shows a photograph of the render, and nothing over it** (`content/TablesArticle.svelte`,
   `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make rooms` opens the
   `room-still-<id>` scene for each room — the room alone at its signature hour under a clear sky,
   16:9, at `?gfx=force` — and writes `src/assets/rooms/<id>.webp`. The hour is written twice —
@@ -2428,7 +2428,7 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
 - **Absolute URLs are mandatory** (crawlers resolve `og:image` against nothing) and the tags must be
   in the served HTML, since neither Discord nor X runs JS. `src/seo/meta.ts` holds `ORIGIN` (default
   = prod, override with `VITE_PUBLIC_ORIGIN`) and builds every URL through `absolute()`;
-  `layouts/Base.astro` renders the tags. The tags are data rather than markup so `ogCard.test.ts`
+  `layouts/Head.svelte` renders the tags. The tags are data rather than markup so `ogCard.test.ts`
   can assert the values instead of running a regex over a template.
 - Both platforms **cache the image by URL** for days: bump `OG_VERSION` in `src/seo/meta.ts` after
   regenerating. `twitter:card` must stay `summary_large_image` or X shows a 120px thumbnail.

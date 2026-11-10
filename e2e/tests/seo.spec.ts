@@ -185,7 +185,7 @@ test.describe('read without JavaScript', () => {
     // In the served HTML: with scripts off nothing has mounted, so anything
     // readable here is what a crawler gets. The prose sits inside the sheet,
     // which is markup either way — hence textContent rather than innerText.
-    const intro = page.locator('.homeIntro')
+    const intro = page.locator('.siteFooter.onHome')
     await expect(intro).toBeVisible()
     expect(((await page.locator('.homeSheetCard').textContent()) ?? '').length)
       .toBeGreaterThan(200)
@@ -193,14 +193,12 @@ test.describe('read without JavaScript', () => {
     // The only links from `/` to the content pages, and they are in the open:
     // the sitemap lists them, but a link is what carries weight between them.
     //
-    // `.homeLinks`, not `.homeIntro`: the same links are rendered a second time
-    // inside the drawer, which is the phone's menu. Only one of the two is ever
-    // on screen — this project runs at a desktop viewport, so it is this one —
-    // and both are built from `NAV`, so neither can lose a page on its own.
-    //
-    // Privacy closes the list rather than standing off at the right-hand end,
-    // which is why it is in this loop: held apart it was a second navigation of
-    // one item, and the row had two centres.
+    // The bar's row, not the whole bar: the same links are rendered a second
+    // time inside the drawer, which is the phone's menu. Only one of the two is
+    // ever on screen — this project runs at a desktop viewport, so it is this
+    // one — and both are built from `NAV`, so neither can lose a page on its own.
+    // It is the same bar every content page carries (layouts/SiteFooter.svelte),
+    // privacy at its right-hand end beside the globe.
     for (const href of [
       '/rules/',
       '/cards/',
@@ -210,7 +208,7 @@ test.describe('read without JavaScript', () => {
       '/faq/',
       '/privacy/',
     ]) {
-      await expect(page.locator(`.homeLinks a[href="${href}"]`)).toBeVisible()
+      await expect(page.locator(`.footerRow a[href="${href}"]`)).toBeVisible()
       await expect(page.locator(`.navPopLinks a[href="${href}"]`)).toHaveCount(1)
     }
   })
@@ -237,7 +235,8 @@ test.describe('read without JavaScript', () => {
     // half of the same contract. A board that scrolls off-screen mid-match is
     // what it prevents.
     await page.evaluate(() => document.documentElement.setAttribute('data-seated', '1'))
-    await expect(page.locator('.homeIntro')).toBeHidden()
+    await expect(page.locator('.siteFooter.onHome')).toBeHidden()
+    await expect(page.locator('.homeBurger')).toBeHidden()
     await expect(page.locator('body')).toHaveCSS('overflow', 'hidden')
   })
 

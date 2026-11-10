@@ -1,4 +1,4 @@
-import { NO_INSETS, SafeAreaInsets } from '../components/cards/layout'
+import { NO_INSETS, type SafeAreaInsets } from '../components/cards/layout'
 
 /*
  * The device's unusable edges, read back as numbers so the board's coordinate

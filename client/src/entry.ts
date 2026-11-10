@@ -1,25 +1,37 @@
 import { mount, type Component } from 'svelte'
 import Root from './Root.svelte'
-import { initI18n } from './i18n/store'
+import { initI18n, redetectLang } from './i18n/store'
 import { initTabLock } from './hooks/tabLock'
 import { initMotion } from './hooks/motionPref'
 import { initSessionRestore } from './hooks/sessionRestore'
 import { initTableInvite } from './hooks/tableInvite'
+import { gameShown } from './hooks/gameShown.svelte'
 import { initLang } from './langSwap'
 import { initPinchGuard } from './pinchGuard'
 import { initContextGuard } from './contextGuard'
 
 /**
- * The game, mounted into #root by a module script.
+ * The game, mounted into #root — once per document, and kept.
  *
- * Deliberately *not* an Astro island. `client:only` works, but Astro ships its
- * hydration runtime as two inline <script> blocks in the HTML, and
- * `client/nginx.conf` sends `script-src 'self'` with no 'unsafe-inline': in
- * production those blocks are refused, the island never hydrates and the page is
- * blank. Astro's own CSP support emits hashes in a <meta>, which does not help
- * either — a meta policy and a header policy are both enforced, so the header
- * still blocks them. An ordinary <script> in a .astro file is bundled to an
- * external module instead, which the policy allows. See src/test/csp.test.ts.
+ * `layouts/GamePage.svelte` hands its `#root` to `attachGame` when the page
+ * mounts and calls what it returns when the page goes. The first call boots:
+ * the sequence below, in its order, then `mount()` of the app into a host
+ * element of its own. Every later call — the router bringing a player back
+ * from a content page — re-attaches that same host, with the same app, store,
+ * socket and music still running in it.
+ *
+ * Deliberately not part of the component tree the router renders. A page
+ * component is destroyed on every navigation, and the app is the one thing on
+ * this site that must not be: unmounting it closes the socket (Root.svelte), so
+ * a player who stepped into the rules from the lobby would have been a new
+ * connection on the way back, and one who did it from a seat — the browser's
+ * Back button is enough — would have dropped out of the match. Parked instead,
+ * it is a subtree moved out of the page and into an inert, invisible holder:
+ * nothing about it stops, and nothing about it is reachable.
+ *
+ * Mounted with `mount()`, never server-rendered. The store is seeded from
+ * `sessionStorage`, the language from `localStorage`, the board is measured from
+ * the viewport: a server knows none of those. The prerendered `#root` is empty.
  */
 
 /**
@@ -54,12 +66,12 @@ async function resolveRoot(): Promise<Component<Record<string, never>>> {
 /**
  * The home page arrives in one piece.
  *
- * `/` is half markup Astro served (the footer row, the phone's burger, the prose
- * behind the sheet) and half application mounted here from a bundle, and nothing
- * held the two together: the canvas and the static half painted on the first
- * frame, the lobby appeared whenever the bundle finished. Both halves wait on this
+ * `/` is half markup the build served (the footer row, the phone's burger, the
+ * prose behind the sheet) and half application mounted here, and nothing held
+ * the two together: the canvas and the static half painted on the first frame,
+ * the lobby appeared whenever the bundle finished. Both halves wait on this
  * attribute instead and fade in together — see the boot rules in
- * `layouts/GamePage.astro`, which also carry the fallback that reveals the page if
+ * `layouts/GamePage.css`, which also carry the fallback that reveals the page if
  * this never runs.
  *
  * Two frames, not one: the mount schedules the work, so the first callback runs
@@ -90,17 +102,17 @@ function boot() {
   // First, before anything reads the URL or renders a word: is this document
   // even in the right language?
   //
-  // Half of `/` is markup Astro built per URL, and a stored choice outranks the
-  // URL when the app picks its language — so `/` with French stored rendered the
+  // Half of `/` is markup built per URL, and a stored choice outranks the URL
+  // when the app picks its language — so `/` with French stored rendered the
   // game in French under an English footer, on an `<html lang="fr">`. This
   // translates the served markup in place and moves the address bar to `/fr/`,
   // where a reload would find the real document. See `src/langSwap.ts` for why
-  // it is a swap rather than the navigation it used to be, and `src/lang.ts` for
-  // what is allowed to outrank what.
+  // it is a swap rather than a navigation, and `src/lang.ts` for what is allowed
+  // to outrank what.
   //
   // It is also what makes `/` answer a browser set to French: that page is the
   // root, where nobody has said anything yet, and translating it costs no round
-  // trip now. `/fr/` is somebody having asked, so nothing overrules it there.
+  // trip. `/fr/` is somebody having asked, so nothing overrules it there.
   //
   // It runs ahead of `initTableInvite()` because that one spends the invitation
   // in the address bar, and this rewrites the address bar. Neither loses
@@ -154,6 +166,9 @@ function boot() {
   // nothing to be elected for — and taking part would mean opening `?showcase`
   // (or running `make visual`, which opens several at once) silently drew the
   // curtain over the tab somebody was playing in next door.
+  //
+  // Only ever from here, never from a content page: a tab reading the rules
+  // holds no game, and electing it would draw the curtain over the tab that does.
   if (!isShowcase()) initTabLock()
 
   // A reloaded tab has to know it is reclaiming a seat *before* the socket opens:
@@ -162,22 +177,62 @@ function boot() {
   // for the same reason, is what puts the restoring screen on the first paint
   // instead of a flash of lobby.
   initSessionRestore()
+}
 
-  void resolveRoot().then((Root) => {
-    mount(Root, { target: document.getElementById('root')! })
-    markBooted()
-    // The constant is repeated here on purpose: folded to `false`, the whole
-    // branch goes, and with it the chunk the dynamic import would emit.
-    if (import.meta.env.DEV && wantsLookPanel()) void import('./dev/lookPanel').then((m) => m.mountLookPanel())
-  })
+/** The app's own element, created and mounted once per document. */
+let host: HTMLDivElement | null = null
+/** Where the app waits while a content page is on screen. */
+let parking: HTMLDivElement | null = null
+
+function parkingLot(): HTMLDivElement {
+  if (parking) return parking
+  const lot = document.createElement('div')
+  // Out of reach in every way a subtree can be: no pointer, no focus, no
+  // accessibility tree, nothing painted. It keeps the viewport's size, so the
+  // board's measurements do not collapse to zero under a match still running.
+  lot.inert = true
+  lot.setAttribute('aria-hidden', 'true')
+  lot.style.cssText =
+    'position:fixed;inset:0;visibility:hidden;pointer-events:none;overflow:hidden;z-index:-1'
+  document.body.appendChild(lot)
+  parking = lot
+  return lot
 }
 
 /**
- * Nothing is conditional here any more. The language used to be answered with a
- * navigation, so this line asked whether the document was about to be thrown
- * away and booted nothing when it was; the page holding at `opacity: 0` until
- * `data-booted` (see layouts/GamePage.astro) is what kept a document on its way
- * out from showing one frame of the wrong language. It translates itself now, so
- * there is one boot and the hold covers the swap for free.
+ * Puts the game in `root`, booting it the first time. Returns the function that
+ * takes it back out, which the game page calls when the router replaces it.
  */
-boot()
+export function attachGame(root: HTMLElement): () => void {
+  if (!host) {
+    boot()
+    const el = document.createElement('div')
+    // `#root > *` is what the boot hold fades in (GamePage.css), and every screen
+    // sizes itself to its parent: this element is that parent now, and fills it.
+    el.className = 'appHost'
+    host = el
+    root.appendChild(el)
+    void resolveRoot().then((App) => {
+      mount(App, { target: el })
+      markBooted()
+      // The constant is repeated here on purpose: folded to `false`, the whole
+      // branch goes, and with it the chunk the dynamic import would emit.
+      if (import.meta.env.DEV && wantsLookPanel()) void import('./dev/lookPanel').then((m) => m.mountLookPanel())
+    })
+  } else {
+    // Back from a content page. The page the router just rendered may be the
+    // other language's, and a choice may have been recorded on the way (the
+    // content pages' globe writes it): the served half is translated the way
+    // the first boot does it, and the app follows the same answer.
+    initLang()
+    redetectLang()
+    root.appendChild(host)
+  }
+  gameShown.current = true
+
+  const mine = host
+  return () => {
+    gameShown.current = false
+    parkingLot().appendChild(mine)
+  }
+}

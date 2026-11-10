@@ -21,10 +21,10 @@ const ROOT = path.resolve(CLIENT, '..')
 /** Every source file under `dir`, recursively, minus what a build leaves behind. */
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === 'dist' || name === '.astro' || name.startsWith('.')) continue
+    if (name === 'node_modules' || name === 'build' || name.startsWith('.')) continue
     const p = path.join(dir, name)
     if (statSync(p).isDirectory()) walk(p, out)
-    else if (/\.(ts|svelte|astro|css|mjs|js)$/.test(name)) out.push(p)
+    else if (/\.(ts|svelte|css|mjs|js|html)$/.test(name)) out.push(p)
   }
   return out
 }
@@ -56,7 +56,7 @@ describe('one palette', () => {
   })
 
   it('tells the browser one colour for its own chrome', () => {
-    const base = readFileSync(path.join(CLIENT, 'src', 'layouts', 'Base.astro'), 'utf8')
+    const base = readFileSync(path.join(CLIENT, 'src', 'app.html'), 'utf8')
     const metas = base.match(/<meta name="theme-color"[^>]*>/g) ?? []
     expect(metas).toHaveLength(1)
     expect(metas[0]).not.toContain('media=')

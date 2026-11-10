@@ -1,0 +1,91 @@
+/*
+  The reset every page shares, loaded by the root layout (src/routes/+layout.svelte)
+  beside the fonts and tokens.css.
+
+  Its partner is the viewport tag in src/app.html, which deliberately carries no
+  `maximum-scale` and no `user-scalable=no`. They were there once to keep a
+  double-tap from zooming the board mid-match, and they took pinch-zoom with
+  them — which is somebody's only way to read this game on a phone, and which an
+  audit counts as a failure on every page of the site. The double-tap is
+  answered here instead, by `touch-action: manipulation`, and that costs nobody
+  their zoom. `viewport-fit=cover` is there because the board paints a room and
+  a table to every edge; the game still keeps clear of the notch and the home
+  indicator through the --safe-* tokens.
+*/
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+/* Prevent text selection and callout on long-press (mobile) */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  /* The whole page, not only the controls: this is what replaces
+     `user-scalable=no` in the viewport tag. It drops the double-tap
+     gesture — the one that fires mid-match when a thumb hits a card twice
+     — and leaves pinch-zoom alone, which is the half that was worth
+     keeping. */
+  touch-action: manipulation;
+}
+/*
+  …and past the entry screen, the pinch goes too.
+
+  `data-seated` is set from the waiting room onwards (App.svelte), and
+  every screen it covers is a fixed board scaled to the viewport: there is
+  no small type on it, nothing runs off an edge, and zooming it only ever
+  happens by accident — a thumb spreading over the fan mid-round, leaving
+  the player scrolling a magnified table with a five-second window open.
+  `pan-x pan-y` is `manipulation` minus pinch-zoom: panning still works, so
+  nothing that scrolls (the standings, the evening's recap) stops scrolling.
+
+  Deliberately NOT the viewport tag. `user-scalable=no` would take the zoom
+  away from `/`, from the prose behind its sheet and from every content
+  page — the pages somebody actually reads, and the reason that tag stays
+  clean (see the note above it). Scoped here, the seat is what costs the
+  gesture, and leaving the table gives it back.
+
+  Safari answers `touch-action` for the double-tap but keeps pinch-zoom as
+  a browser gesture of its own, so the other half of this lives in
+  `pinchGuard.ts`. Both halves are pinned by `src/test/a11y.test.ts`.
+*/
+:root[data-seated] body {
+  touch-action: pan-x pan-y;
+}
+/*
+  …and the selection goes with it, on every element and not only by
+  inheritance from the body. iOS Safari selects the label of a disabled
+  `<button>` on a double tap whatever the body says — a dead LOCO! chip
+  came up highlighted with Copy / Look Up over the action bar mid-round —
+  so past the entry screen the refusal is written on the element itself.
+  Nothing at a table is there to be copied: the code plate copies by
+  script, and the fields a player types into are the entry screen's.
+*/
+:root[data-seated] :not(input, textarea) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/*
+  A move between two pages of the site is one cross-fade (src/routes/+layout.svelte
+  starts it), short enough to read as the same app changing its mind rather than
+  a page loading: the site's bar is named on its own (`site-footer`, content.css)
+  and does not fade with the page around it. Opacity only, as everything that
+  arrives on this site does. Under the game's reduced-motion preference the
+  layout never starts one; this is the stylesheet's half of the same promise.
+*/
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: var(--ease-out);
+}
+
+:root[data-motion='reduce']::view-transition-group(*),
+:root[data-motion='reduce']::view-transition-old(*),
+:root[data-motion='reduce']::view-transition-new(*) {
+  animation: none;
+}

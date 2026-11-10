@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
-const astroConfig = readFileSync(path.join(CLIENT, 'astro.config.mjs'), 'utf8')
+const viteConfig = readFileSync(path.join(CLIENT, 'vite.config.ts'), 'utf8')
 // Both halves of the socket. `webSocket.svelte.ts` hands `import.meta.env`
 // straight to `webSocketPolicy.ts`, which is where the names now are, so
 // scanning only the first would leave this guard asserting nothing.
@@ -13,8 +13,8 @@ const socket = [
 ].join('\n')
 
 /**
- * The failure this file exists for is silent by construction. Astro narrows
- * Vite's env prefix to `PUBLIC_`, so an `import.meta.env.VITE_*` read survives
+ * The failure this file exists for is silent by construction. Astro once
+ * narrowed Vite's env prefix to `PUBLIC_`, and any config that does the same means an `import.meta.env.VITE_*` read survives
  * the transform untouched and evaluates to `undefined` in the browser. Nothing
  * warns. `webSocket.svelte.ts` then falls back to same-origin `/ws`, which in dev is
  * the Vite dev server proxying nothing, and the only thing a player sees is a
@@ -22,8 +22,8 @@ const socket = [
  */
 describe('dev WebSocket wiring', () => {
   it('exposes to the browser every env prefix webSocket.svelte.ts reads', () => {
-    const declared = astroConfig.match(/envPrefix:\s*(\[[^\]]*\]|'[^']*')/)?.[1]
-    expect(declared, 'astro.config.mjs must declare envPrefix').toBeTruthy()
+    const declared = viteConfig.match(/envPrefix:\s*(\[[^\]]*\]|'[^']*')/)?.[1]
+    expect(declared, 'vite.config.ts must declare envPrefix').toBeTruthy()
 
     // Every build-time name the socket path uses, however it is spelled: an
     // `import.meta.env.VITE_X` read, or a field on the env object the hook hands

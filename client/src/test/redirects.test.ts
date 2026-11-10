@@ -65,22 +65,23 @@ const site = blocks.find((b) => /\btry_files\b/.test(b))!
 /**
  * Every URL the build emits, derived from the pages themselves rather than from
  * `PAGES`: a chain has to be replayed against what nginx will actually find on
- * disk. `index.astro` is the directory itself, `rules.astro` is `/rules/`, and
- * `404.astro` is an error document rather than a URL anybody is sent to.
+ * disk. A `+page.svelte` is the directory it sits in (`routes/rules/` is
+ * `/rules/`, with `trailingSlash: 'always'`), and `routes/404/` is the error
+ * document nginx serves on a miss rather than a URL anybody is sent to — it
+ * builds to `404.html`, not to a directory.
  */
 function emittedRoutes(dir: string, prefix = '/', out = new Set<string>()): Set<string> {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
-    if (statSync(full).isDirectory()) emittedRoutes(full, `${prefix}${entry}/`, out)
-    else if (entry.endsWith('.astro')) {
-      if (entry === '404.astro') continue
-      out.add(entry === 'index.astro' ? prefix : `${prefix}${entry.replace(/\.astro$/, '')}/`)
-    }
+    if (statSync(full).isDirectory()) {
+      if (prefix === '/' && entry === '404') continue
+      emittedRoutes(full, `${prefix}${entry}/`, out)
+    } else if (entry === '+page.svelte') out.add(prefix)
   }
   return out
 }
 
-const routes = emittedRoutes(path.join(CLIENT, 'src', 'pages'))
+const routes = emittedRoutes(path.join(CLIENT, 'src', 'routes'))
 
 const HOST = 'ohloco.com'
 /** Whether nginx builds its own `Location` out of `$scheme://$host`. */

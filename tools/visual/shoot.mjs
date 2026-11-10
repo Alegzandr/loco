@@ -14,6 +14,8 @@
  *   node tools/visual/shoot.mjs --motion        # keep animations running
  *   node tools/visual/shoot.mjs --gfx=force     # the full render tier on this software GPU
  *   node tools/visual/shoot.mjs --port=5199
+ *   node tools/visual/shoot.mjs --pages=only  # the site's own pages, no scene
+ *   node tools/visual/shoot.mjs --pages=off   # the scenes, no page
  *
  * Playwright is resolved from e2e/node_modules (already installed for the E2E
  * suite) so this adds no dependency to the client.
@@ -121,6 +123,30 @@ const lang = String(args.lang ?? 'fr')
  */
 const HOME = lang === 'fr' ? '/fr/' : '/'
 
+/** The site's own pages, per language: shot after the scenes (see `--pages`). */
+const SITE_PAGES = {
+  en: [
+    { id: 'rules', path: '/rules/' },
+    { id: 'cards', path: '/cards/' },
+    { id: 'tables', path: '/tables/' },
+    { id: 'friends', path: '/play-with-friends/' },
+    { id: 'live', path: '/live/' },
+    { id: 'faq', path: '/faq/' },
+    { id: 'privacy', path: '/privacy/' },
+    { id: '404', path: '/nothing-here/' },
+  ],
+  fr: [
+    { id: 'rules', path: '/fr/regles/' },
+    { id: 'cards', path: '/fr/cartes/' },
+    { id: 'tables', path: '/fr/tables/' },
+    { id: 'friends', path: '/fr/jouer-entre-amis/' },
+    { id: 'live', path: '/fr/en-direct/' },
+    { id: 'faq', path: '/fr/faq/' },
+    { id: 'privacy', path: '/fr/confidentialite/' },
+    { id: '404', path: '/nothing-here/' },
+  ],
+}
+
 // ─── Scene registry (parsed from the TS source — no build step needed) ──────
 
 async function readScenes() {
@@ -138,8 +164,9 @@ async function readScenes() {
 async function capture() {
   const scenes = await readScenes()
   const wanted = args.scenes ? String(args.scenes).split(',') : null
-  const list = wanted ? scenes.filter((s) => wanted.includes(s.id)) : scenes
-  if (list.length === 0) throw new Error(`no scene matched --scenes=${args.scenes}`)
+  const onlyPages = args.pages === 'only'
+  const list = onlyPages ? [] : wanted ? scenes.filter((s) => wanted.includes(s.id)) : scenes
+  if (list.length === 0 && !onlyPages) throw new Error(`no scene matched --scenes=${args.scenes}`)
 
   await fs.rm(OUT_DIR, { recursive: true, force: true })
   await fs.mkdir(OUT_DIR, { recursive: true })
@@ -195,6 +222,22 @@ async function capture() {
       await page.waitForTimeout(KEEP_MOTION ? 900 : 250)
       await page.screenshot({ path: path.join(OUT_DIR, file) })
       shots.push({ ...scene, file, viewport: vpName })
+    }
+
+    // The site around the game: the content pages and the 404, as a reader
+    // arrives on them. They have no showcase scene because they are not app
+    // screens — they are prerendered pages — and since SvelteKit they share the
+    // game's shell (the footer bar, the drawer, the type), so a change to that
+    // shell is reviewed here or nowhere. `--pages=off` skips them.
+    if (args.pages !== 'off' && !wanted) {
+      for (const shot of SITE_PAGES[lang === 'fr' ? 'fr' : 'en']) {
+        const file = `page-${shot.id}__${vpName}.png`
+        await page.goto(`${BASE}${shot.path}`, { waitUntil: 'domcontentloaded' })
+        await page.evaluate(() => document.fonts?.ready)
+        await page.waitForTimeout(KEEP_MOTION ? 900 : 350)
+        await page.screenshot({ path: path.join(OUT_DIR, file) })
+        shots.push({ id: `page-${shot.id}`, title: shot.path, file, viewport: vpName })
+      }
     }
 
     if (errors.length) {
