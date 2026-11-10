@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from './renderHook'
 import { cardPlay } from '../hooks/gamePlay.svelte'
-import type { CardDTO, ClientMsg } from '../types/protocol'
+import type { CardDTO, ClientMsg, PlayCardMsg } from '../types/protocol'
 
 /**
  * What a slam costs the hand it comes out of: one card, always.
@@ -50,7 +50,8 @@ function slam(card: CardDTO, hand: CardDTO[]) {
   })
   // A wild asks for its colour first, so nothing has gone out yet and what will
   // go out is what the prompt was handed. A coloured card goes straight.
-  return { picker: result.colorPicker, sent }
+  // Read as a card play whatever its type, so an absent field can be asserted absent.
+  return { picker: result.colorPicker, sent: sent as Array<ClientMsg & Partial<PlayCardMsg>> }
 }
 
 describe('an interject is one card', () => {
