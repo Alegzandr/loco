@@ -25,7 +25,17 @@ import { LANGS } from '../seo/meta'
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
 const CLIENT = path.resolve(__dirname, '..', '..')
-const article = readFileSync(path.join(CLIENT, 'src', 'content', 'RulesArticle.astro'), 'utf8')
+const article = readFileSync(path.join(CLIENT, 'src', 'content', 'RulesArticle.svelte'), 'utf8')
+/**
+ * The game page, markup and document stylesheet together: under Astro they were
+ * one `.astro` file with an `is:global` style; the component is markup now, and
+ * the rules that style what it does not own (the app's mounted child, the
+ * body) are `GamePage.css` beside it.
+ */
+const gamePage = () =>
+  readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.svelte'), 'utf8') +
+  '\n<style>\n' +
+  readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.css'), 'utf8')
 
 describe('the rules page is the rules modal, at a URL', () => {
   it('renders the same array the in-game modal maps', () => {
@@ -33,9 +43,9 @@ describe('the rules page is the rules modal, at a URL', () => {
     // modal is reworded on the page in the same edit and neither can go stale
     // against the other. Inlining the prose into the page would be the drift.
     const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.svelte'), 'utf8')
-    expect(article, 'the page must map t.rules').toMatch(/t\.rules\.map/)
-    // The page is Astro and maps; the modal is Svelte and iterates. Different
-    // spelling, same single source — which is the thing being pinned here.
+    expect(article, 'the page must walk t.rules').toMatch(/#each t\.rules as/)
+    // Both iterate the same array — the single source is the thing being
+    // pinned here.
     expect(modal, 'the modal must walk t.rules').toMatch(/#each t\.rules as/)
   })
 
@@ -82,7 +92,7 @@ describe('the content stylesheet', () => {
     // token file. Both count as defined; nothing else does.
     const contentDir = path.join(CLIENT, 'src', 'content')
     const local = readdirSync(contentDir)
-      .filter((f) => f.endsWith('.astro'))
+      .filter((f) => f.endsWith('.svelte'))
       .map((f) => readFileSync(path.join(contentDir, f), 'utf8'))
       // The table's materials are written by one module for the board and the
       // rooms page alike (`tableCssVars`), so its declarations count too.
@@ -104,7 +114,7 @@ describe('the content stylesheet', () => {
   })
 
   it('styles no bare table element, because the game loads this file too', () => {
-    // `GamePage.astro` imports this stylesheet for the footer row and the burger
+    // `GamePage.svelte` imports this stylesheet for the footer row and the burger
     // drawer, so a bare `table`/`th`/`td` rule here reaches every table the game
     // draws. `thead th { background: var(--color-stroke) }` is what that cost:
     // an ink band landed behind the score table's column heads and the evening
@@ -147,7 +157,7 @@ describe('the content stylesheet', () => {
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
     const block = (selector: string) =>
       new RegExp(`\\${selector}\\s*\\{[^}]*\\}`).exec(css)?.[0] ?? ''
-    const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.astro'), 'utf8')
+    const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.svelte'), 'utf8')
 
     expect(layout, 'the header row must sit inside the pinned band').toMatch(
       /class="headerBar"[\s\S]{0,200}class="siteHeader"/,
@@ -246,7 +256,7 @@ describe('the content stylesheet', () => {
  */
 describe('the mobile menu', () => {
   const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
-  const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.astro'), 'utf8')
+  const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.svelte'), 'utf8')
   const block = (selector: string) =>
     new RegExp(`\\${selector}\\s*\\{[^}]*\\}`).exec(css)?.[0] ?? ''
 
@@ -306,7 +316,7 @@ describe('the mobile menu', () => {
     // page added to the registry cannot appear in the bar alone. The drawer
     // carries "Play" too — it is the whole bar, not a subset of it.
     const drawer = /<nav class="navPopLinks"[\s\S]*?<\/nav>/.exec(layout)?.[0] ?? ''
-    expect(drawer, 'the drawer must map NAV').toMatch(/NAV\.map/)
+    expect(drawer, 'the drawer must walk NAV').toMatch(/#each NAV as/)
     expect(drawer, 'the drawer must carry the legal page').toMatch(/LEGAL\.path\[lang\]/)
     expect(drawer, 'the drawer must carry Play').toMatch(/HOME\.path\[lang\]/)
   })
@@ -316,7 +326,7 @@ describe('the mobile menu', () => {
     // page renders the same `#navPop` and is styled by the same rules in
     // content.css. What differs is what is in it — no "Play" on the page you
     // play on, and no language, which are behind the lobby's gear.
-    const home = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const home = gamePage()
     expect(home).toMatch(/id="navPop"[^>]*popover="auto"[^>]*class="navPop"/)
     expect(home).toMatch(/class="navPopLinks"/)
     // Sliced by index rather than matched: the drawer's closing tag is one of
@@ -350,7 +360,7 @@ describe('the mobile menu', () => {
     // it — on the game page especially, where the drawer covers the board and
     // there is no header behind it. Static <LocoLogo />, so it is the same
     // drawing as the one on the cards and it costs the page no JavaScript.
-    for (const file of ['ContentPage.astro', 'GamePage.astro']) {
+    for (const file of ['ContentPage.svelte', 'GamePage.svelte']) {
       const src = readFileSync(path.join(CLIENT, 'src', 'layouts', file), 'utf8')
       expect(src, `${file}: the drawer opens with the mark`).toMatch(
         /class="navPopTitle"><LocoLogo/,
@@ -367,8 +377,8 @@ describe('the mobile menu', () => {
     // other was a grey corridor. They carry the same object now, at opposite
     // ends because it means opposite things: where you are going, versus what
     // you came into the menu to change.
-    const content = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.astro'), 'utf8')
-    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const content = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.svelte'), 'utf8')
+    const game = gamePage()
     // Matched on the attribute, not the bare name: both files talk about the
     // other one's CTA in a comment, which is the point of the pairing.
     expect(content.match(/class="navPopCta/g), 'one CTA on a content page').toHaveLength(1)
@@ -400,7 +410,7 @@ describe('the mobile menu', () => {
    * and a scrim that is not inside the card it darkens.
    */
   it('opens the prose as the rules modal, and closes it with no script', () => {
-    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const game = gamePage()
     const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.svelte'), 'utf8')
     // Escaped whole: these selectors carry an attribute, so the `[open]` in them
     // is a character class the moment it reaches a regex unescaped — and one
@@ -461,7 +471,7 @@ describe('the mobile menu', () => {
    * is a whole viewport wide.
    */
   it('becomes the rulebook\'s own sheet on a phone', () => {
-    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const game = gamePage()
     const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.svelte'), 'utf8')
     const phone = (src: string) => src.slice(src.indexOf('@media (max-width: 46rem)'))
     const rule = (src: string, selector: string) =>
@@ -505,7 +515,7 @@ describe('the mobile menu', () => {
     // carries no prose, so a first-time visitor met a logo, a tagline, two
     // buttons and a burger — and nothing about the game. The prose was in the
     // document the whole time; this is the row that reaches it.
-    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const game = gamePage()
     expect(game, 'the row is first in the drawer').toMatch(
       /<nav class="navPopLinks"[^>]*>\s*<button\b[^>]*id="navAbout"/,
     )
@@ -528,23 +538,23 @@ describe('the mobile menu', () => {
   })
 
   it('never ships the drawer a button that opens nothing', () => {
-    // The Preferences row opens a React panel, so with no script it would be a
+    // The Preferences row opens the app's panel, so with no script it would be a
     // control that does nothing — worse than one that is not there. Same
     // contract as the content pages' back-to-top: `hidden` in the markup, and
     // the script that can honour it is the script that reveals it.
-    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const game = gamePage()
     expect(game).toMatch(/id="navPrefs"[^>]*hidden/)
     const script = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
     expect(script, 'the script reveals it').toMatch(/navPrefs/)
-    expect(script, 'and asks React for the panel').toMatch(/loco:preferences/)
+    expect(script, 'and asks the app for the panel').toMatch(/loco:preferences/)
   })
 
   it('brings the served half and the mounted half up on the same frame', () => {
     // The footer and the burger are markup; the game is a bundle. Nothing tied
     // them together, so `/` arrived twice — background plus chrome, then the
-    // lobby. Both now hold at opacity 0 until entry.ts says React has painted.
-    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
-    const gate = /@media\s*\(scripting:\s*enabled\)\s*\{([\s\S]*?)\n\s{2}\}/.exec(game)?.[1]
+    // lobby. Both now hold at opacity 0 until entry.ts says the app has painted.
+    const game = gamePage()
+    const gate = /@media\s*\(scripting:\s*enabled\)\s*\{([\s\S]*?)\n\}/.exec(game)?.[1]
     expect(gate, 'the reveal must be gated on there being a script to wait for').toBeTruthy()
 
     // What fades is what arrives, never the surface it arrives onto. `#root` and
@@ -625,8 +635,8 @@ describe('the block that answers "what is different"', () => {
     // The reader arrived with a model of another card game and is looking for
     // the delta. Putting it after ten sections of rules is putting it after the
     // point they gave up.
-    const contrast = article.indexOf('CONTRASTS.map')
-    const rules = article.indexOf('t.rules.map')
+    const contrast = article.indexOf('#each CONTRASTS as')
+    const rules = article.indexOf('#each t.rules as')
     expect(contrast, 'the page must render CONTRASTS').toBeGreaterThan(-1)
     expect(rules, 'the page must still map t.rules').toBeGreaterThan(-1)
     expect(contrast, 'the contrast block comes first').toBeLessThan(rules)

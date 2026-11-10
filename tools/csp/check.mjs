@@ -124,7 +124,7 @@ async function check(url) {
   //
   // That distinction is the whole reason this block exists. nginx inherits
   // `add_header` into a location block only while that block declares none of
-  // its own, so a single `add_header Cache-Control` under /_astro/ silently
+  // its own, so a single `add_header Cache-Control` under /_app/ silently
   // strips the security headers from the entire bundle — while the document
   // response, which is all this script used to look at, still carries all five
   // and reports clean. Checking the document alone cannot see it.
@@ -137,9 +137,9 @@ async function check(url) {
     if (!headers[name]) problems.push(`missing header: ${name} (is nginx serving client/nginx.conf?)`)
   }
 
-  const assets = responses.filter(r => new URL(r.url()).pathname.startsWith('/_astro/'))
+  const assets = responses.filter(r => new URL(r.url()).pathname.startsWith('/_app/'))
   if (assets.length === 0) {
-    problems.push('no /_astro/ asset was requested — the header check below asserted nothing')
+    problems.push('no /_app/ asset was requested — the header check below asserted nothing')
   }
   for (const asset of assets) {
     const h = await asset.allHeaders()

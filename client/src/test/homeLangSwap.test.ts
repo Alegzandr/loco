@@ -5,7 +5,7 @@
  * reloaded: a browser set to French lands on the root and gets the French game
  * under a French footer, at `/fr/` in the address bar, without a round trip. The
  * app half of that page speaks both languages already. This is about the other
- * half — the markup Astro served — and about the one way it can go wrong.
+ * half — the markup the build served — and about the one way it can go wrong.
  *
  * That way is a **link**. A label left in English is a wart; a footer link left
  * pointing at `/rules/` sends a French visitor to a static page that mounts
@@ -105,13 +105,17 @@ describe('swapping the served markup', () => {
 
 describe('the served markup carries both languages', () => {
   const sources = [
-    ['layouts', 'GamePage.astro'],
-    ['content', 'HomeProse.astro'],
+    ['layouts', 'GamePage.svelte'],
+    ['content', 'HomeProse.svelte'],
   ] as const
 
   for (const file of sources) {
     const name = file.join('/')
-    const src = read(...file)
+    // The markup, not the component's script: what is checked here is what the
+    // page renders, and the script is free to name `page.path[lang]` to work out
+    // which document it is.
+    const whole = read(...file)
+    const src = whole.slice(whole.indexOf('</script>'))
 
     it(`${name}: every string it renders has its counterpart`, () => {
       // `ui('homeH1', lang)` without `ui('homeH1', alt)` beside it is a line

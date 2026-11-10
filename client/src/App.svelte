@@ -13,6 +13,7 @@
   } from './hooks/appEffects.svelte'
   import { tabAlert } from './hooks/tabAlert.svelte'
   import { setTabSeated } from './hooks/tabLock'
+  import { gameShown } from './hooks/gameShown.svelte'
   import { peekTableInvite, takeTableInvite } from './hooks/tableInvite'
   import { readNickname } from './hooks/nicknameMemory'
   import { canonicalNickname, isNicknameShapeValid } from './components/nicknameRules'
@@ -194,10 +195,16 @@
   // holding the game draws a curtain, and the curtain's copy turns on whether
   // taking the game costs a match or costs nothing. Mirrored here rather than
   // watched from `tabLock.ts` because this is the one place that already knows.
+  //
+  // The document is told only while the game is on screen. The router keeps it
+  // mounted behind a content page (src/entry.ts), and a page somebody stepped
+  // away to read must keep its pinch and its text selection; the other tab's
+  // question is about the seat, which is still taken, so it is answered either
+  // way.
   $effect(() => {
     const root = document.documentElement
     const atTable = screen !== 'lobby'
-    if (atTable) root.setAttribute('data-seated', '1')
+    if (atTable && gameShown.current) root.setAttribute('data-seated', '1')
     else root.removeAttribute('data-seated')
     setTabSeated(atTable)
     return () => {

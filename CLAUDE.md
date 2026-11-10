@@ -112,11 +112,11 @@ Detail, and the full required-coverage list: [`docs/notes/testing-ci.md`](docs/n
   appearance. Cover game rules over UI details.
 
 ## Repository structure
-**`client/`** Astro site + Svelte game. `astro.config.mjs` holds integrations, the dev server, the dev
+**`client/`** Astro site + Svelte game. `vite.config.ts` holds integrations, the dev server, the dev
 toolbar (off) and the `VITE_` env prefix. **At the root: no `vite.config.ts` and no `index.html`** —
 Astro owns the pages; `vitest.config.ts` is the only Vite config, and it exists because the test run
 needs jsdom and the `browser` resolve condition.
-- `src/pages/` one `.astro` per URL · `src/layouts/` `Base.astro`, `GamePage.astro`, `ContentPage.astro`
+- `src/routes/` one `.astro` per URL · `src/layouts/` `Head.svelte`, `GamePage.svelte`, `ContentPage.svelte`
 - `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
   the curtain saying another tab holds the game · `src/entry.ts` mounts *that* into `#root` via a
   bundled module script, never an island
@@ -127,8 +127,8 @@ needs jsdom and the `browser` resolve condition.
   own menu, both installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
-  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `TablesArticle.astro`,
-  `RulesArticle.astro`, `FaqArticle.astro`, `FriendsArticle.astro`, `LegalArticle.astro`, `deck.ts`
+  `HomeProse.svelte`, `CardsArticle.svelte`, `LiveArticle.svelte`, `TablesArticle.svelte`,
+  `RulesArticle.svelte`, `FaqArticle.svelte`, `FriendsArticle.svelte`, `LegalArticle.svelte`, `deck.ts`
   (the deck as the content pages read it), `contrasts.ts`, `ui.ts` (the pages' own chrome strings),
   `liveList.ts`, `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
   the rooms page shows, shot by `make rooms` and committed · `src/assets/plates/` the painted rooms'
@@ -562,10 +562,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 **Build and framework**
 - **The game is never an Astro island.** A `client:*` directive emits inline scripts the CSP refuses;
   `entry.ts` is mounted by a bundled `<script>`. `csp.test.ts` fails on any `client:*` or `is:inline`, except an `is:inline`
-  `application/ld+json` data block (the structured data in `layouts/Base.astro`), which never executes.
+  `application/ld+json` data block (the structured data in `layouts/Head.svelte`), which never executes.
 - **`make csp` belongs after a dependency bump too**: a dependency can break the CSP without
   appearing in our sources. The validator is Valibot, not Zod, whose JIT reached for `Function()`.
-- **`astro.config.mjs` puts the `VITE_` env prefix back**, which Astro narrows away (`wsEnv.test.ts`).
+- **`vite.config.ts` puts the `VITE_` env prefix back**, which Astro narrows away (`wsEnv.test.ts`).
 - **The client is Svelte 5, and React is gone — do not bring it back.** No `react`, `react-dom`,
   `@astrojs/react`, framer-motion, `.tsx` or `.module.css`. `noReact.test.ts` checks the manifest,
   both configs, every import and every file extension.
@@ -694,7 +694,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `handTouch.test.ts`. Same rule as the deck's
   `@media (hover: hover)`.
 - **At a seat, text selection is refused on every element, not inherited from the body**
-  (`Base.astro`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
+  (`Head.svelte`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
   **Its `::after` is its own**: a component paint on it keeps the global `translate(-50%, -50%)` and
@@ -882,7 +882,7 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   `legal.test.ts`'s guard over `PAGES`, `UI` and every `src/content/**` file).
 
 **Layout and navigation**
-- **`content.css` is loaded by `GamePage.astro` too, so every selector in it is scoped to a class.**
+- **`content.css` is loaded by `GamePage.svelte` too, so every selector in it is scoped to a class.**
   A bare `table`/`th`/`td` rule there would style the score table and the evening recap.
   `contentPages.test.ts` fails on a bare element selector.
 - **One `--shell`, one bar, no backdrop.** Header, column and footer share one width; the navigation
@@ -894,7 +894,7 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   `preventScroll: true`.**
 - **Under 46rem the bar is gone and one burger is the whole navigation**, on the content pages *and*
   on `/`, styled once in `content.css`. **Only the list differs** (the game's carries no `Play`); a
-  `.navPop*` rule in `GamePage.astro` is a divergence by definition. Both drawers open on the
+  `.navPop*` rule in `GamePage.svelte` is a divergence by definition. Both drawers open on the
   wordmark and carry exactly one action (`.navPopCta`). **Read the note before touching any of it**:
   the drawer, the language popover and the sticky header have six documented failure modes between
   them, five of which fail silently.
@@ -1335,7 +1335,7 @@ stated at the top of `styles/tokens.css`:
   (`.mist`), and the frame a re-render replaced is given back once the fade is over.
 - **The rooms page shows a photograph of the render, and nothing over it**: the still carries the
   table, as the render does on the board; the CSS table is only the stand-in for a missing still
-  (`TablesArticle.astro`, `RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make
+  (`TablesArticle.svelte`, `RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make
   rooms` shoots each room at its signature hour at `?gfx=force`, into `src/assets/rooms/`. The hour
   is written twice and the test pins the two; a missing still fails the test rather than the build.
 

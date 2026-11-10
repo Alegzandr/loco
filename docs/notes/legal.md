@@ -109,7 +109,7 @@ to revisit, not the test.
 ## Where the copy lives
 
 In `client/src/content/legal.ts`, as `LEGAL: Record<Lang, readonly LegalDoc[]>`,
-rendered by `content/LegalArticle.astro` onto one page: `/privacy/` and
+rendered by `content/LegalArticle.svelte` onto one page: `/privacy/` and
 `/fr/confidentialite/`, linked from every footer: last in the home page's row
 of links, at the right-hand end of the content pages' bar. Four
 deliberate consequences:

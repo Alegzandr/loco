@@ -200,7 +200,7 @@ describe('both halves of the site write the choice down', () => {
 
     // The links themselves stay real: the href is what makes an hreflang pair
     // navigable, and a crawler follows nothing else.
-    const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.astro'), 'utf8')
+    const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.svelte'), 'utf8')
     expect(layout).toMatch(/<a\s+href=\{page\.path\[l\]\}/)
   })
 
@@ -216,6 +216,10 @@ describe('both halves of the site write the choice down', () => {
     const invite = entry.match(/^ {2}initTableInvite\(\)$/m)
     expect(decided?.index, 'entry.ts must ask the question').toBeGreaterThan(-1)
     expect(invite?.index).toBeGreaterThan(decided!.index!)
-    expect(entry, 'and there is one boot now, not a conditional one').toMatch(/^boot\(\)$/m)
+    // One boot per document, the first time the game page mounts: the router
+    // keeps the game across a navigation, and a second boot would elect the tab
+    // and seed the store a second time.
+    expect(entry.match(/^\s*boot\(\)$/gm), 'boot() is called from exactly one place').toHaveLength(1)
+    expect(entry, 'and only for a document that has not booted').toMatch(/if \(!host\) \{\s*boot\(\)/)
   })
 })

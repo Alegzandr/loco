@@ -164,7 +164,7 @@ board is measured from the viewport (`boardSpace`, `elementSize`, `safeAreaInset
 knows none of those. Rendering the app there would produce a hydration mismatch on every one of them
 in exchange for markup no crawler wants: the lobby is a nickname field.
 
-**So `src/pages/index.astro` carries `<div id="root">` and an ordinary `<script>` importing
+**So `src/routes/+page.svelte` carries `<div id="root">` and an ordinary `<script>` importing
 `src/entry.ts`**, which Astro bundles to an external module. That is the same mechanism the app used
 under Vite, `#root` keeps the `html, body, #root` rule in `tokens.css` working unchanged, and the
 content pages around it mount no application at all.
@@ -217,7 +217,7 @@ down.
 
 **The crossing from React 19 to Svelte 5 has landed, and the way back is closed on purpose.** No
 `react`, no `react-dom`, no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`;
-`astro.config.mjs` configures one framework and the ESLint config knows one. `src/test/noReact.test.ts`
+`vite.config.ts` configures one framework and the ESLint config knows one. `src/test/noReact.test.ts`
 is the guard, and it checks four different things because a return could come in through any of
 them: the manifest, the Astro and ESLint configs, every import in every source file, and every file
 extension under `src/`.
@@ -240,7 +240,7 @@ What the crossing left behind is worth keeping, because it is what made it survi
   a call to a global that does not exist and throws whenever the line first runs.
   `src/test/runeScope.test.ts` is what catches it instead.
 - **An Astro layout imports the `.svelte` directly.** It always did — a wrapper that mounted its
-  content in an effect answered Astro with nothing at all, and `ContentPage.astro` rendered an empty
+  content in an effect answered Astro with nothing at all, and `ContentPage.svelte` rendered an empty
   header that no test reading sources would have caught. There is no wrapper left to get this wrong,
   but the rule is why `<LocoLogo />` and every `<Card />` on `/cards/` are static markup.
 - Svelte applies a change on the microtask after it, not inside the click. Nothing on screen is
@@ -603,7 +603,7 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
   layer. `webSocket` then took its production branch in dev and dialled same-origin `/ws`, which
   is the Vite dev server proxying nothing: `ws://localhost:5173/ws` closed before it opened, and the
   symptom a player got was a table that never opened and a queue that never paired.
-  `astro.config.mjs` restores the prefix (`envPrefix: ['PUBLIC_', 'VITE_']`) rather than renaming the
+  `vite.config.ts` restores the prefix (`envPrefix: ['PUBLIC_', 'VITE_']`) rather than renaming the
   variable, because `docker-compose.dev.yml`, `e2e/playwright.config.ts`, `client/Dockerfile` and the
   README all already name it. `src/test/wsEnv.test.ts` fails whenever the hook reads a prefix the
   config does not expose. Anything else the app needs from the environment obeys the same rule.
@@ -895,7 +895,7 @@ minus `I`, `O`, `0` and `1`.
 `hooks/tableInvite.ts`. The waiting room's code is a button, and what the press copies is a URL
 carrying the code (`tableInviteUrl`), not the six characters. On the other end, `initTableInvite`
 reads that code off the URL before the first render and `App` acts on it. The URL is `/i/CODE`, a
-page of its own, and `src/pages/i/index.astro` plus `seo/meta.ts`'s `INVITE` are the other half of
+page of its own, and `src/routes/i/+page.svelte` plus `seo/meta.ts`'s `INVITE` are the other half of
 this section.
 
 - **Why a link at all.** A code costs the receiver three steps: read it, retype it without a slip,
@@ -1150,7 +1150,7 @@ nothing here decides anything.
   box anchored at `left: 50%` is offered the half of the line it starts at, and the count wrapped
   onto a second row inside its own plate.
 - **The wait needed that move as much as the entry screen did, and for a different reason.** On `/`
-  the burger owns the left corner (`GamePage.astro` fixes it at these very offsets) and the plate
+  the burger owns the left corner (`GamePage.svelte` fixes it at these very offsets) and the plate
   landed straight across it. On `Searching.svelte` there is no burger — that corner is free — and the
   plate was left in it at every width on exactly that reasoning. What the reasoning missed is the row
   opposite: three controls, and the middle one of them is a **word**, because "How to play" is a pill
@@ -1453,8 +1453,8 @@ a redirect on the site's canonical English URL — which is the pattern Google n
 not to redirect on a visitor's presumed language, and which is why the arrival could never be
 answered for a *browser* setting, only for a stored choice.
 
-**The served half speaks both languages now.** Every string and every link `GamePage.astro` and
-`HomeProse.astro` render per language also carries its counterpart in `data-alt`, `data-alt-href` and
+**The served half speaks both languages now.** Every string and every link `GamePage.svelte` and
+`HomeProse.svelte` render per language also carries its counterpart in `data-alt`, `data-alt-href` and
 `data-alt-aria`; `<html>` carries `data-alt-title`. `src/langSwap.ts` walks those attributes,
 exchanges them, and moves the address bar with `history.replaceState`. `initLang()` is the three
 lines that decide and apply it, first thing in `boot()`.
@@ -2163,7 +2163,7 @@ bar, and last in the row of links under the game on the home page. What changed 
   is a URL that can be sent on its own.
 - **The copy left the i18n bundle.** It is `src/content/legal.ts`, typed `Record<Lang, LegalDoc[]>`
   so a document still cannot exist in one language only, and read at build time by
-  `content/LegalArticle.astro`. `src/i18n/en.ts` is downloaded by every player on every visit; these
+  `content/LegalArticle.svelte`. `src/i18n/en.ts` is downloaded by every player on every visit; these
   three documents are read by almost nobody and they are long. Tutoiement applies here too: a policy
   that suddenly switches to `vous` is a policy written by somebody else, and it reads that way.
 - **The footer link, not the gear.** It has to be reachable before typing a name and before taking a

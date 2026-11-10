@@ -5,8 +5,9 @@
 # fresh checkout has no node_modules — `make csp` and any local `docker build`
 # did.
 node_modules
-dist
-.astro
+build
+.svelte-kit
+csp-hashes.conf
 npm-debug.log*
 test-results
 playwright-report

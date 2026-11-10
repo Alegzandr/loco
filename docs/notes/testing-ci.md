@@ -410,7 +410,7 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
   are protected CI/CD variables, so protecting the `v*` tags — which is what makes `deploy_prod` see
   them at all — also injected them into every other job of a tag pipeline. The server binary inherits
   the job's environment, the live poller switched itself on, and `/live.json` (proxied to `:8080` by
-  Vite, `astro.config.mjs`) started answering with whoever was streaming the game; `live.spec.ts`
+  Vite, `vite.config.ts`) started answering with whoever was streaming the game; `live.spec.ts`
   asserts the served paragraph stays put when nobody is, and it went red on a real channel being on
   air. **The fix belongs in the job, never in the spec**: a suite whose result depends on a stranger's
   stream is not a suite, and CI has no business calling a third party once a minute. Emptying the key
@@ -610,7 +610,7 @@ future reader mistake the exclusions for neglect.
 - **No dev-server WS proxy** — browser connects directly to `ws://<host>:8080/ws` (the proxy is unreliable under Docker).
 - `VITE_WS_PORT=8080` env tells client which port (default 8080).
 - `hooks/webSocket.svelte.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
-- `astro.config.mjs`: no proxy. `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries
+- `vite.config.ts`: no proxy. `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries
   `VITE_HMR_CLIENT_PORT` so HMR dials the published 5173 rather than the container's 3000.
 - Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).
 - Start: `docker compose -f docker-compose.dev.yml up --build`.

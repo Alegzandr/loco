@@ -1,6 +1,6 @@
-import { StateCreator } from './createStore'
+import { type StateCreator } from './createStore'
 import { stamp } from './helpers'
-import { GameStore, MatchActions, RoundScoreEntry } from './types'
+import { type GameStore, type MatchActions, type RoundScoreEntry } from './types'
 
 export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, get) => ({
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),

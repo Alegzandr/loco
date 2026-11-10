@@ -1,5 +1,5 @@
-﻿import { StateCreator } from './createStore'
-import { AppScreen, GameStore, QueueActions } from './types'
+﻿import { type StateCreator } from './createStore'
+import { type AppScreen, type GameStore, type QueueActions } from './types'
 
 export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) => ({
   // The search screen owns its own clock. Nothing about the queue arrives from

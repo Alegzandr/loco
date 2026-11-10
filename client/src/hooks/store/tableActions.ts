@@ -1,7 +1,7 @@
-import { StateCreator } from './createStore'
+import { type StateCreator } from './createStore'
 import type { CardColor } from '../../types/protocol'
 import { stamp, gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
-import { CatchWindow, GameStore, TableActions } from './types'
+import { type CatchWindow, type GameStore, type TableActions } from './types'
 import {
   CATCH_LIVE_MAX_HAND,
   CATCH_NEAR_GRACE_MS,

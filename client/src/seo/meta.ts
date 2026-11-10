@@ -38,12 +38,17 @@ export const OG_LOCALE: Record<Lang, string> = { en: 'en_US', fr: 'fr_FR' }
  * and nowhere else, so an origin carrying the prefix would make every canonical,
  * every `hreflang` and the whole sitemap name a redirect instead of a page.
  *
- * Read through a `typeof` guard rather than directly: this module is also
- * imported by client-side code (for the page paths alone), and a bare
- * `process.env` throws "process is not defined" in a browser. In that context
- * the value is never used — only the paths are.
+ * `__LOCO_ORIGIN__` first: vite.config.ts defines it from the variable the build
+ * was given, so the prerendered page and a page the router renders in the
+ * browser after a client-side navigation name the same origin. Not
+ * `import.meta.env`: the E2E suite imports this module through Node's CommonJS
+ * loader, where `import.meta` is a syntax error. Outside Vite the constant does
+ * not exist, which `typeof` answers without throwing, and `process` takes over —
+ * itself behind a guard, because a bare `process.env` throws in a browser.
  */
+declare const __LOCO_ORIGIN__: string | undefined
 export const ORIGIN = (
+  (typeof __LOCO_ORIGIN__ !== 'undefined' ? __LOCO_ORIGIN__ : undefined) ??
   (typeof process !== 'undefined' ? process.env?.VITE_PUBLIC_ORIGIN : undefined) ??
   'https://ohloco.com'
 ).replace(/\/+$/, '')

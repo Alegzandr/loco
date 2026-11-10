@@ -4,7 +4,7 @@
  * None of them is visible: every one was a page that looked exactly right and
  * scored 86-89 out of 100, and three of the four are properties of a *file*
  * rather than of a rendered screen. They are asserted here, against the source,
- * for the same reason `csp.test.ts` greps for `client:` directives — a checker
+ * for the same reason `csp.test.ts` reads the nginx config — a checker
  * runs on a deployed URL, and by then the change that broke it is weeks old.
  *
  * What is checked here is the *shape*. That the built pages actually come out
@@ -20,7 +20,9 @@ const CLIENT = path.resolve(__dirname, '..', '..')
 // patterns below are written against LF, which is what CI checks out.
 const read = (...p: string[]) => readFileSync(path.join(CLIENT, 'src', ...p), 'utf8').replace(/\r\n/g, '\n')
 
-const base = read('layouts', 'Base.astro')
+// The viewport tag is in the one template every page is rendered into; the
+// reset that answers the double-tap is the stylesheet the root layout loads.
+const base = read('app.html') + '\n' + read('styles', 'base.css')
 // Markup and style are one file now: a Svelte component carries its own
 // <style>, so both halves of the wordmark's contrast fix are read from here.
 const logo = read('components', 'LocoLogo.svelte')
@@ -32,7 +34,7 @@ describe('the viewport lets a phone zoom', () => {
     // take pinch-zoom with them — which is somebody's only way to read this game
     // on a phone, and which every page of the site was failing an audit on.
     const viewport = base.match(/<meta\s+name="viewport"[^>]*content="([^"]*)"/)?.[1]
-    expect(viewport, 'Base.astro must declare a viewport').toBeTruthy()
+    expect(viewport, 'app.html must declare a viewport').toBeTruthy()
     expect(viewport).not.toMatch(/user-scalable\s*=\s*no/)
     expect(viewport).not.toMatch(/maximum-scale/)
     // The half that was worth keeping, and the reason the tag can lose the rest.
@@ -56,7 +58,7 @@ describe('a seat costs the pinch, and nothing else does', () => {
   // element itself — every element, not the body it would inherit from.
   it('refuses text selection on every element once a seat is taken', () => {
     const seated = base.match(/:root\[data-seated\]\s+:not\(input, textarea\)\s*\{([^}]*)\}/s)?.[1]
-    expect(seated, 'Base.astro must refuse selection per element at the seat').toBeTruthy()
+    expect(seated, 'base.css must refuse selection per element at the seat').toBeTruthy()
     expect(seated).toMatch(/-webkit-user-select:\s*none/)
     expect(seated).toMatch(/[^-]user-select:\s*none/)
     expect(seated).toMatch(/-webkit-touch-callout:\s*none/)
@@ -64,7 +66,7 @@ describe('a seat costs the pinch, and nothing else does', () => {
 
   it('drops pinch-zoom under [data-seated] and leaves panning alone', () => {
     const seated = base.match(/:root\[data-seated\]\s+body\s*\{([^}]*)\}/s)?.[1]
-    expect(seated, 'Base.astro must scope the refusal to a taken seat').toBeTruthy()
+    expect(seated, 'base.css must scope the refusal to a taken seat').toBeTruthy()
     // `pan-x pan-y` is `manipulation` minus pinch-zoom. `none` would take the
     // standings' and the recap's scrolling with it.
     expect(seated).toMatch(/touch-action:\s*pan-x pan-y/)
@@ -136,8 +138,8 @@ describe('a box that scrolls can be reached by a keyboard', () => {
   // row of pictures — so on a phone, where both are wider than the column, the
   // part past the right edge belonged to whoever could drag it into view.
   it.each([
-    ['content/RulesArticle.astro', 'tableWrap'],
-    ['content/CardsArticle.astro', 'cardRow'],
+    ['content/RulesArticle.svelte', 'tableWrap'],
+    ['content/CardsArticle.svelte', 'cardRow'],
   ])('%s makes every .%s focusable', (file, cls) => {
     const src = read(...file.split('/'))
     const boxes = src.match(new RegExp(`<div class="${cls}"[^>]*>`, 'g')) ?? []

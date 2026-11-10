@@ -87,16 +87,13 @@ export default defineConfig({
   // Start the client's dev server automatically; never reuse one.
   // The Go server must already be running (docker-compose or CI script).
   webServer: {
-    // Pass --port explicitly so the server binds on 4173 rather than its default.
-    //
-    // `--ignore-lock` because `astro dev` is a singleton: it takes a lock file,
-    // and a second invocation prints "dev server already running" and exits
-    // without ever binding 4173. Without this the whole suite times out for the
-    // sole reason that `make dev` is up in another terminal.
+    // Pass --port explicitly so the server binds on 4173 rather than its default,
+    // and --strictPort so a busy port fails loudly instead of moving the server
+    // one port over, where Playwright would never find it.
     //
     // Environment goes through `env` rather than a shell prefix: the prefix form
     // is POSIX-only and fails when the suite is run from Windows.
-    command: `npm run dev -- --port 4173 --ignore-lock`,
+    command: `npm run dev -- --port 4173 --strictPort`,
     env: {
       VITE_WS_PORT: '8080',
       VITE_HMR_CLIENT_PORT: '4173',
@@ -112,14 +109,6 @@ export default defineConfig({
       // rather than in an init script because a page reaches this suite four
       // ways and only the server is common to all four.
       VITE_E2E_NO_SCENE: '1',
-      // `astro dev` auto-backgrounds itself when it detects an agentic
-      // environment, and a backgrounded server refuses --ignore-lock. Playwright
-      // owns this server's lifetime, so it must stay in the foreground. The
-      // detector treats an empty value as absent.
-      CLAUDECODE: '',
-      CURSOR_TRACE_ID: '',
-      AGENT: '',
-      REPL_ID: '',
     },
     cwd: resolve(__dirname, '../client'),
     port: 4173,

@@ -154,7 +154,7 @@ documented in `docs/deployment.md` because there is no file here that could hold
 ## The origin has to be decided at build time
 
 Crawlers do not run JS and resolve `og:image` against nothing, so a relative URL is simply not
-fetched. `VITE_PUBLIC_ORIGIN` therefore feeds both `astro.config.mjs`'s `site` and `meta.ts`'s
+fetched. `VITE_PUBLIC_ORIGIN` therefore feeds both `vite.config.ts`'s `site` and `meta.ts`'s
 `ORIGIN`, and both default to production.
 
 That default was a live bug: nothing passed the variable anywhere, so the image built for
@@ -266,7 +266,7 @@ to it** rather than translated into it.
 crawler does not wait for that, so every audit read the site's most important URL as a page with no
 heading at all — the same reason the footer prose is served markup and not mounted.
 
-So `GamePage.astro` serves one `<h1>` with `.sr-only` (`tokens.css`), in text, before anything
+So `GamePage.svelte` serves one `<h1>` with `.sr-only` (`tokens.css`), in text, before anything
 mounts. It says what the page is in the words somebody would have typed, never the word LOCO alone:
 a heading repeating the logo is the logo again. `.sr-only` clips rather than `display: none`, which
 would take it out of the accessibility tree too — a screen reader arriving before the bundle lands
@@ -315,7 +315,7 @@ and for nothing else.
 
 ## The content pages
 
-`src/layouts/ContentPage.astro` is the shell: header, one column, footer bar. `src/content/` holds
+`src/layouts/ContentPage.svelte` is the shell: header, one column, footer bar. `src/content/` holds
 the prose and the data behind it, and is **never imported by the app** — `en.ts` and `fr.ts` are
 already 28 KB and 17 KB shipped to every player, and none of this is rendered inside the game.
 
@@ -357,7 +357,7 @@ screenful. `html:has(body.doc)` takes a `scroll-padding-top`, or the skip link a
 anchor land on a heading the band is sitting on. `contentPages.test.ts` pins the sticky, the nesting
 and the scroll padding.
 
-The bar is written in `content.css` rather than shared with `GamePage.astro`. That copy has two jobs
+The bar is written in `content.css` rather than shared with `GamePage.svelte`. That copy has two jobs
 this one does not — vanishing on `data-seated`, and keeping the whole page inside one viewport — and two
 short rulesets that look alike beat one that has to be true of both.
 
@@ -398,7 +398,7 @@ pages never mount. The listener is live rather than read once at boot, and with 
 nothing glides, which is the safe half of the fallback. `contentPages.test.ts` pins both halves —
 either alone is silent.
 
-`body.doc` also puts text selection back: the reset in `Base.astro` disables it for the board, where
+`body.doc` also puts text selection back: the reset in `Head.svelte` disables it for the board, where
 dragging a card must not select the table, and a page of rules nobody can quote is a different kind
 of broken.
 
@@ -492,7 +492,7 @@ list different pages; only one is ever on screen. That does put the same links i
 which is ordinary — a site with a header nav and a footer nav does the same — and it is why
 `seo.spec.ts` scopes its home-page assertions to `.homeLinks` rather than to `.homeIntro`.
 
-**`GamePage.astro` styles no part of the drawer.** The panel, the heading, the rows, the settings row
+**`GamePage.svelte` styles no part of the drawer.** The panel, the heading, the rows, the settings row
 are all `content.css`, which is what makes the two menus one design rather than two that resemble
 each other; a rule for `.navPop*` in that file is a divergence by definition, and the prose block that
 used to justify one is gone.
@@ -709,12 +709,12 @@ painted over the card's top-left corner: a floating control on a panel that alre
 and the one it had just been pressed on. `.homeIntro:has(.homeSheet[open]) .homeBurger` takes it off
 screen for as long as the sheet is up.
 
-`HomeProse.astro`'s sections head at `<h3>`, under the sheet's own `<h2>` title, which keeps the
+`HomeProse.svelte`'s sections head at `<h3>`, under the sheet's own `<h2>` title, which keeps the
 document's heading order the served `<h1>` establishes.
 
 Under 46rem none of that row is on screen: the burger described above replaces it, and the drawer
 carries the links. The sheet is the prose's one control — it is what opens it on a wide screen, and
-`HomeProse.astro` is rendered once, in it. The drawer held a second copy for a while; see the two
+`HomeProse.svelte` is rendered once, in it. The drawer held a second copy for a while; see the two
 drawers above for why it does not any more.
 
 The footer disappears the moment a seat is taken. That is not the app's to do — it is markup Astro
@@ -753,7 +753,7 @@ which is the only reason it can be written once and mean two things. Full reason
 
 ### The stylesheet is loaded by the game, so nothing in it may be a bare element
 
-`content.css` is imported by `ContentPage.astro` **and by `GamePage.astro`**, which needs it for the
+`content.css` is imported by `ContentPage.svelte` **and by `GamePage.svelte`**, which needs it for the
 footer row, the burger drawer and the home page's prose sheet. That is deliberate — the drawer is
 styled once and the two copies of it cannot drift — and it means every selector in the file has a
 reach nobody writing a rule for the deck table is thinking about.
@@ -822,7 +822,7 @@ footer row, the sheet and the burger are the indexable half of `/` and this page
 **Staying out of `PAGES` is not what keeps it out of the sitemap.** `@astrojs/sitemap` walks the
 pages Astro emitted, not the registry, so `/i/` shipped in `sitemap-0.xml` the first time this page
 was built — a URL submitted for crawling that then answers `noindex`. The `filter` in
-`astro.config.mjs` is what removes it, and `src/test/invitePage.test.ts` runs that predicate rather
+`vite.config.ts` is what removes it, and `src/test/invitePage.test.ts` runs that predicate rather
 than restating it.
 
 `favicon.ico` is a 6-byte directory, one 16-byte entry and the PNG bytes verbatim — every browser
@@ -919,7 +919,7 @@ lands in the wrong containing block is invisible in both.
 
 Three changes, none of them page-specific:
 
-- `build.inlineStylesheets: 'always'` in `astro.config.mjs`. The three stylesheets are 3-22 kB and
+- `build.inlineStylesheets: 'always'` in `vite.config.ts`. The three stylesheets are 3-22 kB and
   all three were render-blocking requests; the game page waited 753 ms on one of them before it could
   paint a word. `style-src` allows `'unsafe-inline'` in `client/nginx.conf`, so this is legal —
   **scripts are not**, and must stay external (`csp.test.ts`).

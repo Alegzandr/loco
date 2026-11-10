@@ -4,8 +4,9 @@
  * `/i/?t=CODE` is a page the build emitted and a query parameter on it, and that
  * is a decision this file exists to keep: a path form (`/i/CODE`) is not a page,
  * so it would need a fallback in whoever serves the request — which nginx can do
- * and `astro dev` cannot, leaving a URL that resolves in production and 404s
- * under `make dev` and the entire Playwright suite.
+ * and the dev server cannot without a hook of its own, leaving a URL that
+ * resolves in production and 404s under `make dev` and the entire Playwright
+ * suite.
  *
  * The rest is the discipline a duplicate of the home page owes the index:
  * noindex, no sitemap entry, no hreflang, no canonical, no second `#webpage`.
@@ -16,13 +17,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { INVITE, INVITE_OG, OG_IMAGE, PAGES, NAV, LANGS } from '../seo/meta'
 import { tableInviteUrl } from '../hooks/tableInvite'
+import { documentFor } from '../seo/document'
+import { sitemapUrls } from '../seo/sitemap'
 
 const CLIENT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const read = (...p: string[]) => readFileSync(path.join(CLIENT, ...p), 'utf8')
 
 const nginx = read('nginx.conf')
-const astroConfig = read('astro.config.mjs')
-const pageSource = read('src', 'pages', 'i', 'index.astro')
+const viteConfig = read('vite.config.ts')
+const pageSource = read('src', 'routes', 'i', '+page.svelte')
 
 describe('the invite page', () => {
   it('is one path in both languages, because an invitation carries no language', () => {
@@ -34,7 +37,7 @@ describe('the invite page', () => {
   })
 
   it('is served by a real file', () => {
-    expect(existsSync(path.join(CLIENT, 'src', 'pages', 'i', 'index.astro'))).toBe(true)
+    expect(existsSync(path.join(CLIENT, 'src', 'routes', 'i', '+page.svelte'))).toBe(true)
   })
 
   it('is noindex, and carries no chrome and no structured data', () => {
@@ -42,13 +45,14 @@ describe('the invite page', () => {
     // page out of the index (and out of the canonical graph with it), chrome
     // would put a row of links and a page of prose under a table somebody was
     // invited to, jsonLd={null} stops a second #webpage node describing the game
-    // at a second URL, and langNeutral is what keeps initLang from moving the
-    // address bar away from an invitation it has no opinion about.
+    // at a second URL, and no `data-served-lang` is what keeps initLang from
+    // moving the address bar away from an invitation it has no opinion about.
     expect(pageSource).toMatch(/\bnoindex\b/)
     expect(pageSource).toMatch(/chrome=\{false\}/)
     expect(pageSource).toMatch(/jsonLd=\{null\}/)
-    expect(pageSource).toMatch(/\blangNeutral\b/)
     expect(pageSource).toMatch(/page=\{INVITE\}/)
+    expect(documentFor(INVITE.path.en).servedLang).toBeUndefined()
+    expect(documentFor(INVITE.path.en).altTitle).toBeUndefined()
   })
 
   it('is in no navigation and no hreflang set', () => {
@@ -58,19 +62,16 @@ describe('the invite page', () => {
     expect(NAV.some((p) => p.id === INVITE.id)).toBe(false)
   })
 
-  it('is filtered out of the sitemap, which does not read PAGES', () => {
-    // @astrojs/sitemap walks the pages Astro *emitted*, so staying out of the
-    // registry does not keep it out of the XML — `/i/` shipped in the sitemap
-    // the first time this page was built. Asking Google to crawl a URL that then
-    // answers noindex is the contradiction the filter removes.
-    const filter = /filter:\s*\(page\)\s*=>\s*(.+?),\n/.exec(astroConfig.replace(/\r/g, ''))?.[1]
-    expect(filter, 'no sitemap filter in astro.config.mjs').toBeTruthy()
-    // The config's own predicate, run rather than restated: a copy of it here
-    // would keep passing after the real one was changed.
-    const keeps = new Function('page', `return ${filter}`) as (p: string) => boolean
-    expect(keeps('https://ohloco.com/i/')).toBe(false)
-    expect(keeps('https://ohloco.com/')).toBe(true)
-    expect(keeps('https://ohloco.com/fr/jouer-entre-amis/')).toBe(true)
+  it('is out of the sitemap, which is built from PAGES', () => {
+    // Astro's sitemap integration walked the pages it *emitted*, so staying out
+    // of the registry did not keep `/i/` out of the XML — it shipped there the
+    // first time this page was built, and needed a filter. The sitemap is the
+    // registry now (src/seo/sitemap.ts), run here rather than restated: asking
+    // Google to crawl a URL that then answers noindex is the contradiction.
+    const xml = sitemapUrls()
+    expect(xml).not.toMatch(/\/i\//)
+    expect(xml).toContain('https://ohloco.com/</loc>')
+    expect(xml).toContain('/fr/jouer-entre-amis/</loc>')
   })
 
   it('says it is an invitation, in both languages', () => {
@@ -118,7 +119,7 @@ describe('the art an invitation unfurls into', () => {
 describe('the URL an invitation is', () => {
   it('is the page itself, so every environment serves it with no help', () => {
     // The whole reason the code rides on a query rather than in the path. A
-    // link nobody can open under `astro dev` is a link the E2E suite cannot
+    // link nobody can open under the dev server is a link the E2E suite cannot
     // exercise and a developer cannot try, and it would have looked fine here.
     const url = new URL(tableInviteUrl('ABC234', 'https://loco.test'))
     expect(url.pathname).toBe(INVITE.path.en)
@@ -130,6 +131,6 @@ describe('the URL an invitation is', () => {
     // and that is worth more than the three characters a path form would save.
     expect(nginx).not.toMatch(/location\s+\/i\//)
     expect(nginx).toMatch(/location\s+\/\s*\{[^}]*try_files\s+\$uri\s+\$uri\/\s+=404/)
-    expect(astroConfig).not.toMatch(/configureServer|configurePreviewServer/)
+    expect(viteConfig).not.toMatch(/configureServer|configurePreviewServer/)
   })
 })
