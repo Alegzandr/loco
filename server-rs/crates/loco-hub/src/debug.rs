@@ -32,17 +32,17 @@ impl Table {
         d: Option<DebugStateDTO>,
     ) {
         if !cx.hub.config().debug_mode {
-            c.send_error("debug commands are not enabled");
+            c.refuse(crate::refusal::Refusal::DebugDisabled);
             return;
         }
         if self.room.status != Status::Playing {
-            c.send_error("debug_set_state requires an active game");
+            c.refuse(crate::refusal::Refusal::DebugNeedsActiveGame);
             return;
         }
         let d = d.unwrap_or_default();
         let seat = c.player_id();
         let Some(state) = self.room.state.as_mut() else {
-            c.send_error("debug_set_state requires an active game");
+            c.refuse(crate::refusal::Refusal::DebugNeedsActiveGame);
             return;
         };
         if !d.hand.is_empty() && seat < state.hands.len() {
@@ -50,10 +50,10 @@ impl Table {
         }
         for o in &d.hands {
             if o.player_index < 0 || o.player_index as usize >= state.hands.len() {
-                c.send_error(&format!(
+                c.refuse(crate::refusal::Refusal::Other(format!(
                     "debug.hands: invalid player_index {}",
                     o.player_index
-                ));
+                )));
                 return;
             }
             state.hands[o.player_index as usize] = hand_of(&o.hand);
@@ -79,14 +79,18 @@ impl Table {
         }
         if let Some(dir) = d.direction {
             if dir != 1 && dir != -1 {
-                c.send_error(&format!("debug.direction: must be 1 or -1, got {dir}"));
+                c.refuse(crate::refusal::Refusal::Other(format!(
+                    "debug.direction: must be 1 or -1, got {dir}"
+                )));
                 return;
             }
             state.direction = dir;
         }
         if let Some(turn) = d.current_turn {
             if turn < 0 || turn as usize >= state.hands.len() {
-                c.send_error(&format!("debug.current_turn: invalid index {turn}"));
+                c.refuse(crate::refusal::Refusal::Other(format!(
+                    "debug.current_turn: invalid index {turn}"
+                )));
                 return;
             }
             state.current_turn = turn;

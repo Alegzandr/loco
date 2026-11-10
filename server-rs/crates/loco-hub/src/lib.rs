@@ -34,6 +34,7 @@ pub mod metrics;
 pub mod online;
 pub mod presence;
 pub mod privacy;
+pub mod refusal;
 pub mod rematch;
 pub mod room;
 pub mod rooms;

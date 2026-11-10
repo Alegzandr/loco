@@ -32,7 +32,7 @@ pub fn now_ms() -> i64 {
 pub mod msg {
     use super::*;
 
-    /// A refusal. Only `Client::send_error` builds one: it is the funnel the
+    /// A refusal. Only `Client::refuse` builds one: it is the funnel the
     /// AFK counter's refusal check counts.
     pub(crate) fn error(text: &str) -> ServerMsg {
         ServerMsg::Error(ErrorMsg {
@@ -77,7 +77,7 @@ pub mod msg {
 /// mapped back onto the string the Go handler used — `unknown message type`,
 /// `unknown color: "x"`, `unknown kind: "x"`, `invalid match format …`,
 /// `unknown emote` — and anything else that does not decode is `invalid
-/// message format`. Either way it is one `send_error`, counted as a refusal.
+/// message format`. Either way it is one `Client::refuse`, counted as a refusal.
 pub fn decode_client(data: &[u8]) -> Result<ClientMsg, String> {
     let e = match serde_json::from_slice::<ClientMsg>(data) {
         Ok(m) => return Ok(m),

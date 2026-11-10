@@ -14,11 +14,11 @@ use std::sync::Arc;
 impl Table {
     pub(crate) fn handle_send_emote(&mut self, c: &Arc<Client>, emote: Option<Emote>) {
         if self.room.status != Status::Finished {
-            c.send_error("emotes are only for the end of a match");
+            c.refuse(crate::refusal::Refusal::EmotesAtEndOnly);
             return;
         }
         let Some(emote) = emote else {
-            c.send_error("unknown emote");
+            c.refuse(crate::refusal::Refusal::UnknownEmote);
             c.note_suspect("unknown emote");
             return;
         };

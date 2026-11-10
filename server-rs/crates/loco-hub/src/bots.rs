@@ -134,16 +134,16 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.send_error("only the room owner can add bots");
+            c.refuse(crate::refusal::Refusal::OwnerOnlyBots);
             return;
         }
         if self.room.status != Status::Lobby {
-            c.send_error("can only add bots in the lobby");
+            c.refuse(crate::refusal::Refusal::BotsLobbyOnly);
             return;
         }
         let nickname = next_bot_name(&self.room);
         if let Err(e) = self.room.join(&nickname) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         cx.hub.metrics().bots_active.fetch_add(1, Ordering::Relaxed);

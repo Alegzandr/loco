@@ -19,19 +19,19 @@ pub const REMATCH_QUORUM: usize = 2;
 impl Table {
     pub(crate) fn handle_rematch(&mut self, cx: &TableCtx, c: &Arc<Client>) {
         if cx.hub.draining() {
-            c.send_error(crate::DRAIN_REFUSAL);
+            c.refuse(crate::refusal::Refusal::Draining);
             return;
         }
         if self.room.status != Status::Finished {
-            c.send_error("rematch is only available once the match is over");
+            c.refuse(crate::refusal::Refusal::RematchUnavailable);
             return;
         }
         if self.solo {
-            c.send_error("not available in this game");
+            c.refuse(crate::refusal::Refusal::Hostless);
             return;
         }
         if self.is_matchmade() && (self.room.players.len() < 2 || self.connected() < 2) {
-            c.send_error("your opponent has left the table");
+            c.refuse(crate::refusal::Refusal::OpponentLeft);
             return;
         }
         let seat = c.player_id();

@@ -247,9 +247,9 @@ impl Client {
 
     /// Refuses something. The single funnel every refusal goes through, which
     /// is what lets the dispatch boundary count them.
-    pub fn send_error(&self, text: &str) {
+    pub fn refuse(&self, r: impl Into<crate::refusal::Refusal>) {
         self.refusals.fetch_add(1, Ordering::Relaxed);
-        self.send(msg::error(text));
+        self.send(msg::error(&r.into().to_string()));
     }
 
     /// Counts a refusal the server deliberately does not answer (a Contre-LOCO!
@@ -430,7 +430,7 @@ impl Client {
                     .messages_rate_limited
                     .fetch_add(1, Ordering::Relaxed);
                 if limiter.should_notify(now) {
-                    self.send_error("rate limit exceeded");
+                    self.refuse(crate::refusal::Refusal::RateLimited);
                 }
                 continue;
             }
@@ -440,7 +440,7 @@ impl Client {
                     if refusal == "unknown emote" {
                         self.note_suspect("unknown emote");
                     }
-                    self.send_error(&refusal);
+                    self.refuse(crate::refusal::Refusal::Other(refusal));
                     continue;
                 }
             };
@@ -457,7 +457,7 @@ impl Client {
                         .messages_dropped_busy
                         .fetch_add(1, Ordering::Relaxed);
                     tracing::info!("inbound channel full, dropping message");
-                    self.send_error("server busy, please retry");
+                    self.refuse(crate::refusal::Refusal::ServerBusy);
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => break "hub stopped".into(),
             }
@@ -636,7 +636,7 @@ mod tests {
     async fn every_refusal_is_counted_and_stamped() {
         let hub = crate::Hub::start(Default::default());
         let (c, mut rx) = Client::detached(&hub);
-        c.send_error("nope");
+        c.refuse(crate::refusal::Refusal::Other("nope".into()));
         c.refuse_silently();
         assert_eq!(c.refusals(), 2);
         let got: serde_json::Value =

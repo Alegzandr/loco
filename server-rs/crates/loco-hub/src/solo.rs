@@ -32,7 +32,7 @@ impl HubCore {
             let c2 = c.clone();
             let job = TableJob::new("play_bot_release", move |t: &mut Table, cx: &TableCtx| {
                 if t.room.status == Status::Playing {
-                    c2.send_error("already in a room");
+                    c2.refuse(crate::refusal::Refusal::AlreadyInRoom);
                     return;
                 }
                 t.release_seat(cx, &c2);
@@ -43,7 +43,7 @@ impl HubCore {
             })
             .from_client(c.clone());
             if t.post(job).is_err() {
-                c.send_error("server busy, please retry");
+                c.refuse(crate::refusal::Refusal::ServerBusy);
             }
             return;
         }
@@ -54,7 +54,7 @@ impl HubCore {
         let max_rooms = self.hub.config().limits.max_rooms;
         if self.tables.len() >= max_rooms {
             tracing::warn!(rooms = self.tables.len(), conn = %c.conn_id, "room cap reached");
-            c.send_error("the server is full, try again in a moment");
+            c.refuse(crate::refusal::Refusal::ServerFull);
             return;
         }
         let code = self.generate_code();
@@ -66,17 +66,17 @@ impl HubCore {
             tracing::warn!(code = %code, "solo SetFormat err={e}");
         }
         if let Err(e) = room.join(nickname) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         let bot_name = next_bot_name(&room);
         if let Err(e) = room.join(&bot_name) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         if let Err(e) = room.start(crate::clock::now_ms()) {
             tracing::warn!(code = %code, "solo start failed err={e}");
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         let mut t = self.new_table(&code, room);

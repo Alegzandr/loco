@@ -357,7 +357,7 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
             "handler panic recovered"
         );
         if let Some(c) = client {
-            c.send_error("server error");
+            c.refuse(crate::refusal::Refusal::ServerError);
         }
     }
 }

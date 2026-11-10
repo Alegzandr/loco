@@ -79,7 +79,7 @@ pub(crate) fn dispatch(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
             panic = %panic_message(p.as_ref()),
             "handler panic recovered"
         );
-        c.send_error("server error");
+        c.refuse(crate::refusal::Refusal::ServerError);
     }
 }
 
@@ -105,7 +105,7 @@ fn route(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
         ClientMsg::PlayBot(m) => core.handle_play_bot(c, &m.nickname),
         ClientMsg::CancelMatchmaking => core.handle_cancel_matchmaking(c),
         ClientMsg::LeaveRoom => core.handle_leave_room(c),
-        _ => c.send_error("unknown message type"),
+        _ => c.refuse(crate::refusal::Refusal::UnknownMessageType),
     }
 }
 
@@ -113,11 +113,11 @@ fn route(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
 /// that one table is behind, and only its own players are told so.
 pub fn post_to_table(core: &HubCore, c: &Arc<Client>, job: TableJob) -> bool {
     let Some(code) = c.room_code() else {
-        c.send_error("not in a room");
+        c.refuse(crate::refusal::Refusal::NotInRoom);
         return false;
     };
     let Some(t) = core.tables.get(&code) else {
-        c.send_error("room not found");
+        c.refuse(crate::refusal::Refusal::RoomNotFound);
         return false;
     };
     let what = job.what.clone();
@@ -127,7 +127,7 @@ pub fn post_to_table(core: &HubCore, c: &Arc<Client>, job: TableJob) -> bool {
             .messages_dropped_busy
             .fetch_add(1, Ordering::Relaxed);
         tracing::info!(r#type = %what, conn = %c.conn_id, code, "table box full, dropping message");
-        c.send_error("server busy, please retry");
+        c.refuse(crate::refusal::Refusal::ServerBusy);
         return false;
     }
     true
@@ -146,20 +146,20 @@ impl Table {
             // A gameplay message only means something at a table that has
             // dealt, from a seat the deal has a hand for, past the gate.
             let Some(state) = self.room.state.as_ref() else {
-                c.send_error("game not in progress");
+                c.refuse(crate::refusal::Refusal::GameNotInProgress);
                 return;
             };
             if self.room.status != Status::Playing || c.player_id() >= state.hands.len() {
-                c.send_error("game not in progress");
+                c.refuse(crate::refusal::Refusal::GameNotInProgress);
                 return;
             }
             if self.is_loading() {
-                c.send_error("waiting for every player to load the table");
+                c.refuse(crate::refusal::Refusal::TableLoading);
                 return;
             }
         }
         // An action the server took clears the AFK count; one it refused does
-        // not. Read as a before/after pair, because send_error is the single
+        // not. Read as a before/after pair, because `Client::refuse` is the single
         // funnel every refusal goes through.
         let before = c.refusals();
         match msg {

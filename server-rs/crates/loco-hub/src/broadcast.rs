@@ -93,7 +93,7 @@ impl Table {
     /// state has drifted carries the correction with it, throttled to one per
     /// socket per `resync_period`; a lost race does not.
     pub fn refuse_action(&self, cx: &TableCtx, c: &Arc<Client>, err: &GameError) {
-        c.send_error(&err.to_string());
+        c.refuse(err.clone());
         c.note_rejection(err);
         if !err.is_state_mismatch() {
             return;

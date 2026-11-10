@@ -86,7 +86,7 @@ impl HubCore {
             let c2 = c.clone();
             let job = TableJob::new("find_match_release", move |t: &mut Table, cx: &TableCtx| {
                 if t.room.status == Status::Playing {
-                    c2.send_error("already in a room");
+                    c2.refuse(crate::refusal::Refusal::AlreadyInRoom);
                     return;
                 }
                 t.release_seat(cx, &c2);
@@ -96,7 +96,7 @@ impl HubCore {
             })
             .from_client(c.clone());
             if t.post(job).is_err() {
-                c.send_error("server busy, please retry");
+                c.refuse(crate::refusal::Refusal::ServerBusy);
             }
             return;
         }
@@ -105,7 +105,7 @@ impl HubCore {
 
     pub(crate) fn enqueue_and_pair(&mut self, c: &Arc<Client>, nickname: String) {
         if self.queue_index(c).is_some() {
-            c.send_error("already searching for an opponent");
+            c.refuse(crate::refusal::Refusal::AlreadySearching);
             return;
         }
         self.enqueue(c, nickname);
@@ -193,7 +193,7 @@ impl HubCore {
         })
         .from_client(c.clone());
         if t.post(job).is_err() {
-            c.send_error("server busy, please retry");
+            c.refuse(crate::refusal::Refusal::ServerBusy);
         }
     }
 }
@@ -381,7 +381,7 @@ impl Table {
             .unwrap_or_default();
         let turn_before = self.room.state.as_ref().map_or(-1, |s| s.current_turn);
         if let Err(e) = self.room.retire_seat(seat as i32, clock::now_ms()) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         self.sweep(c);

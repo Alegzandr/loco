@@ -56,7 +56,7 @@ impl HubCore {
             Ok(n) => Some(n),
             Err(e) => {
                 tracing::info!(conn = %c.conn_id, reason = %e, "nickname refused");
-                c.send_error(loco_game::error::NICKNAME_REJECTED);
+                c.refuse(crate::refusal::Refusal::NicknameRejected);
                 None
             }
         }
@@ -133,7 +133,7 @@ impl HubCore {
             return;
         }
         if self.already_seated(c) {
-            c.send_error("already in a room");
+            c.refuse(crate::refusal::Refusal::AlreadyInRoom);
             return;
         }
         let Some(nickname) = Self::validate_nickname(c, nickname) else {
@@ -142,13 +142,13 @@ impl HubCore {
         let max_rooms = self.hub.config().limits.max_rooms;
         if self.tables.len() >= max_rooms {
             tracing::warn!(rooms = self.tables.len(), conn = %c.conn_id, "room cap reached");
-            c.send_error("the server is full, try again in a moment");
+            c.refuse(crate::refusal::Refusal::ServerFull);
             return;
         }
         let code = self.generate_code();
         let mut room = new_room(&code);
         if let Err(e) = room.join(&nickname) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         let mut t = self.new_table(&code, room);
@@ -175,7 +175,7 @@ impl HubCore {
 
     pub(crate) fn handle_join_room(&mut self, c: &Arc<Client>, msg: JoinRoomMsg) {
         if self.already_seated(c) {
-            c.send_error("already in a room");
+            c.refuse(crate::refusal::Refusal::AlreadyInRoom);
             return;
         }
         let Some(nickname) = Self::validate_nickname(c, &msg.nickname) else {
@@ -183,7 +183,7 @@ impl HubCore {
         };
         if !valid_room_code(&msg.room_code) {
             self.note_failed_join(c);
-            c.send_error("invalid room code");
+            c.refuse(crate::refusal::Refusal::InvalidRoomCode);
             return;
         }
         // A sweep is refused before the lookup, so a throttled network learns
@@ -193,7 +193,7 @@ impl HubCore {
                 .metrics()
                 .joins_throttled
                 .fetch_add(1, Ordering::Relaxed);
-            c.send_error("too many attempts, wait a moment");
+            c.refuse(crate::refusal::Refusal::TooManyAttempts);
             return;
         }
         let code = msg.room_code.to_ascii_uppercase();
@@ -204,7 +204,7 @@ impl HubCore {
                 return;
             }
             self.note_failed_join(c);
-            c.send_error("room not found");
+            c.refuse(crate::refusal::Refusal::RoomNotFound);
             return;
         };
         // The rest of a join is the table's, which also makes two people
@@ -216,7 +216,7 @@ impl HubCore {
         })
         .from_client(c.clone());
         if t.post(job).is_err() {
-            c.send_error("server busy, please retry");
+            c.refuse(crate::refusal::Refusal::ServerBusy);
         }
     }
 }
@@ -252,11 +252,11 @@ impl Table {
             let c2 = c.clone();
             cx.hub
                 .post_to_router("failed_join", move |core| core.note_failed_join(&c2));
-            c.send_error("game already in progress");
+            c.refuse(crate::refusal::Refusal::GameAlreadyInProgress);
             return;
         }
         if let Err(e) = self.room.join(nickname) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         self.seat_client(cx, c, self.room.players.len() - 1);
@@ -290,24 +290,24 @@ impl Table {
         if !self.hostless() {
             return false;
         }
-        c.send_error("not available in this game");
+        c.refuse(crate::refusal::Refusal::Hostless);
         true
     }
 
     pub(crate) fn handle_start_game(&mut self, cx: &TableCtx, c: &Arc<Client>) {
         if cx.hub.draining() {
-            c.send_error(crate::DRAIN_REFUSAL);
+            c.refuse(crate::refusal::Refusal::Draining);
             return;
         }
         if self.refuse_without_host(c) {
             return;
         }
         if c.player_id() != 0 {
-            c.send_error("only the room owner can start the game");
+            c.refuse(crate::refusal::Refusal::OwnerOnlyStart);
             return;
         }
         if let Err(e) = self.room.start(clock::now_ms()) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         self.deal_match(cx);
@@ -354,15 +354,17 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.send_error("only the host can change match format");
+            c.refuse(crate::refusal::Refusal::HostOnlyFormat);
             return;
         }
         let Some(f) = f else {
-            c.send_error(r#"invalid match format "": must be BO1, BO3, BO5, or BO7"#);
+            c.refuse(crate::refusal::Refusal::Other(
+                r#"invalid match format "": must be BO1, BO3, BO5, or BO7"#.into(),
+            ));
             return;
         };
         if let Err(e) = self.room.set_format(match_format_of(f)) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         self.broadcast_lobby_config();
@@ -373,11 +375,11 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.send_error("only the host can change max players");
+            c.refuse(crate::refusal::Refusal::HostOnlyMaxPlayers);
             return;
         }
         if let Err(e) = self.room.set_max_players(n) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         self.broadcast_lobby_config();
@@ -391,7 +393,7 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.send_error("only the host can change streamer mode");
+            c.refuse(crate::refusal::Refusal::HostOnlyStreamerMode);
             return;
         }
         if self.streamer_mode == on {
@@ -424,15 +426,15 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.send_error("only the room owner can remove players");
+            c.refuse(crate::refusal::Refusal::OwnerOnlyKick);
             return;
         }
         if self.room.status != Status::Lobby {
-            c.send_error("can only remove players in the lobby");
+            c.refuse(crate::refusal::Refusal::KickLobbyOnly);
             return;
         }
         let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.players.len()) else {
-            c.send_error("invalid player index");
+            c.refuse(crate::refusal::Refusal::InvalidPlayerIndex);
             return;
         };
         let seat = seat as usize;
@@ -458,25 +460,25 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.send_error("only the room owner can hand over the table");
+            c.refuse(crate::refusal::Refusal::OwnerOnlyTransfer);
             return;
         }
         if self.room.status != Status::Lobby {
-            c.send_error("can only hand over the table in the lobby");
+            c.refuse(crate::refusal::Refusal::TransferLobbyOnly);
             return;
         }
         let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.players.len()) else {
-            c.send_error("invalid player index");
+            c.refuse(crate::refusal::Refusal::InvalidPlayerIndex);
             return;
         };
         let seat = seat as usize;
         if self.is_bot(seat) {
-            c.send_error("a bot cannot host the table");
+            c.refuse(crate::refusal::Refusal::BotCannotHost);
             return;
         }
         let nickname = self.room.players[seat].nickname.clone();
         if let Err(e) = self.room.swap_lobby_players(0, seat as i32) {
-            c.send_error(&e.to_string());
+            c.refuse(e);
             return;
         }
         self.swap_seats(0, seat);

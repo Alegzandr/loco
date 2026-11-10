@@ -31,7 +31,7 @@ impl Table {
                 // Not a domain error in Go either: a hub-level refusal, and it
                 // counts towards suspicion like any refusal that is not a race.
                 let text = format!("batch of {} cards exceeds the hand", play_cards.len());
-                c.send_error(&text);
+                c.refuse(crate::refusal::Refusal::Other(text.clone()));
                 c.note_suspect(&text);
                 return None;
             }
@@ -47,7 +47,7 @@ impl Table {
             return Some((cards, chosen_color));
         }
         let Some(dto) = card else {
-            c.send_error("card required");
+            c.refuse(crate::refusal::Refusal::CardRequired);
             return None;
         };
         let (card, cc) = dto_to_card(dto, chosen);
@@ -220,8 +220,8 @@ impl Table {
     pub(crate) fn handle_declare_uno(&mut self, c: &Arc<Client>) {
         let seat = c.player_id();
         if let Err(e) = self.room.declare_last_card(seat as i32, clock::now_ms()) {
-            c.send_error(&e.to_string());
             c.note_rejection(&e);
+            c.refuse(e);
             return;
         }
         self.broadcast_all(ServerMsg::UnoDeclared(SeatMsg {
@@ -242,7 +242,7 @@ impl Table {
         let mut target_idx: i32 = -1;
         if let Some(t) = target {
             if t < 0 {
-                c.send_error(&GameError::NoCatchWindow.to_string());
+                c.refuse(GameError::NoCatchWindow);
                 c.note_rejection(&GameError::NoCatchWindow);
                 return;
             }
@@ -251,7 +251,7 @@ impl Table {
             target_idx = first;
         }
         if target_idx >= state.hands.len() as i32 {
-            c.send_error(&GameError::NoCatchWindow.to_string());
+            c.refuse(GameError::NoCatchWindow);
             c.note_rejection(&GameError::NoCatchWindow);
             return;
         }
@@ -282,8 +282,8 @@ impl Table {
                 self.lock_catch(catcher, now);
                 c.refuse_silently();
             } else {
-                c.send_error(&e.to_string());
                 c.note_rejection(&e);
+                c.refuse(e);
             }
             return;
         }
@@ -350,7 +350,7 @@ impl Table {
         msg: &CounterDrawMsg,
     ) {
         let Some(dto) = msg.card.as_ref() else {
-            c.send_error("card required");
+            c.refuse(crate::refusal::Refusal::CardRequired);
             return;
         };
         let (card, chosen) = dto_to_card(dto, msg.chosen_color);
