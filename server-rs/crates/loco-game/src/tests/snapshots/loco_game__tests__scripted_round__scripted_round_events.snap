@@ -1,0 +1,251 @@
+---
+source: crates/loco-game/src/tests/scripted_round.rs
+expression: summary
+---
+{
+  "cards_on_the_table": 112,
+  "hand_sizes": [
+    6,
+    0
+  ],
+  "match_winner": "bob",
+  "round_history": [
+    [
+      0,
+      229
+    ]
+  ],
+  "rounds_won": [
+    0,
+    1
+  ],
+  "scores": [
+    0,
+    229
+  ],
+  "status": "finished",
+  "transcript": [
+    {
+      "action": "Join { nickname: \"alice\" }",
+      "events": [],
+      "t": 0
+    },
+    {
+      "action": "Join { nickname: \"bob\" }",
+      "events": [],
+      "t": 0
+    },
+    {
+      "action": "SetFormat(MatchFormat(1))",
+      "events": [],
+      "t": 0
+    },
+    {
+      "action": "Start",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:20Z",
+          "event": "logged",
+          "kind": "game_started",
+          "player_index": -1
+        }
+      ],
+      "t": 0
+    },
+    {
+      "action": "PlayCard { seat: 0, card: Card { color: Red, kind: DrawTwo, value: 0 }, chosen_color: Red, chosen_player: -1 }",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:20Z",
+          "card": {
+            "Color": 0,
+            "Kind": 3,
+            "Value": 0
+          },
+          "event": "logged",
+          "kind": "card_played",
+          "player_index": 0
+        }
+      ],
+      "t": 0
+    },
+    {
+      "action": "CounterDraw { seat: 1, card: Card { color: Red, kind: DrawTwo, value: 0 }, chosen_color: Red }",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:21Z",
+          "card": {
+            "Color": 0,
+            "Kind": 3,
+            "Value": 0
+          },
+          "event": "logged",
+          "kind": "counter_draw",
+          "player_index": 1
+        }
+      ],
+      "t": 1000
+    },
+    {
+      "action": "PenalizeFailedCatch { catcher: 0 }",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:21.5Z",
+          "event": "logged",
+          "kind": "catch_failed",
+          "player_index": 0
+        },
+        {
+          "cards": [
+            {
+              "Color": 4,
+              "Kind": 7,
+              "Value": 0
+            }
+          ],
+          "catcher": 0,
+          "charged": true,
+          "event": "failed_catch"
+        }
+      ],
+      "t": 1500
+    },
+    {
+      "action": "LockCatch { catcher: 0 }",
+      "events": [
+        {
+          "catcher": 0,
+          "event": "catch_locked",
+          "until": 1700000003500
+        }
+      ],
+      "t": 1500
+    },
+    {
+      "action": "PenalizeFailedCatch { catcher: 0 }",
+      "events": [
+        {
+          "cards": [],
+          "catcher": 0,
+          "charged": false,
+          "event": "failed_catch"
+        }
+      ],
+      "t": 1600
+    },
+    {
+      "action": "CatchUndeclared { catcher: 0, target: 1 }",
+      "refused": "catch is locked after a failed call",
+      "t": 2000
+    },
+    {
+      "action": "DrawCard { seat: 0 }",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:22.5Z",
+          "event": "logged",
+          "kind": "card_drawn",
+          "player_index": 0
+        }
+      ],
+      "t": 2500
+    },
+    {
+      "action": "PlayCard { seat: 0, card: Card { color: Red, kind: Number, value: 7 }, chosen_color: Red, chosen_player: -1 }",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:23Z",
+          "card": {
+            "Color": 0,
+            "Kind": 0,
+            "Value": 7
+          },
+          "event": "logged",
+          "kind": "card_played",
+          "player_index": 0
+        }
+      ],
+      "t": 3000
+    },
+    {
+      "action": "InterruptPlayCards { seat: 0, cards: [Card { color: Red, kind: Number, value: 7 }], chosen_color: Red, chosen_player: -1 }",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:23.2Z",
+          "card": {
+            "Color": 0,
+            "Kind": 0,
+            "Value": 7
+          },
+          "event": "logged",
+          "kind": "card_played",
+          "player_index": 0
+        }
+      ],
+      "t": 3200
+    },
+    {
+      "action": "PlayCards { seat: 1, cards: [Card { color: Red, kind: Number, value: 3 }, Card { color: Red, kind: Number, value: 3 }], chosen_color: Red, chosen_player: -1, declare_loco: false }",
+      "refused": "must call LOCO! before playing your last card",
+      "t": 4000
+    },
+    {
+      "action": "PlayCards { seat: 1, cards: [Card { color: Red, kind: Number, value: 3 }, Card { color: Red, kind: Number, value: 3 }], chosen_color: Red, chosen_player: -1, declare_loco: true }",
+      "events": [
+        {
+          "at": "2023-11-14T22:13:24.1Z",
+          "event": "logged",
+          "kind": "uno_declared",
+          "player_index": 1
+        },
+        {
+          "at": "2023-11-14T22:13:24.1Z",
+          "card": {
+            "Color": 0,
+            "Kind": 0,
+            "Value": 3
+          },
+          "event": "logged",
+          "kind": "card_played",
+          "player_index": 1
+        },
+        {
+          "at": "2023-11-14T22:13:24.1Z",
+          "card": {
+            "Color": 0,
+            "Kind": 0,
+            "Value": 3
+          },
+          "event": "logged",
+          "kind": "card_played",
+          "player_index": 1
+        },
+        {
+          "at": "2023-11-14T22:13:24.1Z",
+          "event": "logged",
+          "kind": "game_finished",
+          "player_index": 1
+        },
+        {
+          "at": "2023-11-14T22:13:24.1Z",
+          "event": "logged",
+          "kind": "round_end",
+          "player_index": 1
+        },
+        {
+          "at": "2023-11-14T22:13:24.1Z",
+          "event": "logged",
+          "kind": "match_end",
+          "player_index": -1
+        }
+      ],
+      "t": 4100
+    },
+    {
+      "action": "BeginNextRound",
+      "refused": "BeginNextRound called after match over",
+      "t": 5000
+    }
+  ],
+  "winner": "bob"
+}
