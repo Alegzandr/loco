@@ -1,9 +1,11 @@
 import { createSubscriber } from 'svelte/reactivity'
 import { prefersReducedMotion, subscribeMotion } from './motionPref'
 import { getGraphicsPref, resolveGraphics, setGraphicsPref, subscribeGraphics, type GraphicsPref, type GraphicsTier } from './graphicsPref'
+import { getWeatherShed, subscribeWeatherShed } from '../components/scene/weatherLoad'
 
 const motionSub = createSubscriber((update) => subscribeMotion(update))
 const graphicsSub = createSubscriber((update) => subscribeGraphics(update))
+const shedSub = createSubscriber((update) => subscribeWeatherShed(update))
 
 /**
  * The preferences that are not simple on/off stores, read the way a rune is
@@ -32,4 +34,17 @@ export const graphicsPref: {
     return resolveGraphics()
   },
   set: setGraphicsPref,
+}
+
+/**
+ * How many steps of weather this device has given up because it was not
+ * holding its frame rate (`scene/weatherLoad.ts`). Measured, never chosen and
+ * never stored: the graphics preference above is the player's, this is the
+ * device's.
+ */
+export const weatherShed: { readonly steps: number } = {
+  get steps() {
+    shedSub()
+    return getWeatherShed()
+  },
 }

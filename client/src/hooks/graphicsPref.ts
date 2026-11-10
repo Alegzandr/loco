@@ -6,7 +6,10 @@
  * few compositor layers of weather for the rest of the match — never a frame
  * budget. That is why `auto` can be generous: the question is not "can this
  * device hold sixty frames of it" but "how long may the gate take, and how
- * many layers may sit over the board".
+ * many layers may sit over the board". The second half of that question is
+ * the one a device can get wrong, and it is answered by measuring rather than
+ * here: under `auto` a device that is not holding its rate gives up weather
+ * sheets (`components/scene/weatherLoad.ts`), and this tier stays where it is.
  *
  * `auto` follows what the device says about itself and the two explicit
  * tiers win over it in both directions: a laptop on battery may ask for less,

@@ -928,6 +928,48 @@ Each builder's header names its three grounds.
   is the graphics tier's: three of rain and of snow on `high`, two on `medium`, one on `light`; fog
   two, two and one. Lightning is a sheet flash plus the glow of the bolt off one top corner. A room
   that declares `dry` (Orbit) gets no rain in a storm: the flash and a drift of dust.
+- **The weather is shed** (`scene/weatherLoad.ts`, the performance pass of 2026-11-10). "One
+  compositor layer each" is free on a GPU and is not free everywhere, and the pass measured where.
+  The method is worth keeping because nothing else separates the costs: Chrome on the real GPU,
+  unthrottled, says whether anything *repaints* (it does not: an idle board is ~2 ms a frame with
+  no `Paint` event, and a scripted table of plays and draws stays there); the same Chrome with
+  `--disable-gpu` composites in software and so turns fill rate into milliseconds
+  (`Display::DrawAndSwap` in a `viz` trace), which a 4080 hides entirely. In software at 1080p a
+  board on a clear day draws in 7 ms and holds 60 fps; under a storm on `high` it draws in 27 ms
+  and runs at 35, under snow 23 ms and 44, under fog 19 ms and 52. Hiding layers one at a time put
+  every millisecond of the difference on the weather (the rendered frame itself is an opaque blit
+  and costs nothing measurable): about 5 ms per falling sheet, 3 for the two masked splash sheets,
+  2 for the mist, 1 for the lightning.
+  - So under `auto` the device has a say. The cadence is sampled off `requestAnimationFrame` in
+    bursts, and a device under `LOAD_FLOOR_FPS` for `LOAD_BAD_WINDOWS` windows running gives up one
+    step of sheets (`weatherTier`: the weather is drawn one tier down), then the other if that was
+    not enough. Measured the same way after: the storm goes 36 → 52 → 60 fps, the snow 44 → 53,
+    and on the GPU nothing is ever shed.
+  - **Only the sheets.** The graphics tier never moves: it is part of the room's cache key, so
+    lowering it would render the room again, a second of main thread spent to save frames. And
+    **a tier the player chose is the player's** — only `auto` is measured.
+  - **The statistic took three tries.** Frames over time reads a deal or a resize's re-render as a
+    slow device. The median is blind to hitches and is fooled by the display instead: a 60 Hz
+    panel missing every other refresh alternates 16.7 and 33.3 ms, 45 fps with a median of 60, and
+    the snow was never shed. Cutting a fixed share of the slowest frames flatters that same device
+    by two frames a second, which left the storm parked at 48. What ships is the mean of every
+    frame under `LOAD_HITCH` times the window's median: a hitch is far from the cadence, a missed
+    refresh is not.
+  - **One-way, never stored, asleep between bursts.** A sheet given back when the rate recovers is
+    a layer blinking in and out all match. A detection is not a choice, so it lives as long as the
+    tab. And a `requestAnimationFrame` loop left running asks the main thread for a frame the
+    compositor's animations did not need: a device that held its rate is left alone for
+    `LOAD_RECHECK_MS`. It starts only once the room's frame is on screen (`settled`), because until
+    then the main thread is building the room and a slow frame says nothing about the weather; and
+    two governors can be alive at once (the loading screen's room and the board's), so a step is
+    given up *from the level it was measured at* (`shedWeatherFrom`).
+  - A browser capped at 30 fps (a phone in low-power mode) reads as under the floor and loses its
+    extra sheets. Accepted: it asked to spend less.
+  - Two things the same pass took for free. **The rain's mist covers only the band it is seen in**
+    (`.mist`, `inset: 58% 0 0`): it was a full-frame layer whose top 58% was transparent, blended
+    every frame. **The frame a re-render replaced is given back** (`SceneBackdrop`'s `release`):
+    after a resize both canvases held a whole room, the lower one fully covered, for the rest of
+    the match.
 - **The frame is supersampled** (`QUALITY[tier].supersample` and `.glPixels` through
   `supersampleFor`): rendered up to twice its size on each side (three times on `high`; `light` does
   not supersample and multisamples instead — no tier does both), and **brought down in linear

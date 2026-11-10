@@ -168,7 +168,8 @@ needs jsdom and the `browser` resolve condition.
   (what each graphics tier buys) + `post.ts` (the finishing passes), `plates.ts` (the painted rooms:
   each plate's file, its lens and its hour, and where a frame reads it — pure) + `plate.ts` (the
   painting behind the render and the table's shade on it), `SceneBackdrop.svelte` +
-  `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of)
+  `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of) +
+  `weatherLoad.ts` (the sheets a device that is not holding its frame rate gives up — pure)
 - `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, `harmony.ts` (keys, and whether two
   loops may be overlapped — pure), and `gameSounds.ts`, which **decides** the sounds and plays none of
   them
@@ -1323,6 +1324,15 @@ stated at the top of `styles/tokens.css`:
   size** (`sheetBox`): one tile of overhang the way it travels, the lean's reach in the frame's
   height, never a percentage of the frame. Rain and snow three sheets on `high`, two on `medium`,
   one on `light`; fog two, two and one.
+- **The weather is the one thing a match costs per frame, so under `auto` it is measured and shed**
+  (`scene/weatherLoad.ts`, `weatherLoad.test.ts`): a device not holding `LOAD_FLOOR_FPS` gives up a
+  step of sheets, then the other. **Only the sheets, never the graphics tier** — the tier is in the
+  room's cache key, and moving it renders the room again. **A tier the player chose is never
+  touched.** The cadence is a mean without its hitches, never the median (a 60 Hz panel missing
+  every other refresh has a median of 60); it is one-way for the life of the tab, never stored,
+  sampled in bursts and asleep between them, and watches only a room that has landed
+  (`WeatherLayer`'s `settled`). **A static layer over the room covers only the band it is seen in**
+  (`.mist`), and the frame a re-render replaced is given back once the fade is over.
 - **The rooms page shows a photograph of the render, and nothing over it**: the still carries the
   table, as the render does on the board; the CSS table is only the stand-in for a missing still
   (`TablesArticle.astro`, `RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make
