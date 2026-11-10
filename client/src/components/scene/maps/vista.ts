@@ -11,7 +11,7 @@
  * its body. World axes as the kit's, the table's centre at the origin, a tile
  * a metre; the camera stands at `+z` and looks towards `-z`.
  */
-import type { Finish, Kit } from '../kit'
+import { offsetOutline, spotChance, type Finish, type Kit } from '../kit'
 import type { Actor } from '../life'
 import type { EdgeProfile, TableMaterials } from '../../cards/maps'
 import { RIM_GLOSS } from '../../cards/tableSurface'
@@ -55,20 +55,31 @@ const BANDS: Record<EdgeProfile, [number, number]> = {
   bullnose: [-0.006, -0.018],
 }
 
+/**
+ * How much of a wood's gloss the render takes as varnish. A quarter: at a
+ * half, a low sun on the far rail came back as a white glint the bloom then
+ * spread, and under a fog, with no sun in the sky to answer for it, that
+ * glint was a smear on the table.
+ */
+const COAT = 0.25
+
 /** The rim's material as the render's finish: the same wood, lacquer or metal the CSS draws. */
 function rimFinish(m: TableMaterials): Finish {
   const color = cssHex(m.rim)
-  const grainColor = cssHex(m.grain)
+  // The grain's colour brought halfway to the rim's: at the materials' own
+  // contrast a ring was a black stripe from where the player sits, and the
+  // edge read as scratched rather than as wood.
+  const grainColor = mix(cssHex(m.grain), color, 0.45)
   switch (m.rimKind) {
     case 'lacquer':
       return { kind: 'lacquer', color, grain: 'lacquer', grainColor, fleck: m.fleck ? cssHex(m.fleck) : undefined }
     case 'titanium':
       return { kind: 'brushed', color, grain: 'brushed', grainColor }
     case 'burl':
-      return { kind: 'wood', color, grain: 'burl', grainColor, coat: RIM_GLOSS.burl * 0.5 }
+      return { kind: 'wood', color, grain: 'burl', grainColor, coat: RIM_GLOSS.burl * COAT }
     case 'oak':
     case 'teak':
-      return { kind: 'wood', color, grain: 'straight', grainColor, coat: RIM_GLOSS[m.rimKind] * 0.5 }
+      return { kind: 'wood', color, grain: 'straight', grainColor, coat: RIM_GLOSS[m.rimKind] * COAT }
   }
 }
 
@@ -97,6 +108,20 @@ export function vistaTable(k: Kit, m: TableMaterials) {
   cz /= outline.length
   const rim = rimFinish(m)
   const metal: Finish = { kind: 'metal', color: cssHex(m.inlay) }
+  // The lines of metal round the top, which in a room that has them are
+  // lines of light let into the rail.
+  const line: Finish = m.glow ? { kind: 'metal', color: cssHex(m.glow), lit: LOOK.table.rail.lit * (k.rig.lampsOn ? 1 : 0.55) } : metal
+  // The table's shade on the floor: the lamp over it is the table's alone and
+  // lights no floor, so nothing else stands the table on the ground.
+  {
+    let rx = 0
+    let rz = 0
+    for (const [x, z] of outline) {
+      rx = Math.max(rx, Math.abs(x - cx))
+      rz = Math.max(rz, Math.abs(z - cz))
+    }
+    k.shade(cx, cz, rx * LOOK.table.shade.reach, rz * LOOK.table.shade.reach, LOOK.table.shade.dark)
+  }
   const base = cssHex(m.base)
 
   // The top: the cloth, the racetrack round it and the rail round that, each
@@ -125,10 +150,22 @@ export function vistaTable(k: Kit, m: TableMaterials) {
   const toward = (s: number): V3[] => edge.map(([x, y, z]) => [fx + (x - fx) * s, y, fz + (z - fz) * s])
   k.loft([toward(0), toward(0.4), toward(0.75), edge], { kind: 'cloth', color: cssHex(m.felt) })
   // The metal filet at the cloth's edge, a step up to the racetrack.
-  k.loft([edge, ring(feltIn, lip), ring(feltIn - look.filet, lip)], metal)
+  k.loft([edge, ring(feltIn, lip), ring(feltIn - look.filet, lip)], line)
   // The racetrack: the rail's material stained a shade darker, flush.
   const track: Finish = { ...rim, color: scale(rim.color, 0.72), grainColor: rim.grainColor === undefined ? undefined : scale(rim.grainColor, 0.72) }
-  k.loft([ring(feltIn - look.filet, lip), ring(railIn, lip)], track)
+  k.loft([ring(feltIn - look.filet, lip), ring(railIn + look.filet, lip)], track)
+  // A second filet at the rail's foot, and lozenges of the same metal let into
+  // the racetrack all the way round: what says cabinetmaker rather than disc.
+  k.loft([ring(railIn + look.filet, lip), ring(railIn + look.filet, lip + 0.002), ring(railIn, lip + 0.002)], line)
+  {
+    const mid = ring(railIn + look.filet + (look.track - 2 * look.filet) * 0.5, lip + 0.0015)
+    const inner = ring(railIn + look.filet + (look.track - 2 * look.filet) * 0.84, lip + 0.0015)
+    const outer = ring(railIn + look.filet + (look.track - 2 * look.filet) * 0.16, lip + 0.0015)
+    const step = Math.round(N / look.marks)
+    for (let i = Math.round(step / 2); i < N; i += step) {
+      k.patch(mid[(i + N - 2) % N], outer[i], mid[(i + 2) % N], inner[i], metal)
+    }
+  }
   // The rail: a rounded section rising off the racetrack and rolling over
   // into the edge's face, so the edge swept below it carries straight on.
   const crown: V3[][] = []
@@ -140,7 +177,7 @@ export function vistaTable(k: Kit, m: TableMaterials) {
   k.loft(crown, rim)
   k.sweep(outline, top, EDGES[m.edge], rim)
   const [b0, b1] = BANDS[m.edge]
-  k.sweep(outline, top, [[0.003, b0], [0.004, (b0 + b1) / 2], [0.003, b1]], metal)
+  k.sweep(outline, top, [[0.003, b0], [0.004, (b0 + b1) / 2], [0.003, b1]], line)
   // The skirt, set back under the edge: what the edge's shadow falls on.
   const skirt = LOOK.table.skirt
   k.sweep(outline, top, [[-0.5, -0.08], [-0.5, -0.08 - skirt], [-0.9, -0.08 - skirt]], rim)
@@ -226,6 +263,37 @@ export function vistaTable(k: Kit, m: TableMaterials) {
   }
 }
 
+/** One band of the floor's inlay: how far past the table's plan it reaches, tiles, and what it is laid in. */
+export interface InlayBand {
+  out: number
+  color: Hex
+  gloss?: number
+  /** A band of light let into the floor: unlit, and only after the lamps are on (its own colour taken down before). */
+  glow?: boolean
+}
+
+/**
+ * The floor's inlay round the table's foot: bands laid one in the other, each
+ * the table's own plan grown by `out`, so the ground under the table is a
+ * drawn thing and the table stands in the middle of it. The floor round the
+ * table is the frame of the board from where the camera stands, and a frame
+ * left one colour is a table set down anywhere.
+ *
+ * Widest first whatever the order given; each a hair over the one under it,
+ * the lowest on the floor's own level `y`.
+ */
+export function groundInlay(k: Kit, bands: readonly InlayBand[], y = 0) {
+  const view = k.view
+  if (!view || k.rig.snow) return
+  const plan: [number, number][] = view.tableOutline(96).map(([x, , z]) => [x, z])
+  const sorted = [...bands].sort((p, q) => q.out - p.out)
+  sorted.forEach((b, i) => {
+    const lit = b.glow && k.rig.lampsOn
+    const color = b.glow ? (lit ? b.color : mix(b.color, 0x16121c, 0.6)) : k.ground(b.color)
+    k.plate(offsetOutline(plan, b.out), y - 0.05, 0.052 + i * 0.003, color, { outline: false, cap: false, glow: lit, gloss: lit ? undefined : (b.gloss ?? 0) + k.wetGloss() })
+  })
+}
+
 /**
  * A run of hills: low, wide mounds, never peaks — overlapping flat cones, the
  * biggest in the middle of the run, falling away at both ends. Unoutlined:
@@ -269,6 +337,8 @@ export interface SkylineOptions {
   neon?: { share: number; colors: readonly Hex[] }
   /** Stepped tops, one tier in how many: the deco skyline. */
   tiers?: number
+  /** Set a crown on the plain towers (on by default): a setback, and on some a mast with its light. Off for a band too far to show one. */
+  crowns?: boolean
   base?: number
   /** What stands at the foot of the band decides nothing: a tower is never placed inside another. */
   gap?: number
@@ -310,18 +380,40 @@ export function skyline(k: Kit, o: SkylineOptions) {
       // tower its scale by day — and on it the panes lit tonight.
       const floors = (o.ribbons ?? true) ? Math.floor(hh / 3.4) : 0
       const cols = Math.max(1, Math.floor(tw / 2.6))
+      // Piers up the face, a shade lighter than the wall: what makes a tower
+      // a tower and not a crate with holes in it.
+      if (o.ribbons ?? true) {
+        const piers = Math.max(2, Math.round(tw / 5))
+        for (let p = 0; p <= piers; p++) k.box(x - tw / 2 + (p / piers) * tw, y, z + td / 2 + 0.1, 0.55, hh, 0.2, mix(color, 0xffffff, 0.16), { outline: false, cap: false })
+      }
       for (let f = 0; f < floors; f++) {
         k.box(x, y + f * 3.4 + 1.1, z + td / 2 + 0.03, tw * 0.9, 1.4, 0.06, mix(color, 0x0a1830, 0.45), { outline: false, cap: false, gloss: 0.6 })
         if (lit <= 0) continue
         for (let c = 0; c < cols; c++) {
           if (!rng.chance(lit)) continue
           const cx = x - tw / 2 + (c + 0.5) * (tw / cols)
-          k.box(cx, y + f * 3.4 + 1.1, z + td / 2 + 0.05, (tw / cols) * 0.55, 1.4, 0.1, mix(win, 0xffffff, rng.range(0, 0.3)), { glow: true, outline: false, cap: false })
+          // A pane taller than it is wide: a row of lit squares was a punch card.
+          k.box(cx, y + f * 3.4 + 0.9, z + td / 2 + 0.05, (tw / cols) * 0.36, 1.9, 0.1, mix(win, 0xffffff, rng.range(0, 0.3)), { glow: true, outline: false, cap: false })
         }
       }
       y += hh
       tw *= 0.72
       td *= 0.72
+    }
+    // A crown on a plain tower: a setback, on some a second and a mast with
+    // its light, on some a band of light under the cornice. Drawn from the
+    // tower's own place, so the room's sequence is what it was.
+    const crown = spotChance(x, z)
+    if ((o.crowns ?? true) && tiers === 1 && crown < 0.62) {
+      k.box(x, y, z, w * 0.72, h * 0.07, d * 0.72, scale(color, 0.94), { cap: true, outline: false })
+      if (lit > 0 && crown > 0.12 && crown < 0.4) k.box(x, y - 1.3, z + d / 2 + 0.14, w * 0.92, 0.8, 0.2, win, { glow: true, outline: false, cap: false })
+      y += h * 0.07
+      if (crown < 0.28) {
+        k.box(x, y, z, w * 0.44, h * 0.06, d * 0.44, scale(color, 0.9), { cap: true, outline: false })
+        y += h * 0.06
+        k.cyl(x, y, z, Math.max(0.3, w * 0.04), h * 0.2, scale(color, 0.8), { seg: 5, rTop: 0.06, outline: false, cap: false })
+        if (k.rig.lampsOn) k.sphere(x, y + h * 0.2, z, Math.max(0.45, w * 0.03), 0xff3b4f, { glow: true, seg: 6, outline: false })
+      }
     }
     th = y - base
     if (o.neon && k.rig.lampsOn && rng.chance(o.neon.share)) {
@@ -356,12 +448,76 @@ export function sailboat(k: Kit, x: number, z: number, rot: number, s: number, h
 }
 
 /** Planks laid across, parallel to the frame: level lines that lead the eye to the horizon. */
-export function deck(k: Kit, z0: number, z1: number, width: number, a: Hex, b: Hex, o: { y?: number; plank?: number } = {}) {
+export function deck(k: Kit, z0: number, z1: number, width: number, a: Hex, b: Hex, o: { y?: number; plank?: number; gloss?: number } = {}) {
   const rng = k.rng
   const step = o.plank ?? 0.42
   for (let z = z0; z < z1; z += step) {
     const tone = rng.chance(0.3) ? b : mix(a, b, rng.range(0, 0.4))
-    k.box(0, (o.y ?? 0) - 0.12, z + step / 2, width, 0.12, step * 0.9, k.ground(tone), { outline: false, cap: true, gloss: k.wetGloss() })
+    k.box(0, (o.y ?? 0) - 0.12, z + step / 2, width, 0.12, step * 0.9, k.ground(tone), { outline: false, cap: true, gloss: (o.gloss ?? 0) + k.wetGloss() })
+  }
+}
+
+/**
+ * A turned pot, `r` across at its widest and `h` tall, in a finish: what a
+ * shrub by the table stands in. A box with a bush on it was the nearest thing
+ * in three rooms.
+ */
+export function pot(k: Kit, x: number, z: number, r: number, h: number, finish: Finish, band?: Finish) {
+  k.lathe(x, 0, z, [[0, 0], [r * 0.62, 0], [r * 0.66, h * 0.05], [r * 0.6, h * 0.1], [r * 0.82, h * 0.5], [r, h * 0.86], [r * 1.04, h * 0.94], [r * 1.04, h], [r * 0.9, h], [r * 0.86, h * 0.9], [0, h * 0.9]], finish, { seg: 28 })
+  if (band) k.lathe(x, 0, z, [[r * 1.045, h * 0.93], [r * 1.06, h * 0.965], [r * 1.045, h]], band, { seg: 28 })
+}
+
+/** A barrel, turned and hooped: staves bellied in the middle, two iron bands. */
+export function cask(k: Kit, x: number, z: number, wood: Finish, iron: Finish, s = 1) {
+  k.lathe(x, 0, z, [[0, 0], [0.3 * s, 0], [0.36 * s, 0.2 * s], [0.39 * s, 0.45 * s], [0.36 * s, 0.7 * s], [0.3 * s, 0.9 * s], [0.27 * s, 0.9 * s], [0.27 * s, 0.87 * s], [0, 0.87 * s]], wood, { seg: 20 })
+  for (const [r, y] of [[0.345, 0.14], [0.375, 0.66]] as const) k.lathe(x, 0, z, [[r * s, y * s], [(r + 0.012) * s, (y + 0.035) * s], [r * s + 0.004, (y + 0.07) * s]], iron, { seg: 20 })
+}
+
+/**
+ * A brazier: an iron bowl on three turned legs, coals in it and, after dark,
+ * a fire over them with its light on the ground. By day it is cold iron.
+ */
+export function brazier(k: Kit, x: number, z: number, iron: Finish) {
+  const on = k.rig.lampsOn
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.5
+    k.lathe(x + Math.cos(a) * 0.3, 0, z + Math.sin(a) * 0.3, [[0.05, 0], [0.03, 0.2], [0.04, 0.5], [0.03, 0.84]], iron, { seg: 8 })
+  }
+  k.lathe(x, 0.78, z, [[0, 0], [0.16, 0.01], [0.34, 0.1], [0.44, 0.24], [0.47, 0.34], [0.43, 0.34], [0.4, 0.26], [0.3, 0.15], [0, 0.12]], iron, { seg: 24 })
+  k.cyl(x, 0.98, z, 0.36, 0.1, on ? 0xff7a2a : 0x2a2422, { seg: 12, glow: on, outline: false, cap: false })
+  if (!on) return
+  // The fire: a round body of flame under two tongues, a paler heart inside
+  // it. Deep colours: the bloom takes them up, and a pale flame came out a
+  // flat yellow triangle.
+  k.sphere(x, 1.16, z, 0.24, 0xff5a14, { seg: 10, glow: true, outline: false })
+  k.cone(x, 1.2, z, 0.2, 0.62, 0xff5a14, { seg: 10, glow: true, outline: false, cap: false })
+  k.cone(x + 0.12, 1.14, z - 0.05, 0.11, 0.4, 0xff7a1e, { seg: 8, glow: true, outline: false, cap: false })
+  k.sphere(x - 0.02, 1.15, z + 0.06, 0.13, 0xffa63a, { seg: 8, glow: true, outline: false })
+  k.cone(x - 0.02, 1.18, z + 0.06, 0.1, 0.3, 0xffa63a, { seg: 8, glow: true, outline: false, cap: false })
+  k.halo(x, 1.3, z, 0.7, 0xffa24a, 0.34, false)
+  k.pool(x, z, 4.6, 0xffa050, 0.5)
+}
+
+/** A mooring bollard, cast: a waisted post under a mushroom head. */
+export function bollard(k: Kit, x: number, z: number, iron: Finish) {
+  k.lathe(x, 0, z, [[0, 0], [0.3, 0], [0.3, 0.05], [0.22, 0.08], [0.17, 0.3], [0.18, 0.5], [0.28, 0.56], [0.3, 0.64], [0.24, 0.72], [0.12, 0.77], [0, 0.78]], iron, { seg: 20 })
+}
+
+/**
+ * A string of bulbs hung between two points, sagging: the cord in short
+ * straight runs, a bulb at each joint, lit after dark.
+ */
+export function festoon(k: Kit, a: V3, b: V3, sag: number, n: number, color: Hex) {
+  const on = k.rig.lampsOn
+  const at = (t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - sag * 4 * t * (1 - t), a[2] + (b[2] - a[2]) * t]
+  for (let i = 0; i < n; i++) {
+    const p = at(i / n)
+    const q = at((i + 1) / n)
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2])
+    const rot = -Math.atan2(q[2] - p[2], q[0] - p[0])
+    const tilt = Math.atan2(q[1] - p[1], Math.hypot(q[0] - p[0], q[2] - p[2]))
+    k.box((p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2, len, 0.025, 0.025, 0x1c1a22, { rot, tilt: tilt || 1e-6, outline: false, cap: false })
+    if (i > 0) k.sphere(p[0], p[1] - 0.09, p[2], 0.075, on ? mix(color, 0xffffff, 0.35) : mix(color, 0x8a8a92, 0.5), { glow: on, seg: 8, outline: false })
   }
 }
 

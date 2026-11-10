@@ -147,7 +147,7 @@
   .mine {
     font-size: 20px;
     color: var(--color-on-dark);
-    background: var(--gradient-primary);
+    background: var(--gloss), var(--gradient-primary);
     text-shadow: 0 2px 0 rgba(120, 10, 40, 0.45);
     isolation: isolate;
   }

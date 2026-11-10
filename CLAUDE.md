@@ -135,7 +135,7 @@ needs jsdom and the `browser` resolve condition.
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, CardFall, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
-  ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
+  ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, HomeHands, `playerColors.ts`,
   `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, LiveStrip + `liveStreams.ts` +
   `twitchLinks.ts`, the two server mirrors `nicknameRules.ts` + `tableCodeRules.ts`, and the queue's
   `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` / `OpponentAway.svelte`; also
@@ -143,7 +143,7 @@ needs jsdom and the `browser` resolve condition.
   `press.ts` (`use:pressToAct`), `dialogFocus.ts`, `countUp.ts`, `emotes.ts`, `matchRecapModel.ts`,
   `matchDuration.ts`, `matchLengthModel.ts`, `playersOnline.ts`, `fpsMeter.ts`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
-  PlayerSlot, TurnIndicator, DirectionRing, TableTrack, AnimationLayer; `layout.ts` pure pixel math;
+  PlayerSlot, TurnIndicator, DirectionRing, TableTrack, FeltInlay, AnimationLayer; `layout.ts` pure pixel math;
   `tableSurface.ts` (the rim's material as a seeded SVG noise image, for the board and the rooms page);
   `CardArt.svelte` + `cardArtSpace.ts` + `locoMark.ts` the face; `CardGlyph.svelte` + `cardGlyphs.ts`
   the drawn rule glyphs; `SuitMark.svelte`; `maps.ts` (the registry: materials, accent, allowed
@@ -156,12 +156,12 @@ needs jsdom and the `browser` resolve condition.
   turns a block into triangles, and the table's swept and turned pieces), `grain.ts` (the table's
   grain as pixels — pure), `shade.ts` (the light as numbers: the sun's direction, the sky,
   pure), `lighting.ts` (the rig into three.js lights and one shadow map over the near ground),
-  `placer.ts` (the ground plan, pure), `mirror.ts` (the water's reflection), `pools.ts` (the lamps'
-  light on the ground), `life.ts` + `LifeLayer.svelte` (what moves), `models/` (`manifest.json` the
+  `placer.ts` (the ground plan, pure), `mirror.ts` (the water's reflection, and a polished floor's),
+  `pools.ts` (the lamps' light on the ground, and the shade under what stands on it), `life.ts` + `LifeLayer.svelte` (what moves), `models/` (`manifest.json` the
   allowlist of packed kits, `lib.ts` the GLB loader and baker, `bake.ts` the pure half),
   `maps/<id>.ts` one builder per room, registered in `maps/index.ts` with the kits it loads, +
-  `maps/vista.ts` (the table, the hills, the skyline, the
-  pieces every room shares) + `maps/vistaLife.ts` (what moves in them), `render.ts` (one frame, then
+  `maps/vista.ts` (the table, the floor's inlay round it, the turned pieces, the hills, the skyline:
+  what every room shares) + `maps/vistaLife.ts` (what moves in them), `render.ts` (one frame, then
   the context is released), `nextPaint.ts` (the yield between render phases),
   `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame), `quality.ts`
   (what each graphics tier buys) + `post.ts` (the finishing passes), `SceneBackdrop.svelte` +
@@ -1052,6 +1052,12 @@ stated at the top of `styles/tokens.css`:
   being squashed by a `scaleX`. The turn clock is a sunken slot flush with the safe top edge (chip row
   and round badge start 12px lower) holding a raised bar. **Its heat is the palette's own three in
   their own roles** (`loco-drain-heat`), never a hex in the keyframes. `drainBar` owns the timing.
+- **A raised dark surface is lit from above, never filled flat** (`tokens.css`: `--surface-lit`,
+  `--surface-lit-strong`, `--lip`, `--trim`, `--gloss`): lighter at its top edge, a hairline of
+  light on its upper lip, a thread of gold just inside the ink. The seat plates, the action bar and
+  its quiet buttons wear it; a saturated control wears `--gloss` over its own gradient. **Dressing
+  only**: the outline, the hard shadow and every size are what they were, and a dead button is
+  still the sunken slot.
 - **Table news is one pill, and no arrow in any of them** (`.noticeSwap` / `.noticePenalty` /
   `.noticeDeparture`): same chrome, differing **only by the height they sit at**. **A saturated fill
   belongs to the three moments allowed to shout.** **Centred with `inset-inline: 0` +
@@ -1092,11 +1098,48 @@ stated at the top of `styles/tokens.css`:
     points at the ends of a flat oval, and bands foreshortened in the table's plane read as a bent
     table. **The render's rail and track are `CLOTH_INSET` wide in board pixels** (`LOOK.table.rail`,
     `FeltAnchor.unit`), the same line the hands are laid inside. **The table has a lamp over it**
-    (`lighting.ts: makeTableLamp`, `LOOK.table.lamp`, no shadow): without it a table at dusk is lit
-    by a sun a few degrees up and is black. **Rain's rings stay off the cloth** (`WeatherLayer`'s
-    `clear` mask).
-  - **The play direction is two translucent arrows laid round the piles** (`DirectionRing`,
-    `directionArrows`), never chevrons round the rim.
+    (`lighting.ts: makeTableLamp`, `LOOK.table.lamp`): without it a table at dusk is lit by a sun a
+    few degrees up and is black. **The lamp is the table's alone, and it casts the table's shadow**:
+    its own small shadow map, and the room's lit material takes no spot light (`kit.ts:
+    LIGHTS_NO_LAMP`) — either half alone lights the foot through the top or draws a dark disc on
+    the floor. **A finish shows a share of its own colour whatever the light** (`FinishLook.glow`)
+    **and never throws a varnish's whole highlight back** (`FinishLook.specular`, no clearcoat on
+    the lacquer): the key light is ahead of the camera, so the table's near faces are in shade, and
+    a rail's highlight was a white smear. **The grain is rings and depth, never dots**: no pores,
+    no eyes, no flecks, in the render (`scene/grain.ts`) or the CSS (`tableSurface.ts`).
+    `tableMaterials.test.ts`. **Rain's rings stay off the cloth** (`WeatherLayer`'s `clear` mask).
+    **The cloth carries no mark and no texture, and it is still a board**
+    (`FeltInlay.svelte`, `layout.ts: feltInlay`): the lamp's pool on its middle, its falling off
+    towards the rail, a thread of the rim's metal inlaid round it and a medallion under the piles,
+    drawn over the rendered table and the CSS one alike. **The thread is concentric with the felt
+    and the medallion has the cloth's own proportions**; the studs stand down on a small table.
+    `layout.test.ts`.
+  - **The top is a cabinetmaker's, and in two rooms it is wired** (`vistaTable`,
+    `LOOK.table.rail`): the rail's crown, a filet of metal at its foot and another at the cloth's
+    edge, and `marks` lozenges of the same metal let into the racetrack all the way round
+    (`Kit.patch`). **A room with its own electricity draws those lines in light**
+    (`TableMaterials.glow`, `Finish.lit`: neon, orbit), weaker with the lamps off; the CSS table
+    keeps `inlay`. `sceneGround.test.ts`.
+  - **The floor round the table is the frame of the board, so it is drawn**
+    (`vista.ts: groundInlay`): bands laid one in the other on the table's own plan grown outwards,
+    in the room's materials, on the floor's own level (`y`: a pad or a cobble stands proud of 0).
+    **None under snow**, where there is no floor to see. **The table's shade lies on the floor at
+    every hour** (`Kit.shade`, `pools.ts: Shade`, `LOOK.table.shade`): the lamp is the table's
+    alone, so nothing else stands the table on the ground; it rides the pools' map in alpha, so
+    the map is made by day too. **A floor is polished only where the mirror's plane is the
+    floor's** (`Kit.polished`, the larger of it and the rain's `wetMirror`): never in a room with
+    water under the deck, never under snow. `sceneGround.test.ts`.
+  - **What stands within reach of the table is finished, not blocked** (`Kit.lathe` in a `Finish`:
+    `vista.ts`'s `pot`, `cask`, `bollard`, `brazier`, velvet's `standardLamp` and balustrade): a
+    turned piece with a material of its own, no ink hull. A box with a bush on it was the nearest
+    thing in three rooms. **A finished piece takes no snow cap**: where one matters (a rail) the
+    builder lays it. Light near the table is a pool on the floor (`k.pool`), and a string of
+    bulbs is `festoon`.
+  - **The play direction is two strokes of light laid round the piles** (`DirectionRing`,
+    `directionArrows`), never chevrons round the rim, **each head clear of the piles**
+    (`ARROW_SWEEP`, `layout.test.ts`): the circle passes behind them above and below, and a head
+    that ends there is the heading hidden. Lit at the head and nothing at the tail; it runs a few
+    degrees with the play and never makes a full turn.
   - **A room is seen from the table** (`scene/view.ts`, visual.md "The view"): a perspective camera
     at eye height, a tile a metre, the horizon in the frame (13% from the top). **The felt is fixed
     and the camera is solved to it** (`solveView`): the horizon and the table's shape on the ground
@@ -1108,7 +1151,12 @@ stated at the top of `styles/tokens.css`:
     builder's header): a near that frames the picture at its two edges, two things a side at most;
     a middle; a far laid in layers (`hills`, `skyline`) that **nothing in the middle may hide**.
     **A landmark stands where the frame holds it**, and nothing that matters is put alone behind
-    the top seat pill. Floors are laid across the frame (`deck`), never fanned round the table.
+    the top seat pill. **And it is large enough to be one**: `1250 * H / D` pixels at 16:9, inside
+    the 140 of sky, and near enough that the air leaves it a colour (visual.md, "The band at the
+    top"). **A skyline's tower is piers, panes taller than wide and a crown** (`skyline`,
+    `crowns`), the crown drawn from the tower's place (`spotChance`), never the room's sequence.
+    `sceneLandmarks.test.ts`. Floors are laid across the frame (`deck`), never fanned round the
+    table.
   - **The light the viewer sees is in the frame** (`scene/dome.ts`, `LOOK.hours[h].body`): at dawn,
     dusk and night the sun or the moon is low in the sky band and it is the key light, **ahead of the
     camera, so the room is lit from behind and the long shadows come towards the table**; at noon
@@ -1127,7 +1175,11 @@ stated at the top of `styles/tokens.css`:
     none on the moon).
   - **The room is lit, and it is lit once** (`scene/lighting.ts`, `scene/shade.ts`): a warm sun, a
     cool sky in the shade, a dim rim, a rough matte `MeshStandardMaterial` with the colour in the
-    vertices, **one PCF shadow map over the near ground** (`LOOK.shadow.reach`), **reaching every tree and
+    vertices, **the sky's fill strong enough to read the shade by** (`LOOK.hours[h].ambient`: lit
+    from behind, every face turned to the table is in shade, and so is most of the near floor),
+    **the occlusion bounded** (`LOOK.ao.floor`: the floor under the table is the widest crease in
+    the room and was black),
+    **one PCF shadow map over the near ground** (`LOOK.shadow.reach`), **reaching every tree and
     street lamp the room plants** (a room's own `shadowReach`, `sceneShadowReach.test.ts`, which also
     fails on one floating over its ground). **Never VSM**:
     three's half-float moments quantise a shadow edge into a staircase at a metre a tile. **Its
@@ -1243,7 +1295,8 @@ stated at the top of `styles/tokens.css`:
   size** (`sheetBox`): one tile of overhang the way it travels, the lean's reach in the frame's
   height, never a percentage of the frame. Rain and snow three sheets on `high`, two on `medium`,
   one on `light`; fog two, two and one.
-- **The rooms page shows a photograph of the render, and the board's own table over it**
+- **The rooms page shows a photograph of the render, and nothing over it**: the still carries the
+  table, as the render does on the board; the CSS table is only the stand-in for a missing still
   (`TablesArticle.astro`, `RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make
   rooms` shoots each room at its signature hour at `?gfx=force`, into `src/assets/rooms/`. The hour
   is written twice and the test pins the two; a missing still fails the test rather than the build.
@@ -1270,6 +1323,12 @@ stated at the top of `styles/tokens.css`:
   the table it exists to hide. `sceneLoadingGate.test.ts`.
 
 **Ambience**
+- **The entry screen is held between two hands of real cards** (`HomeHands.svelte`): two fans of
+  `<Card />` rising out of the bottom corners, at a size nothing at the table shows them. Objects,
+  so the canvas stays flat. **Out of the accessibility tree, out of the pointer's way, clipped by
+  its own layer** (a card under the fold would give the one-viewport screen something to scroll
+  to), and **only from 75rem wide and 40rem tall**: below that the corners belong to the column.
+  `lobby.test.ts`.
 - **No painted ambience behind a screen: no glowing blobs, no floating silhouettes.** The canvas is
   the designed gradient and the objects on it carry the life. **A hand is dealt off the deck card by
   card** (`DEAL_FLIGHT_MS`, keyed on `roundNumber`), **numbers are counted** (`countUp.ts`) and

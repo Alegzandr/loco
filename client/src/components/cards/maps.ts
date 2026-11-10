@@ -61,6 +61,11 @@ export interface TableMaterials {
   pedestal: PedestalKind
   /** The pedestal is stone and this is its vein (Velvet's black marble). */
   baseVein?: string
+  /**
+   * The metal lines round the top are lines of light, in this colour: a room
+   * that has its own electricity (the render only; the CSS table keeps `inlay`).
+   */
+  glow?: string
 }
 
 export interface MapDef {
@@ -106,6 +111,7 @@ export const MAPS: Record<MapId, MapDef> = {
       grain: '#2c2640',
       edge: 'knife',
       pedestal: 'tulip',
+      glow: '#ff5fe0',
     },
     accent: '#c56bff',
     accentDeep: '#5a1e9c',
@@ -134,7 +140,7 @@ export const MAPS: Record<MapId, MapDef> = {
     table: {
       felt: '#6e1729',
       feltDeep: '#2a0610',
-      rim: '#6b3d1c',
+      rim: '#8a5424',
       rimLight: '#f3cf94',
       base: '#141214',
       inlay: '#e9c46e',
@@ -161,6 +167,7 @@ export const MAPS: Record<MapId, MapDef> = {
       grain: '#5c646f',
       edge: 'knife',
       pedestal: 'tripod',
+      glow: '#5fe0ff',
     },
     accent: '#4fd6ff',
     accentDeep: '#123a63',

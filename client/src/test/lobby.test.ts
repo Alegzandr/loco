@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { render, screen, fireEvent } from './render'
 import Lobby from '../components/Lobby.svelte'
 import { en } from '../i18n/en'
@@ -17,6 +19,26 @@ function renderLobby(
 describe('Lobby', () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  it('is held between two hands of real cards that say nothing and take no press', () => {
+    const { container } = renderLobby()
+    const hands = container.querySelector('[data-testid="home-hands"]')!
+    expect(hands.getAttribute('aria-hidden')).toBe('true')
+    expect(hands.querySelectorAll('[data-card-kind]').length).toBe(10)
+    // Pictures, not controls: none of them is a button or a tab stop.
+    expect(hands.querySelector('[role="button"], [tabindex]')).toBeNull()
+    // jsdom applies no component styles, so the rest is read off the source:
+    // out of the way of the pointer, and clipped so a card under the fold never
+    // gives the one-viewport screen something to scroll to.
+    const src = readFileSync(join(process.cwd(), 'src', 'components', 'HomeHands.svelte'), 'utf8')
+    const at = src.indexOf('  .hands {')
+    const css = src.slice(at, src.indexOf('\n  }', at))
+    expect(css).toContain('pointer-events: none')
+    expect(css).toContain('overflow: hidden')
+    expect(css).toContain('display: none')
+    expect(src).toMatch(/@media \(min-width: 75rem\) and \(min-height: 40rem\)/)
+    expect(src).toContain(":root[data-motion='reduce'] .held")
   })
 
   it('renders title and action buttons', () => {

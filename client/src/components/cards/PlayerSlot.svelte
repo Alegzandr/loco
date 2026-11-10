@@ -313,9 +313,9 @@
     justify-content: center;
     padding: 0 22px 0 12px;
     border-radius: var(--radius-full);
-    background: var(--color-surface-card);
+    background: var(--surface-lit);
     border: var(--stroke-thin) solid var(--color-stroke);
-    box-shadow: var(--shadow-hard);
+    box-shadow: var(--lip), var(--trim), var(--shadow-hard);
     /* Turn / connection state changes fade rather than snap, and the plate
        follows the foot of a leaning hand as it thins. */
     transition:
@@ -328,7 +328,7 @@
   /* Active seat: the plate turns into the brightest object on screen. On a
      stream the viewer should never have to hunt for whose turn it is. */
   .seat.active .plate {
-    background: linear-gradient(180deg, var(--color-secondary-glow) 0%, var(--color-secondary) 100%);
+    background: var(--gloss), linear-gradient(180deg, var(--color-secondary-glow) 0%, var(--color-secondary) 100%);
     box-shadow:
       var(--shadow-hard),
       0 0 0 5px rgba(255, 201, 60, 0.4),

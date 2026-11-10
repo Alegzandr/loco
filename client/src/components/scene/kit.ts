@@ -73,11 +73,20 @@ import type { V3, View } from './view'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { compact, hullFor, lampHead, splitGlow } from './models/bake'
-import { POOLS_FRAG_PARS, POOLS_OUT, poolUniforms, splatPools, type Pool, type PoolUniforms } from './pools'
+import { POOLS_FRAG_PARS, POOLS_OUT, poolUniforms, splatPools, type Pool, type PoolUniforms, type Shade } from './pools'
 import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, MIRROR_VERT, MIRROR_VERT_PARS, makeMirror, type Mirror } from './mirror'
 
 /** three's own image-based-light chunk, which the lit material edits rather than includes. */
 const THREE_CHUNK_LIGHTS_MAPS = ShaderChunk.lights_fragment_maps
+/** The line three opens its spot lights' loop with: what `LIGHTS_NO_LAMP` shuts. */
+export const SPOT_LOOP_GUARD = '#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )'
+/**
+ * The lights as the room takes them: every one but the spot, which is the
+ * lamp over the table and the table's alone (`lighting.ts: makeTableLamp`).
+ * Lighting the floor with it drew the table's shadow as a dark disc metres
+ * wide, under a lamp that hangs a table's width over the cloth.
+ */
+const LIGHTS_NO_LAMP = ShaderChunk.lights_fragment_begin.replace(SPOT_LOOP_GUARD, '#if 0')
 
 export interface KitOptions {
   rig: LightRig
@@ -169,6 +178,11 @@ export interface Finish {
   fleck?: Hex
   /** The varnish over it, 0-1, when it is not the kind's own (`LOOK.table`). */
   coat?: number
+  /**
+   * The piece is a light: it shows its own colour at this strength whatever
+   * falls on it, and the bloom takes it up. A strip let into a rail, a tube.
+   */
+  lit?: number
 }
 
 export const INK = 0x120b24
@@ -237,12 +251,20 @@ export class Kit {
   private readonly lightPools: boolean
   /** The light lying on the ground tonight (`pools.ts`). */
   readonly pools: Pool[] = []
+  /** The shade lying on the ground whatever the hour (`pools.ts: Shade`). */
+  readonly shades: Shade[] = []
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
   /** The table's pieces, by finish: one mesh and one material each. */
   private finishes = new Map<string, { finish: Finish; geoms: BufferGeometry[] }>()
   /** Something here is glossy or water: the room is worth a mirror pass (`mirror.ts`). */
   reflective = false
+  /**
+   * How much of the mirrored room a glossy floor shows when it is dry, 0-1: a
+   * polished marble, a waxed deck, a lacquered board (`polished`). A wet street
+   * has its own figure (`LOOK.water.wetMirror`) and the larger of the two wins.
+   */
+  polish = 0
   /** The lowest water surface built, tiles; 0 when there is none, which is the ground's own plane. */
   waterLevel = 0
   /** Every pane on every wall, two sheets (`quad`). */
@@ -607,6 +629,19 @@ export class Kit {
     this.pushFinish(loftGeometry(rings), finish)
   }
 
+  /**
+   * A flat finished piece through four points, world, in order round it: an
+   * inlay let into a surface. It faces up.
+   */
+  patch(a: V3, b: V3, c: V3, d: V3, finish: Finish) {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new Float32BufferAttribute([...a, ...b, ...c, ...d], 3))
+    g.setAttribute('normal', new Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3))
+    g.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2))
+    g.setIndex([0, 1, 2, 0, 2, 3])
+    this.pushFinish(g, finish)
+  }
+
   /** A finished block: a stretcher, a plinth. `y` is its bottom. */
   finishBox(x: number, y: number, z: number, w: number, h: number, d: number, finish: Finish, o: { rot?: number } = {}) {
     this.pushFinish(this.place(new BoxGeometry(w, h, d), x, y + h / 2, z, o.rot ?? 0), finish)
@@ -704,6 +739,12 @@ export class Kit {
     this.pools.push({ x, z, r, color, k: k * (0.35 + 0.65 * Math.min(1, this.rig.dark)) })
   }
 
+  /** The shade of what stands over the ground at `(x, z)`: an ellipse `rx` by `rz` tiles, `k` dark at its middle (`pools.ts`). */
+  shade(x: number, z: number, rx: number, rz: number, k: number) {
+    if (!this.lightPools) return
+    this.shades.push({ x, z, rx, rz, k })
+  }
+
   // ─── Props ────────────────────────────────────────────────────────────────
 
   /** A flat slab: paving, a road, a deck. Receives shadows, casts none. */
@@ -714,6 +755,17 @@ export class Kit {
   /** Records a water surface at height `y`: the mirror pass draws nothing under the lowest one. */
   private waterAt(y: number) {
     this.waterLevel = Math.min(this.waterLevel, y)
+    this.reflective = true
+  }
+
+  /**
+   * This room's floor is polished: its glossy slabs mirror the room standing
+   * on them, by `amount` (0-1), whatever the weather. Under snow there is no
+   * floor to see, and nothing is asked for.
+   */
+  polished(amount: number) {
+    if (this.rig.snow) return
+    this.polish = Math.max(this.polish, amount)
     this.reflective = true
   }
 
@@ -1424,7 +1476,7 @@ export class Kit {
     this.flushSheets()
     const lit = merge(this.buckets.lit)
     if (lit) {
-      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig), poolUniforms(splatPools(this.pools))))
+      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig), poolUniforms(splatPools(this.pools, this.shades))))
       m.castShadow = true
       m.receiveShadow = true
       g.add(m)
@@ -1482,6 +1534,7 @@ function litMaterial(env: Texture | null, mirror: Mirror, pools: PoolUniforms): 
       .replace('#include <common>', `#include <common>\n${MIRROR_FRAG_PARS}\n${POOLS_FRAG_PARS}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(mix(roughnessFactor, uGlossRoughness, vGloss), uWaterRoughness, vWater);')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${MIRROR_NORMAL}`)
+      .replace('#include <lights_fragment_begin>', LIGHTS_NO_LAMP)
       .replace(
         '#include <lights_fragment_maps>',
         THREE_CHUNK_LIGHTS_MAPS.replace('iblIrradiance += getIBLIrradiance( geometryNormal );', '').replace(
@@ -1552,6 +1605,17 @@ function finishMaterial(f: Finish, env: Texture | null): MeshPhysicalMaterial {
     clearcoatRoughness: look.clearcoatRoughness,
     side: DoubleSide,
   })
+  if (look.specular !== undefined) m.specularIntensity = look.specular
+  if (f.lit) {
+    m.emissive = new Color(f.color)
+    m.emissiveIntensity = f.lit
+  } else if (look.glow) {
+    // Its grain too, where it has one: a flat colour showing through the
+    // shade would wash the rings out exactly where the edge turns away.
+    m.emissive = new Color(map ? 0xffffff : f.color)
+    m.emissiveMap = map
+    m.emissiveIntensity = look.glow
+  }
   if (look.sheen) {
     m.sheen = look.sheen
     m.sheenRoughness = look.sheenRoughness ?? 0.5

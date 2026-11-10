@@ -93,44 +93,37 @@ function rimLayers(t: TableMaterials): Layer[] {
   const k: RimKind = t.rimKind
   switch (k) {
     case 'oak':
-      // Quartersawn: straight rings, fine open pores, and the pale ray flecks
-      // that only oak cut on the quarter shows.
+      // Quartersawn: straight rings and the pale rays under them. Soft, both:
+      // at full contrast, with the pores drawn over them as dots, a rim read
+      // as scratched from where the player sits (`scene/grain.ts` likewise).
       return [
-        { noise: { fx: 0.0035, fy: 0.05, octaves: 3, seed: 7 }, curve: rings(15, 0.55, 2.2), color: t.grain },
-        { noise: { fx: 0.03, fy: 0.55, octaves: 2, seed: 11 }, curve: ramp(0.55, 0.78, 0.4), color: t.grain },
-        { noise: { fx: 0.012, fy: 0.22, octaves: 2, seed: 19 }, curve: ramp(0.6, 0.74, 0.3), color: t.rimLight },
+        { noise: { fx: 0.0035, fy: 0.05, octaves: 3, seed: 7 }, curve: rings(15, 0.3, 2.2), color: t.grain },
+        { noise: { fx: 0.012, fy: 0.22, octaves: 2, seed: 19 }, curve: ramp(0.6, 0.74, 0.14), color: t.rimLight },
       ]
     case 'teak':
-      // Tight, straight, oily: fine rings, darker streaks, and pores.
+      // Tight, straight, oily: fine rings and darker streaks.
       return [
-        { noise: { fx: 0.002, fy: 0.07, octaves: 3, seed: 23 }, curve: rings(22, 0.42, 2.6), color: t.grain },
-        { noise: { fx: 0.0012, fy: 0.02, octaves: 2, seed: 29 }, curve: ramp(0.45, 0.72, 0.35), color: t.grain },
-        { noise: { fx: 0.05, fy: 0.9, octaves: 2, seed: 31 }, curve: ramp(0.58, 0.8, 0.35), color: t.grain },
-        { noise: { fx: 0.004, fy: 0.12, octaves: 2, seed: 37 }, curve: ramp(0.62, 0.78, 0.18), color: t.rimLight },
+        { noise: { fx: 0.002, fy: 0.07, octaves: 3, seed: 23 }, curve: rings(22, 0.24, 2.6), color: t.grain },
+        { noise: { fx: 0.0012, fy: 0.02, octaves: 2, seed: 29 }, curve: ramp(0.45, 0.72, 0.2), color: t.grain },
+        { noise: { fx: 0.004, fy: 0.12, octaves: 2, seed: 37 }, curve: ramp(0.62, 0.78, 0.1), color: t.rimLight },
       ]
     case 'burl':
-      // Walnut burl: swirls round the eyes, and the eyes themselves.
+      // Walnut burl: its swirls, without the eyes, which thresholded were blots.
       return [
-        { noise: { fx: 0.011, fy: 0.014, octaves: 4, seed: 41, turbulence: true }, curve: rings(7, 0.62, 1.4), color: t.grain },
-        { noise: { fx: 0.05, fy: 0.05, octaves: 2, seed: 43 }, curve: ramp(0.68, 0.78, 0.7), color: t.grain },
-        { noise: { fx: 0.006, fy: 0.007, octaves: 3, seed: 47 }, curve: ramp(0.55, 0.75, 0.25), color: t.rimLight },
+        { noise: { fx: 0.011, fy: 0.014, octaves: 3, seed: 41, turbulence: true }, curve: rings(4, 0.3, 1.4), color: t.grain },
+        { noise: { fx: 0.006, fy: 0.007, octaves: 3, seed: 47 }, curve: ramp(0.55, 0.75, 0.14), color: t.rimLight },
       ]
     case 'titanium':
       // Brushed: long fine scratches one way, and a slow shimmer along them.
       return [
-        { noise: { fx: 0.0015, fy: 0.9, octaves: 2, seed: 53 }, curve: ramp(0.3, 0.7, 0.4), color: t.grain },
-        { noise: { fx: 0.001, fy: 0.55, octaves: 2, seed: 59 }, curve: ramp(0.52, 0.8, 0.3), color: t.rimLight },
+        { noise: { fx: 0.0015, fy: 0.9, octaves: 2, seed: 53 }, curve: ramp(0.3, 0.7, 0.22), color: t.grain },
+        { noise: { fx: 0.001, fy: 0.55, octaves: 2, seed: 59 }, curve: ramp(0.52, 0.8, 0.16), color: t.rimLight },
       ]
     case 'lacquer': {
-      // A piano finish: depth rather than grain, a cloud under the glass,
-      // and where the room sows it, gold dust in the coat (nashiji).
-      const layers: Layer[] = [
-        { noise: { fx: 0.006, fy: 0.008, octaves: 3, seed: 61 }, curve: ramp(0.35, 0.72, 0.4), color: t.grain },
-      ]
-      if (t.fleck) {
-        layers.push({ noise: { fx: 0.9, fy: 0.9, octaves: 1, seed: 67 }, curve: ramp(0.74, 0.8, 0.9), color: t.fleck })
-      }
-      return layers
+      // A piano finish: depth rather than grain, a cloud under the glass.
+      // No dust sown in the coat, whatever the room names (`fleck`): it was
+      // fine noise over a surface, and the player refuses that everywhere.
+      return [{ noise: { fx: 0.006, fy: 0.008, octaves: 3, seed: 61 }, curve: ramp(0.35, 0.72, 0.25), color: t.grain }]
     }
   }
 }

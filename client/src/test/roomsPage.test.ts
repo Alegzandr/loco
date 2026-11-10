@@ -69,13 +69,17 @@ describe('the rooms page', () => {
     expect(plate).toMatch(/background: var\(--color-surface-strong\)/)
   })
 
-  it('lays the board\'s table over the still, and no plinth', () => {
-    // The render carries the podium under exactly the ellipse the CSS table
-    // draws (`src/dev/RoomStill.svelte`); a CSS plinth under a rendered drum
-    // would be two bases for one table.
+  it('shows the still alone, and the CSS table only where there is none', () => {
+    // In a room the render is the table, and the still is the render: a CSS
+    // table laid over it was a second, darker cloth and a rim of another
+    // colour on top of the one in the photograph. The CSS table is the
+    // stand-in for a missing still, on exactly the ellipse the render builds
+    // its own under (`src/dev/RoomStill.svelte`), and never has a plinth.
     const article = read('content/TablesArticle.astro')
     expect(article).toMatch(/class="roomStill"/)
-    expect(article).toMatch(/class="roomTable"/)
+    expect(article).toMatch(/\{!still && <div class="roomTable"/)
+    expect(article).toMatch(/\{!still && <div class="roomGlow"/)
+    expect(article.match(/class="roomTable"/g)).toHaveLength(1)
     expect(article).not.toMatch(/roomPlinth/)
     const still = read('dev/RoomStill.svelte')
     expect(still).toMatch(/rx: size\.current\.width \* 0\.35/)

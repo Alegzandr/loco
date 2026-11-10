@@ -89,6 +89,16 @@
   --color-stroke: #0b0618;
   --color-stroke-soft: rgba(6, 3, 16, 0.55);
   --shadow-hard: 0 4px 0 var(--color-stroke-soft);
+  /* A raised dark surface is lit from above, not filled: lighter at its top
+     edge, deeper at its foot, a hairline of light on its upper lip and of
+     shade on its lower one, and a thread of gold just inside the ink. The
+     plates, the action bar and its quiet buttons wear it. */
+  --surface-lit: linear-gradient(180deg, #40307c 0%, #2b1d58 52%, #1f1443 100%);
+  --surface-lit-strong: linear-gradient(180deg, #4c3a8c 0%, #36266a 55%, #2a1c56 100%);
+  --lip: inset 0 1.5px 0 rgba(255, 255, 255, 0.24), inset 0 -2px 0 rgba(6, 3, 16, 0.4);
+  --trim: inset 0 0 0 1.5px rgba(255, 214, 120, 0.34);
+  /* The gloss a saturated control carries over its own gradient. */
+  --gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.06) 46%, rgba(255, 255, 255, 0) 50%);
   --shadow-hard-lg: 0 6px 0 var(--color-stroke-soft);
   /* Raised panel: solid ledge + soft ambient drop. */
   --shadow-pop:

@@ -13,14 +13,16 @@
  *   behind it gone blue.
  */
 import type { Builder } from './vista'
-import { neonText } from './vista'
+import type { Finish, Kit } from '../kit'
+import { groundInlay, neonText } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix } from '../sky'
 import { hills, skyline, vistaTable } from './vista'
 import { airship, gull, skyAltitude, skyRoom } from './vistaLife'
 
-const MARBLE = 0xefe6d6
-const MARBLE_DARK = 0xc29a78
+const MARBLE = 0xe6dac6
+/** The floor: a marble near black, warm. */
+const NOIR = 0x3a2f3c
 const BRASS = 0xd9a441
 const STONE = 0xe9dcc2
 const STONE2 = 0xd8c6a4
@@ -33,6 +35,19 @@ const GOLD = 0xf0c46a
 const STREET = 0
 const EDGE = -7
 
+/**
+ * A standard lamp: a turned brass stem on a stepped foot, a globe of opal
+ * glass on it. Lit, the globe is the light and its pool lies on the floor.
+ */
+function standardLamp(k: Kit, x: number, z: number, brass: Finish, on: boolean) {
+  k.lathe(x, 0, z, [[0, 0], [0.3, 0], [0.3, 0.03], [0.22, 0.05], [0.2, 0.09], [0.08, 0.14], [0.04, 0.3], [0.035, 0.9], [0.06, 0.94], [0.035, 0.98], [0.03, 1.66], [0.09, 1.7], [0.13, 1.76], [0, 1.76]], brass, { seg: 24 })
+  k.sphere(x, 1.98, z, 0.25, on ? 0xffe6b8 : 0xe9e2d2, { glow: on, seg: 14, outline: false, gloss: 0.6 })
+  if (on) {
+    k.halo(x, 1.98, z, 0.6, 0xffd08a, 0.34, false)
+    k.pool(x, z, 3.4, 0xffd08a, 0.34)
+  }
+}
+
 export const velvet: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
@@ -41,36 +56,73 @@ export const velvet: Builder = (k) => {
   vistaTable(k, MAPS.velvet.table)
 
   // ─── Near: the terrace ──────────────────────────────────────────────────
-  for (let z = EDGE; z < view.eye[2] + 2; z += 1) {
-    for (let x = -18; x < 18; x += 1) {
-      const dark = (Math.round(x) + Math.round(z)) % 2 === 0
-      k.box(x + 0.5, -0.1, z + 0.5, 0.98, 0.1, 0.98, k.ground(dark ? MARBLE_DARK : MARBLE), { outline: false, cap: true, gloss: 0.35 + k.wetGloss() })
+  // A polished floor of dark marble, laid on the diagonal in two close tones
+  // with a brass stud where four slabs meet: it mirrors the lamps, the
+  // balustrade and the table standing on it, which is what says marble. A
+  // chequer of cream and brown at a metre a tile was the loudest thing in
+  // the room and said lino.
+  k.polished(0.55)
+  const near = view.eye[2] + 2
+  k.box(0, -0.1, (EDGE + near) / 2, 40, 0.1, near - EDGE, k.ground(NOIR), { outline: false, cap: true, gloss: 0.7 + k.wetGloss() })
+  // Lines of brass let into it on the two diagonals: a lattice three metres
+  // across, which is the scale a floor is read at from a chair.
+  if (!k.rig.snow) {
+    for (let c = -30; c <= 30; c += 3) {
+      for (const rot of [Math.PI / 4, -Math.PI / 4]) k.box(c, 0, (EDGE + near) / 2, 0.035, 0.004, 44, BRASS, { rot, outline: false, cap: false, gloss: 0.8 })
     }
   }
-  // The balustrade: a plinth, balusters, a rail.
-  k.box(0, 0, EDGE - 0.2, 36, 0.25, 0.6, STONE2)
-  for (let x = -17.5; x <= 17.5; x += 0.55) {
-    k.cyl(x, 0.25, EDGE - 0.2, 0.12, 0.7, STONE, { seg: 8, rTop: 0.08, outline: false })
-  }
-  k.box(0, 0.95, EDGE - 0.2, 36, 0.18, 0.7, STONE, { cap: true })
-  for (let x = -16; x <= 16; x += 8) k.box(x, 0, EDGE - 0.2, 0.7, 1.2, 0.8, STONE2)
+  // A band of cream marble and a line of brass along the foot of the balustrade.
+  k.box(0, 0, EDGE + 0.5, 40, 0.006, 1.0, k.ground(MARBLE), { outline: false, cap: false, gloss: 0.6 + k.wetGloss() })
+  k.box(0, 0, EDGE + 1.06, 40, 0.008, 0.07, k.ground(BRASS), { outline: false, cap: false, gloss: 0.8 })
+  // The table's foot: a ring of cream marble between two lines of brass, the
+  // table's own burgundy inside it.
+  groundInlay(k, [
+    { out: 1.42, color: BRASS, gloss: 0.8 },
+    { out: 1.36, color: MARBLE, gloss: 0.6 },
+    { out: 0.86, color: BRASS, gloss: 0.8 },
+    { out: 0.8, color: 0x4a1220, gloss: 0.7 },
+    { out: 0.2, color: BRASS, gloss: 0.8 },
+    { out: 0.14, color: NOIR, gloss: 0.7 },
+  ])
+  // The lamp over the table lies on the floor round it.
+  k.pool(0, 0, 5, 0xffd9a0, 0.22)
 
-  // Left: the palm in its urn and the brass lamp.
-  k.cyl(-6.2, 0, -3.8, 0.55, 0.9, BRASS, { seg: 14, rTop: 0.75, gloss: 0.6 })
-  k.tree(-6.2, -3.8, { kind: 'palm', h: 4.4 })
-  k.cyl(-5.2, 0, -0.6, 0.3, 0.06, BRASS, { seg: 12, gloss: 0.6 })
-  k.cyl(-5.2, 0.06, -0.6, 0.04, 2.2, BRASS, { seg: 6, gloss: 0.6, cap: false })
-  k.cone(-5.2, 2.0, -0.6, 0.55, 0.45, on ? 0xffe0a8 : 0xf3ead8, { seg: 12, glow: on })
-  if (on) k.halo(-5.2, 0, -0.6, 1.8, 0xffd08a, 0.3)
-  // Right: a fluted column holding up nothing but the frame.
-  k.box(6.6, 0, -5, 1.3, 0.3, 1.3, STONE2)
-  k.cyl(6.6, 0.3, -5, 0.5, 5, STONE, { seg: 16 })
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2
-    k.box(6.6 + Math.cos(a) * 0.5, 0.3, -5 + Math.sin(a) * 0.5, 0.06, 5, 0.06, STONE2, { outline: false, cap: false })
+  // The balustrade: a plinth, turned balusters, a rail, and on every pier a
+  // globe of opal glass. Finished, like the table: it is the nearest thing in
+  // the room after it.
+  const stone: Finish = { kind: 'marble', color: STONE, grain: 'marble', grainColor: mix(STONE, 0x8a7458, 0.5) }
+  const brass: Finish = { kind: 'metal', color: BRASS }
+  const bz = EDGE - 0.2
+  k.finishBox(0, 0, bz, 40, 0.25, 0.6, stone)
+  for (let x = -19.7; x <= 19.7; x += 0.5) {
+    if (Math.abs(((x + 20) % 8) - 4) < 0.5) continue
+    k.lathe(x, 0.25, bz, [[0.1, 0], [0.1, 0.04], [0.055, 0.09], [0.1, 0.24], [0.125, 0.34], [0.1, 0.44], [0.055, 0.58], [0.085, 0.66], [0.085, 0.7]], stone, { seg: 10 })
   }
-  k.box(6.6, 5.3, -5, 1.4, 0.4, 1.4, STONE2)
-  k.box(6.6, 5.1, -5, 1.2, 0.1, 1.2, GOLD, { outline: false, cap: false })
+  k.finishBox(0, 0.95, bz, 40, 0.16, 0.66, stone)
+  if (k.rig.snow) k.box(0, 1.11, bz, 40, 0.05, 0.66, k.top(STONE), { outline: false })
+  for (let x = -16; x <= 16; x += 8) {
+    k.finishBox(x, 0, bz, 0.74, 1.24, 0.82, stone)
+    k.lathe(x, 1.24, bz, [[0, 0], [0.3, 0], [0.3, 0.04], [0.12, 0.09], [0.06, 0.2], [0.11, 0.26], [0, 0.26]], brass, { seg: 20 })
+    k.sphere(x, 1.24 + 0.5, bz, 0.27, on ? 0xffe6b8 : 0xe9e2d2, { glow: on, seg: 14, outline: false, gloss: 0.6 })
+    if (on) {
+      k.halo(x, 1.74, bz, 0.62, 0xffd08a, 0.32, false)
+      k.pool(x, bz + 1.2, 3.2, 0xffd08a, 0.3)
+    }
+  }
+
+  // Left: a tall vase of black lacquer banded in brass, and a brass standard
+  // lamp with its globe. Turned pieces, both.
+  const noir: Finish = { kind: 'marble', color: 0x2c2230 }
+  k.lathe(-6.4, 0, -4.4, [[0, 0], [0.42, 0], [0.42, 0.08], [0.3, 0.12], [0.24, 0.24], [0.3, 0.42], [0.5, 0.8], [0.6, 1.2], [0.56, 1.5], [0.36, 1.8], [0.22, 1.98], [0.2, 2.1], [0.3, 2.2], [0.32, 2.24], [0.26, 2.24], [0, 2.1]], noir, { seg: 36 })
+  for (const [r, y] of [[0.43, 0.02], [0.605, 1.18], [0.215, 2.02], [0.325, 2.2]] as const) k.lathe(-6.4, 0, -4.4, [[r, y], [r + 0.012, y + 0.02], [r, y + 0.04]], brass, { seg: 36 })
+  standardLamp(k, -4.3, -6.0, brass, on)
+  // Right: a column of the same stone, its base and its capital in brass,
+  // holding up nothing but the frame, and the lamp's twin beside it.
+  k.finishBox(6.8, 0, -5, 1.5, 0.3, 1.5, stone)
+  k.lathe(6.8, 0.3, -5, [[0.66, 0], [0.66, 0.1], [0.56, 0.2], [0.52, 0.32], [0.5, 0.4], [0.47, 2.6], [0.44, 4.8], [0.5, 4.9], [0.6, 5.0], [0.64, 5.06], [0, 5.06]], stone, { seg: 28 })
+  for (const y of [0.42, 5.12]) k.lathe(6.8, 0.3, -5, [[0.53, y - 0.08], [0.56, y - 0.04], [0.53, y]], brass, { seg: 28 })
+  k.finishBox(6.8, 5.36, -5, 1.5, 0.4, 1.5, stone)
+  standardLamp(k, 4.5, -6.0, brass, on)
 
   // ─── Middle: the boulevard and the grand hotel ──────────────────────────
   const hx = 62

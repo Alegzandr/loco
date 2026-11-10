@@ -25,7 +25,8 @@
 import type { Builder } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix, scale } from '../sky'
-import { deck, hills, sailboat, vistaTable } from './vista'
+import { bollard, cask, deck, groundInlay, hills, pot, sailboat, vistaTable } from './vista'
+import type { Finish } from '../kit'
 import { driftingBoat, gull } from './vistaLife'
 
 const SEA = 0x1f6f9c
@@ -52,7 +53,21 @@ export const marina: Builder = (k) => {
   // ─── The quay ───────────────────────────────────────────────────────────
   // Planks laid across, parallel to the water's edge.
   const deckBack = QUAY_EDGE
-  deck(k, deckBack, view.eye[2] + 2, 48, PLANK, PLANK2)
+  deck(k, deckBack, view.eye[2] + 2, 48, PLANK, PLANK2, { gloss: 0.3 })
+  // The table's berth, painted on the planks the way a quay is marked: a
+  // navy band between two white lines, a line of brass close in.
+  groundInlay(k, [
+    { out: 1.5, color: WHITE },
+    { out: 1.42, color: 0x1d3f5c },
+    { out: 1.0, color: WHITE },
+    { out: 0.92, color: PLANK2, gloss: 0.3 },
+    { out: 0.3, color: 0xd9a84e, gloss: 0.7 },
+    { out: 0.24, color: PLANK2, gloss: 0.3 },
+  ])
+  k.pool(0, 0, 5, 0xffd9a0, 0.2)
+  const iron: Finish = { kind: 'metal', color: IRON }
+  const oak: Finish = { kind: 'wood', color: 0x7a5030, grain: 'straight', grainColor: 0x4a2a10 }
+  const zinc: Finish = { kind: 'brushed', color: 0x6f7b88, grain: 'brushed', grainColor: 0x56606c }
   // The quay's face towards the water, and its piles going down into it.
   k.box(0, SEA_LEVEL - 0.6, deckBack - 0.2, 48, 0.6 + 0.6 - SEA_LEVEL - 0.12, 0.4, scale(PLANK2, 0.7), { cap: false })
   for (let x = -22; x <= 22; x += 2.4) k.cyl(x, SEA_LEVEL - 0.8, deckBack - 0.3, 0.2, 0.8 - SEA_LEVEL - 0.1, scale(PLANK2, 0.6), { seg: 8, cap: false })
@@ -60,10 +75,8 @@ export const marina: Builder = (k) => {
   // ─── Near: what frames the picture ──────────────────────────────────────
   // Left: a harbour lamp, a bollard and the rope going down to the water.
   k.lamp(-7.2, -5.6, { h: 4.4, style: 'lantern', post: IRON, color: 0xffd28a })
-  k.cyl(-3.1, 0, deckBack + 0.7, 0.24, 0.55, IRON, { seg: 10, rTop: 0.2 })
-  k.sphere(-3.1, 0.6, deckBack + 0.7, 0.22, IRON, { seg: 10 })
-  k.cyl(-6.4, 0, deckBack + 0.7, 0.24, 0.55, IRON, { seg: 10, rTop: 0.2 })
-  k.sphere(-6.4, 0.6, deckBack + 0.7, 0.22, IRON, { seg: 10 })
+  bollard(k, -3.1, deckBack + 0.7, iron)
+  bollard(k, -6.4, deckBack + 0.7, iron)
   // A chain between the two bollards, sagging.
   for (let i = 0; i < 10; i++) {
     const t = (i + 0.5) / 10
@@ -79,13 +92,12 @@ export const marina: Builder = (k) => {
   crate(4.4, deckBack + 1.4, 0.8, 0, 0.2, 0x9a7446)
   crate(5.3, deckBack + 1.1, 0.8, 0, -0.15, 0x8c6a40)
   crate(4.8, deckBack + 1.3, 0.7, 0.8, 0.5, 0xa47c4c)
-  k.cyl(6.1, 0, deckBack + 2.3, 0.34, 0.85, 0x7a5030, { seg: 12 })
-  for (const y of [0.16, 0.62]) k.cyl(6.1, y, deckBack + 2.3, 0.36, 0.07, IRON, { seg: 12, outline: false, cap: false })
+  cask(k, 6.1, deckBack + 2.3, oak, iron)
   k.cyl(3.4, 0, deckBack + 2.6, 0.45, 0.12, 0xc9a86b, { seg: 16, rTop: 0.35 })
   // The near corners: a planter and a folded chair's worth of shape.
-  k.cyl(-5.2, 0, 1.8, 0.45, 0.7, 0x6f7b88, { seg: 12, rTop: 0.55 })
+  pot(k, -5.2, 1.8, 0.52, 0.7, zinc)
   k.bush(-5.2, 1.8, 0.62, k.leaf(0x4f8a5a), { y: 0.62 })
-  k.cyl(5.8, 0, 1.2, 0.45, 0.7, 0x6f7b88, { seg: 12, rTop: 0.55 })
+  pot(k, 5.8, 1.2, 0.52, 0.7, zinc)
   k.bush(5.8, 1.2, 0.55, k.leaf(0x4f8a5a), { y: 0.62 })
 
   // ─── Middle: the bay ────────────────────────────────────────────────────
@@ -124,22 +136,26 @@ export const marina: Builder = (k) => {
   // The left headland, near and far.
   hillsAt(-1700, -560, -1300, 80, HILL, 9)
   hillsAt(-3000, -1100, -2700, 150, HILL_FAR, 8)
-  // The right headland, nearer, with the lighthouse.
+  // The right headland, nearer.
   hillsAt(430, 1500, -960, 55, mix(HILL, ROCK, 0.4), 8)
   hillsAt(1100, 3200, -2400, 130, HILL_FAR, 8)
   // The open sea between them, and a last faint line of coast across it.
   hillsAt(-1200, 1200, -4600, 40, mix(HILL_FAR, 0x9fb3c8, 0.5), 10)
 
-  // The lighthouse on the right headland's point.
-  const lx = 470
-  const lz = -900
-  k.cone(lx, SEA_LEVEL - 2, lz, 60, 28, ROCK, { seg: 8, outline: false })
-  k.cyl(lx, 24, lz, 4.2, 24, WHITE, { seg: 12, rTop: 3.4 })
-  for (const y of [30, 40]) k.cyl(lx, y, lz, 4.0, 3, 0xc8322f, { seg: 12, rTop: 3.8, outline: false })
-  k.cyl(lx, 48, lz, 3.6, 1, IRON, { seg: 12 })
-  k.cyl(lx, 49, lz, 2.6, 4, on ? 0xfff0c0 : 0xdfe8ec, { seg: 12, glow: on })
-  k.cone(lx, 53, lz, 3.4, 3, 0xc8322f, { seg: 12 })
-  if (on) k.halo(lx, 51, lz, 14, 0xffe2a0, 0.35, false)
+  // The lighthouse on its rock behind the breakwater, left of the middle:
+  // where the low sun stands beside it, and near enough to be a tower. On the
+  // right headland's point, 900 tiles out, it was five pixels wide behind the
+  // jetty's lamps, one more post among them.
+  const lx = -118
+  const lz = -430
+  const ly = 8
+  k.cone(lx, SEA_LEVEL - 2, lz, 30, ly + 5, ROCK, { seg: 8, outline: false })
+  k.cyl(lx, ly, lz, 4.2, 24, WHITE, { seg: 12, rTop: 3.4 })
+  for (const y of [6, 16]) k.cyl(lx, ly + y, lz, 4.0, 3, 0xc8322f, { seg: 12, rTop: 3.8, outline: false })
+  k.cyl(lx, ly + 24, lz, 3.6, 1, IRON, { seg: 12 })
+  k.cyl(lx, ly + 25, lz, 2.6, 4, on ? 0xfff0c0 : 0xdfe8ec, { seg: 12, glow: on })
+  k.cone(lx, ly + 29, lz, 3.4, 3, 0xc8322f, { seg: 12 })
+  if (on) k.halo(lx, ly + 27, lz, 14, 0xffe2a0, 0.35, false)
 
   // The white town on the left headland's shore, stepping up the slope
   // behind its harbour wall.

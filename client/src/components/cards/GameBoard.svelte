@@ -24,6 +24,7 @@
   import TurnIndicator, { type TurnTexts } from './TurnIndicator.svelte'
   import DirectionRing from './DirectionRing.svelte'
   import TableTrack from './TableTrack.svelte'
+  import FeltInlay from './FeltInlay.svelte'
   import { rimSurface, tableCssVars } from './tableSurface'
   import AnimationLayer, { type Flier, type EffectText, type Impact } from './AnimationLayer.svelte'
   import {
@@ -61,7 +62,6 @@
     dealStagger,
     flightFor,
   } from './cardTheme'
-  import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
   import type { SwapNotice, LastPlay, LastDraw, CatchFlash } from '../../hooks/gameStore'
   import { CATCH_PENALTY_CARDS } from '../../hooks/gameStore'
   import { untrack } from 'svelte'
@@ -958,15 +958,13 @@
             class:rendered={tableRendered && !!p.scene}
             data-testid="table"
             style="left: {table.left}px; top: {table.top}px; width: {table.width}px; height: {table.height}px; --felt-k: {feltK}"
-          >
-            <svg class="tableMark" viewBox={LOCO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
-              <path d={LOCO_MARK_PATH} fill-rule="evenodd" fill="#ffffff" />
-            </svg>
-          </div>
+          ></div>
           <!-- The racetrack round the inside of the rim: part of the table. -->
           {#if !(tableRendered && p.scene)}
             <TableTrack rect={table} wood={trackWood} />
           {/if}
+          <!-- The cloth's inlay: over whichever table carries the cloth. -->
+          <FeltInlay rect={table} centre={pileCentre(width, height, topReserve, landscape)} />
           <!-- Keyed on the direction so a Reverse remounts the ring and replays its
                turn: the change of heading is the event. -->
           {#key p.direction >= 0 ? 'cw' : 'ccw'}
@@ -1253,8 +1251,10 @@
       0 30px 44px rgba(6, 3, 16, 0.4);
   }
 
-  /* The render carries the table: nothing of the CSS one is drawn but the
-     mark branded into the cloth. */
+  /* The render carries the table: nothing of the CSS one is drawn. (The cloth
+     once carried the mark as a watermark at the threshold of visible. The
+     piles stand on its middle, so all that ever showed was the tips of its
+     wings either side of them: stray spikes on the felt.) */
   .board.inRoom .tableOval.rendered {
     border-color: transparent;
     background: none;
@@ -1283,34 +1283,6 @@
       0 10px 0 color-mix(in srgb, var(--tbl-base, var(--table-rim)), #000 55%),
       0 10px 0 2px rgba(6, 3, 16, 0.55),
       0 26px 40px rgba(6, 3, 16, 0.4);
-    pointer-events: none;
-  }
-
-  /* The mark, branded into the felt the way a casino brands its baize. Kept at
-     the threshold of visible: the piles sit on top of it, and a table that
-     competes with the card being played is a table that has to be looked past. */
-  .tableMark {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    /* Sized to fit *inside* the ellipse, not inside its bounding box. The felt
-       clips its overflow, so a mark scaled to the box has its corners sliced off
-       and reads as a broken drawing rather than a watermark. The mark is
-       landscape, and the felt is a *flat* oval (roughly 2.7:1), so even a
-       landscape mark is bound by height, not width: at 62% of the height it is
-       only ~28% of the width and sits comfortably inside the curve. Driving it off
-       the width put the mark half outside the ellipse and sliced it into
-       fragments. */
-    /* It lies on the cloth, so it is foreshortened with it (`--felt-k`): sized
-       on the table, a third of its width, then squashed like the rim. */
-    width: 34%;
-    height: auto;
-    /* Belt and braces: an absolutely-positioned <svg> with one axis auto does not
-       reliably take its intrinsic ratio, and a mark stretched to the felt is the
-       bug this whole file exists to avoid. */
-    aspect-ratio: 712 / 576;
-    transform: translate(-50%, -50%) scaleY(var(--felt-k, 1));
-    opacity: 0.07;
     pointer-events: none;
   }
 </style>

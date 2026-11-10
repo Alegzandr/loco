@@ -196,6 +196,8 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
   const actors: Actor[] = builder(kit) ?? []
   await report(RENDER_STEPS.built)
   const mirror = makeMirror(rig)
+  // A polished floor mirrors the room dry (`Kit.polished`); rain only adds to it.
+  mirror.uniforms.uWetMirror.value = Math.max(mirror.uniforms.uWetMirror.value, kit.polish)
   const group = kit.build(env, mirror)
   scene.add(group)
   const eye = new Vector3(...view.eye)

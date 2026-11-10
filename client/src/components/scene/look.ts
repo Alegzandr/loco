@@ -137,6 +137,13 @@ export interface Look {
     radiusSmall: number
     /** 0 for none, 1 for full. */
     intensity: number
+    /**
+     * The darkest the occlusion may take a pixel, 0-1 of its light. The floor
+     * under the table is the widest crease in every room, a metre under a top
+     * four across, and unbounded it was black: the bottom third of the frame,
+     * at noon as at midnight.
+     */
+    floor: number
     /** Contrast on the occlusion term: above 1 keeps the open ground clean and deepens the creases. */
     power: number
     /** Samples per pixel per radius. */
@@ -305,6 +312,19 @@ export interface FinishLook {
   sheenRoughness?: number
   /** The sheen's colour, as a mix from the cloth's own colour towards white, 0–1. */
   sheenLift?: number
+  /**
+   * How much of a light the finish throws back as a highlight, 0-1 (a
+   * dielectric's `specularIntensity`). Under 1 on everything varnished: the
+   * lamp is a metre over the rail, and at full strength its highlight was a
+   * white smear a third of the way round the table.
+   */
+  specular?: number
+  /**
+   * The share of its own colour the piece shows whatever the light, 0-1. The
+   * cloth's: under a dusk sky a green felt lit only by what fell on it came
+   * out navy, and the felt's colour is the table's identity in a room.
+   */
+  glow?: number
 }
 
 export interface TableLook {
@@ -329,7 +349,13 @@ export interface TableLook {
     /** The racetrack's width inside it, and the metal filet along its inner edge. */
     track: number
     filet: number
+    /** How many lozenges of metal are let into the racetrack, all the way round. */
+    marks: number
+    /** How strongly a room's lines of light glow (`TableMaterials.glow`), lamps on. */
+    lit: number
   }
+  /** The table's shade on the floor: how far past its plan it reaches, as a multiple, and how dark its middle is, 0-1. */
+  shade: { reach: number; dark: number }
   /** Metres of skirt under the edge, set back: what the edge's shadow falls on. */
   skirt: number
   /**
@@ -348,6 +374,8 @@ export interface TableLook {
     /** The cone's half-angle, degrees, and the share of it that fades. */
     angle: number
     penumbra: number
+    /** The side of its shadow map, texels: the table's shadow on its own foot and the floor. */
+    shadowMap: number
   }
   /** How strongly the finishes mirror the sky. */
   envIntensity: number
@@ -467,7 +495,11 @@ export const LOOK: Look = {
       sun: { color: 0xffc48f, intensity: 3.0, elevation: 7, azimuth: 205 },
       body: { kind: 'sun', azimuth: 205, elevation: 4, size: 1.6 },
       stars: 0,
-      ambient: { sky: 0x8fa3e6, ground: 0x7a6068, intensity: 1.1 },
+      // The sky's fill is most of what the player looks at: the key light is
+      // ahead of the camera, so every face turned to the table is in shade.
+      // At 1.1 that shade was a navy silhouette and the room was only read in
+      // the strip of sunlit ground behind it.
+      ambient: { sky: 0x8fa3e6, ground: 0x7a6068, intensity: 1.7 },
       lampsOn: true,
       windowsLit: 0.15,
       dark: 0.3,
@@ -478,7 +510,7 @@ export const LOOK: Look = {
       sun: { color: 0xffe4b4, intensity: 3.3, elevation: 48, azimuth: 130 },
       body: null,
       stars: 0,
-      ambient: { sky: 0xa8c4e8, ground: 0x8f8570, intensity: 1.15 },
+      ambient: { sky: 0xa8c4e8, ground: 0x8f8570, intensity: 1.3 },
       lampsOn: false,
       windowsLit: 0,
       dark: 0,
@@ -488,7 +520,7 @@ export const LOOK: Look = {
       sun: { color: 0xffa050, intensity: 3.0, elevation: 6, azimuth: 158 },
       body: { kind: 'sun', azimuth: 158, elevation: 3.5, size: 1.8 },
       stars: 0.15,
-      ambient: { sky: 0x8a7cc4, ground: 0x7a5a50, intensity: 1.5 },
+      ambient: { sky: 0x8a7cc4, ground: 0x7a5a50, intensity: 2.3 },
       lampsOn: true,
       windowsLit: 0.35,
       dark: 0.45,
@@ -499,7 +531,7 @@ export const LOOK: Look = {
       sun: { color: 0xa8bfff, intensity: 2.2, elevation: 24, azimuth: 200 },
       body: { kind: 'moon', azimuth: 200, elevation: 4.5, size: 1.3 },
       stars: 1,
-      ambient: { sky: 0x3e55a8, ground: 0x1a2140, intensity: 1.6 },
+      ambient: { sky: 0x3e55a8, ground: 0x1a2140, intensity: 2.0 },
       lampsOn: true,
       windowsLit: 0.45,
       dark: 1,
@@ -510,7 +542,7 @@ export const LOOK: Look = {
   shadow: { radius: 6, bias: -0.0004, normalBias: 0.03, spriteMap: 512, reach: { side: 16, back: 42, up: 12 } },
   material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1, glossRoughness: 0.14, envIntensity: 1.0, glassGloss: 0.9, wetGloss: 0.55, paintGloss: 0.45 },
   outline: { px: 1.4, darken: 0.42, inkMix: 0.3 },
-  ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, power: 2.0, samples: 16, blur: 4, blurDepthFalloff: 0.7 },
+  ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, floor: 0.5, power: 2.0, samples: 16, blur: 4, blurDepthFalloff: 0.7 },
   tone: {
     mapping: 'aces',
     exposure: 1.05,
@@ -554,15 +586,16 @@ export const LOOK: Look = {
     bloom: 0.22,
   },
   table: {
-    wood: { roughness: 0.62, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.2 },
-    lacquer: { roughness: 0.34, metalness: 0, clearcoat: 0.18, clearcoatRoughness: 0.08 },
-    metal: { roughness: 0.16, metalness: 1, clearcoat: 0, clearcoatRoughness: 0 },
-    brushed: { roughness: 0.36, metalness: 1, clearcoat: 0, clearcoatRoughness: 0 },
-    marble: { roughness: 0.22, metalness: 0, clearcoat: 0.2, clearcoatRoughness: 0.08 },
-    cloth: { roughness: 0.92, metalness: 0, clearcoat: 0, clearcoatRoughness: 0, sheen: 0.6, sheenRoughness: 0.55, sheenLift: 0.35 },
-    rail: { width: 19, height: 0.05, track: 22, filet: 2 },
+    wood: { roughness: 0.58, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.32, specular: 0.3, glow: 0.3 },
+    lacquer: { roughness: 0.55, metalness: 0, clearcoat: 0, clearcoatRoughness: 0.3, specular: 0.06, glow: 0.3 },
+    metal: { roughness: 0.55, metalness: 1, clearcoat: 0, clearcoatRoughness: 0, glow: 0.08 },
+    brushed: { roughness: 0.62, metalness: 0.4, clearcoat: 0, clearcoatRoughness: 0, glow: 0.22 },
+    marble: { roughness: 0.4, metalness: 0, clearcoat: 0.2, clearcoatRoughness: 0.25, specular: 0.5, glow: 0.25 },
+    cloth: { roughness: 0.95, metalness: 0, clearcoat: 0, clearcoatRoughness: 0, sheen: 0.45, sheenRoughness: 0.6, sheenLift: 0.3, specular: 0.2, glow: 0.3 },
+    rail: { width: 19, height: 0.075, track: 22, filet: 2, marks: 16, lit: 2.0 },
+    shade: { reach: 1.22, dark: 0.45 },
     skirt: 0.14,
-    lamp: { color: 0xffe2b8, day: 1.0, night: 1.5, height: 3.4, angle: 52, penumbra: 1 },
+    lamp: { color: 0xffe2b8, day: 1.0, night: 1.5, height: 3.4, angle: 52, penumbra: 1, shadowMap: 1024 },
     envIntensity: 0.3,
     grainSpan: [1.6, 0.3],
   },

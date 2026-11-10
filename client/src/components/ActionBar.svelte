@@ -285,10 +285,10 @@
        translucent bar also put whatever card happened to be behind it into the
        contrast of its own labels, which on the felt changes from round to round.
        Opaque, inked and ledged, like every other object a player presses. */
-    background: var(--color-surface-card);
+    background: var(--surface-lit);
     border-radius: var(--radius-full);
     border: var(--stroke) solid var(--color-stroke);
-    box-shadow: var(--shadow-hard);
+    box-shadow: var(--lip), var(--trim), var(--shadow-hard);
     white-space: nowrap;
     z-index: 20;
   }
@@ -447,7 +447,7 @@
 
   /* Draw button — primary */
   .btnDraw {
-    background: var(--gradient-primary);
+    background: var(--gloss), var(--gradient-primary);
     color: var(--color-on-primary);
     text-shadow: 0 1px 0 rgba(120, 10, 40, 0.4);
   }
@@ -457,19 +457,19 @@
      the bar itself is surface-card, so that was a white pill on a white bar in
      light, held apart by nothing but its outline. */
   .btnDrawSecondary {
-    background: var(--color-surface-strong);
+    background: var(--surface-lit-strong);
     color: var(--color-ink);
   }
 
   /* Pass button */
   .btnPass {
-    background: var(--color-surface-strong);
+    background: var(--surface-lit-strong);
     color: var(--color-ink);
   }
 
   /* UNO button — the signature move, so it gets the signature colour. */
   .btnUno {
-    background: var(--gradient-secondary);
+    background: var(--gloss), var(--gradient-secondary);
     color: var(--color-on-secondary);
     font-weight: 700;
     letter-spacing: 0.3px;
@@ -563,7 +563,7 @@
      own so the ring can sit under the label at `z-index: -1` (without it, -1
      would drop the ring behind the whole bar). */
   .btnPenalty {
-    background: var(--gradient-penalty);
+    background: var(--gloss), var(--gradient-penalty);
     color: var(--color-on-primary);
     text-shadow: 0 1px 0 rgba(120, 20, 0, 0.45);
     isolation: isolate;
@@ -585,7 +585,7 @@
      nothing is in reach, awake and pressable while it is a wager, and `.armed`
      for the seconds it is a certainty. */
   .btnCatch {
-    background: var(--gradient-tertiary);
+    background: var(--gloss), var(--gradient-tertiary);
     color: var(--color-on-dark);
     text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
     --arm-glow: rgba(155, 139, 255, 0.62);

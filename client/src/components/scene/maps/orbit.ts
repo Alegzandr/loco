@@ -18,7 +18,8 @@
 import type { Builder } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix, scale } from '../sky'
-import { hills, vistaTable } from './vista'
+import { groundInlay, hills, vistaTable } from './vista'
+import type { Finish } from '../kit'
 import { shuttle } from './vistaLife'
 
 const REGOLITH = 0x8a8c93
@@ -58,17 +59,29 @@ export const orbit: Builder = (k) => {
   const EDGE = -8
   for (let z = EDGE; z < view.eye[2] + 2; z += 1.6) {
     for (let x = -14; x < 14; x += 1.6) {
-      k.box(x + 0.8, 0, z + 0.8, 1.56, 0.12, 1.56, (Math.round(x / 1.6) + Math.round(z / 1.6)) % 2 ? PLATE : PLATE2, { outline: false, cap: false, gloss: 0.25 })
+      k.box(x + 0.8, 0, z + 0.8, 1.56, 0.12, 1.56, (Math.round(x / 1.6) + Math.round(z / 1.6)) % 2 ? PLATE : PLATE2, { outline: false, cap: false, gloss: 0.34 })
     }
   }
+  // The pad's plates are polished alloy: the base's lights lie in them.
+  k.polished(0.35)
+  // The table's mark on the pad: a dark ring, a ring of light, the plate
+  // again, and the hazard orange close in under the edge.
+  groundInlay(k, [
+    { out: 1.7, color: 0x22262c, gloss: 0.5 },
+    { out: 1.58, color: CYAN, glow: true },
+    { out: 1.5, color: 0x4a525e, gloss: 0.6 },
+    { out: 0.62, color: ORANGE, gloss: 0.3 },
+    { out: 0.52, color: 0x3a4049, gloss: 0.6 },
+  ], 0.12)
+  k.pool(0, 0, 6, CYAN, 0.16)
   // The hazard edge along the pad's far side, and its lights.
   for (let x = -14; x < 14; x += 1.2) k.box(x + 0.6, 0.12, EDGE + 0.2, 0.58, 0.04, 0.4, 0x22262c, { outline: false, cap: false })
   for (let x = -13.4; x < 14; x += 1.2) k.box(x + 0.6, 0.12, EDGE + 0.2, 0.58, 0.045, 0.4, ORANGE, { rot: 0.5, outline: false, cap: false })
   for (let x = -12; x <= 12; x += 4) k.cyl(x, 0.12, EDGE, 0.12, 0.14, on ? CYAN : 0x3a6a7a, { seg: 8, glow: on, outline: false })
 
   // Left: the mast, a floodlight and an antenna.
-  k.box(-7.2, 0, -6.4, 0.9, 0.3, 0.9, STEEL)
-  k.cyl(-7.2, 0.3, -6.4, 0.14, 6.2, 0xc9ced6, { seg: 8 })
+  const alloy: Finish = { kind: 'brushed', color: 0xc9ced6, grain: 'brushed', grainColor: 0x9aa2ad }
+  k.lathe(-7.2, 0.12, -6.4, [[0, 0], [0.55, 0], [0.55, 0.12], [0.4, 0.18], [0.2, 0.34], [0.15, 0.5], [0.13, 6.2], [0.18, 6.26], [0, 6.3]], alloy, { seg: 24 })
   k.box(-6.8, 5.8, -6.4, 0.8, 0.5, 0.5, STEEL, { rot: 0.3 })
   k.box(-6.4, 5.85, -6.2, 0.1, 0.4, 0.44, on ? 0xfff6dc : 0xdfe3e8, { rot: 0.3, glow: on, outline: false, cap: false })
   k.cyl(-7.2, 6.5, -6.4, 0.03, 1.8, 0xc9ced6, { seg: 4, cap: false })

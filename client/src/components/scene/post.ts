@@ -270,10 +270,11 @@ const LIT_FRAG = /* glsl */ `
   uniform sampler2D tScene;
   uniform sampler2D tAo;
   uniform float uIntensity;
+  uniform float uFloor;
   varying vec2 vUv;
   void main() {
     vec4 c = texture2D(tScene, vUv);
-    float ao = texture2D(tAo, vUv).x;
+    float ao = max(texture2D(tAo, vUv).x, uFloor);
     c.rgb *= mix(1.0, ao, uIntensity);
     gl_FragColor = c;
   }
@@ -799,7 +800,7 @@ export function renderWithPost(
 
     // ─── The lit frame: scene × occlusion ──────────────────────────────────
     const litRT = make(width, height, { half })
-    const lit = shader(LIT_FRAG, { tScene: { value: sceneRT.texture }, tAo: { value: aoA.texture }, uIntensity: { value: opts.ao ? LOOK.ao.intensity : 0 } })
+    const lit = shader(LIT_FRAG, { tScene: { value: sceneRT.texture }, tAo: { value: aoA.texture }, uIntensity: { value: opts.ao ? LOOK.ao.intensity : 0 }, uFloor: { value: LOOK.ao.floor } })
     pass(lit, litRT)
 
     // ─── Bloom, at a quarter ───────────────────────────────────────────────
