@@ -4,7 +4,7 @@ import { cardPlay } from '../hooks/gamePlay.svelte'
 import { resolveServerError } from '../i18n/serverErrors'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
-import type { CardDTO, ClientMsg } from '../types/protocol'
+import type { CardDTO, ClientMsg, PlayCardMsg } from '../types/protocol'
 
 /**
  * An interject is one card, so no interject carries a call.
@@ -52,7 +52,8 @@ function tapOutOfTurn(hand: CardDTO[]) {
   return { sent, played, result }
 }
 
-function slam(hand: CardDTO[]): { sent: ClientMsg[]; played: boolean } {
+// Read as a card play whatever its type, so an absent field can be asserted absent.
+function slam(hand: CardDTO[]): { sent: Array<ClientMsg & Partial<PlayCardMsg>>; played: boolean } {
   const { sent, played } = tapOutOfTurn(hand)
   return { sent, played }
 }

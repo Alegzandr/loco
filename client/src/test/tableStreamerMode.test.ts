@@ -58,10 +58,10 @@ describe('the table code blurs on the table s answer', () => {
 describe('the table s answer arrives from the server', () => {
   it('takes streamer_mode_changed', () => {
     const handle = createServerMessageHandler(noopTimer)
-    handle({ type: 'streamer_mode_changed', streamer_mode: true, turn: 0, drawn_count: 0 })
+    handle({ type: 'streamer_mode_changed', streamer_mode: true })
     expect(gameStore.getState().tableStreamer).toBe(true)
 
-    handle({ type: 'streamer_mode_changed', turn: 0, drawn_count: 0 })
+    handle({ type: 'streamer_mode_changed' })
     expect(gameStore.getState().tableStreamer).toBe(false)
   })
 
@@ -74,8 +74,6 @@ describe('the table s answer arrives from the server', () => {
       player_id: 1,
       players: [],
       streamer_mode: true,
-      turn: 0,
-      drawn_count: 0,
     })
     expect(gameStore.getState().tableStreamer).toBe(true)
   })
@@ -97,7 +95,7 @@ describe('the table s answer arrives from the server', () => {
       streamer_mode: true,
     } as unknown as GameStateDTO
 
-    handle({ type: 'game_state', state, turn: 0, drawn_count: 0 })
+    handle({ type: 'game_state', state })
     expect(gameStore.getState().tableStreamer).toBe(true)
   })
 

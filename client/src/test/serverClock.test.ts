@@ -51,15 +51,28 @@ describe('serverClock', () => {
   })
 
   it('moves every deadline a message carries, and leaves an absent one absent', () => {
-    // Local clock at 100_000; server at 106_000: six seconds fast.
-    const msg: ServerMsg = {
+    // Local clock at 100_000; server at 106_000: six seconds fast. Each
+    // deadline rides the message that carries it.
+    const played = {
       type: 'card_played',
       server_now: 106_000,
       turn: 0,
       turn_deadline: 106_000 + 30_000,
-      forfeit_deadline: 106_000 + 15_000,
       catch_seats: [{ player_index: 1, ends_at: 106_000 + 5000 }],
+    } satisfies ServerMsg
+    const away = {
+      type: 'player_disconnected',
+      server_now: 106_000,
+      forfeit_deadline: 106_000 + 15_000,
+    } satisfies ServerMsg
+    const locked = {
+      type: 'catch_locked',
+      server_now: 106_000,
       catch_locked_until: 106_000 + 2000,
+    } satisfies ServerMsg
+    const snapshot = {
+      type: 'game_state',
+      server_now: 106_000,
       state: {
         your_index: 0,
         hand: [],
@@ -75,25 +88,27 @@ describe('serverClock', () => {
         catch_seats: [{ player_index: 1, ends_at: 106_000 + 5000 }],
         catch_locked_until: 106_000 + 2000,
       },
-    }
+    } satisfies ServerMsg
     vi.useFakeTimers()
     vi.setSystemTime(100_000)
-    const out = localizeDeadlines(msg)
+    const out = localizeDeadlines(played) as typeof played
     expect(out.turn_deadline).toBe(130_000)
-    expect(out.forfeit_deadline).toBe(115_000)
     expect(out.catch_seats?.[0].ends_at).toBe(105_000)
-    expect(out.state?.turn_deadline).toBe(130_000)
-    expect(out.state?.catch_seats?.[0].ends_at).toBe(105_000)
+    expect((localizeDeadlines(away) as typeof away).forfeit_deadline).toBe(115_000)
+    const state = (localizeDeadlines(snapshot) as typeof snapshot).state
+    expect(state.turn_deadline).toBe(130_000)
+    expect(state.catch_seats?.[0].ends_at).toBe(105_000)
     // Our own lockout is a deadline like the rest of them: read on the wrong
     // clock, a phone two seconds fast would draw a padlock the server had
     // already lifted, and one two seconds slow would offer a press it refuses.
-    expect(out.catch_locked_until).toBe(102_000)
-    expect(out.state?.catch_locked_until).toBe(102_000)
+    expect((localizeDeadlines(locked) as typeof locked).catch_locked_until).toBe(102_000)
+    expect(state.catch_locked_until).toBe(102_000)
     // The input is not written to: a message is data the socket handed over.
-    expect(msg.turn_deadline).toBe(136_000)
+    expect(played.turn_deadline).toBe(136_000)
+    expect(snapshot.state.turn_deadline).toBe(136_000)
 
     const bare = localizeDeadlines({ type: 'turn_changed', server_now: 106_000, turn: 1 })
-    expect(bare.turn_deadline).toBeUndefined()
+    expect(bare.type === 'turn_changed' && bare.turn_deadline).toBeUndefined()
   })
 })
 
