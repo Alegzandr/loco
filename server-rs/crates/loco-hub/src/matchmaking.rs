@@ -268,7 +268,7 @@ impl Table {
                     .unwrap_or_default();
             }
         }
-        tracing::info!(code = %self.code, requeued = survivor.is_some(), "matchmaking pairing lost before start");
+        tracing::info!(requeued = survivor.is_some(), "matchmaking pairing lost before start");
         if let Some(s) = &survivor {
             s.leave_seat();
         }
@@ -289,7 +289,7 @@ impl Table {
     /// the reveal, no lobby in between.
     pub(crate) fn start_rematched_match(&mut self, cx: &TableCtx) {
         if let Err(e) = self.room.reset_for_rematch() {
-            tracing::warn!(code = %self.code, "matchmade rematch reset failed err={e}");
+            tracing::warn!("matchmade rematch reset failed err={e}");
             return;
         }
         self.reset_for_next_match();
@@ -299,7 +299,7 @@ impl Table {
             .metrics()
             .matches_matchmade
             .fetch_add(1, Ordering::Relaxed);
-        tracing::info!(code = %self.code, players = self.room.players.len(), "matchmade rematch");
+        tracing::info!(players = self.room.players.len(), "matchmade rematch");
         self.announce_match_found();
         self.schedule_matchmaking_start(paired_at);
     }
@@ -326,7 +326,7 @@ impl Table {
         }
         c.leave_seat();
         self.release_rematch_offer(cx, leaving);
-        tracing::info!(code = %self.code, nickname = %nickname, "player left room");
+        tracing::info!(nickname = %nickname, "player left room");
     }
 
     /// leave_room on the table, four branches in order: a matchmade match is
@@ -343,7 +343,7 @@ impl Table {
             if self.is_matchmade() {
                 self.forfeit_match(cx, seat);
             } else if self.solo || self.abandoned_by(seat) {
-                tracing::info!(code = %self.code, player = seat, solo = self.solo, "leave allowed, nothing left to play");
+                tracing::info!(player = seat, solo = self.solo, "leave allowed, nothing left to play");
                 self.sweep(c);
                 c.leave_seat();
                 self.close_abandoned_match(cx);
@@ -389,7 +389,6 @@ impl Table {
         self.afk.remove(&seat);
         self.tokens.remove(&seat);
         tracing::info!(
-            code = %self.code,
             player = seat,
             nickname = %nickname,
             left = self.playable_seats(),
@@ -407,14 +406,14 @@ impl Table {
     pub(crate) fn retire_absent_seat(&mut self, cx: &TableCtx, seat: usize) {
         let turn_before = self.room.state.as_ref().map_or(-1, |s| s.current_turn);
         if let Err(e) = self.room.retire_seat(seat as i32, clock::now_ms()) {
-            tracing::warn!(code = %self.code, player = seat, "retire on expiry failed err={e}");
+            tracing::warn!(player = seat, "retire on expiry failed err={e}");
             return;
         }
         self.gone.insert(seat);
         self.away_at.remove(&seat);
         self.afk.remove(&seat);
         self.tokens.remove(&seat);
-        tracing::info!(code = %self.code, player = seat, left = self.playable_seats(), "absent seat retired");
+        tracing::info!(player = seat, left = self.playable_seats(), "absent seat retired");
         self.announce_retired_seat(cx, turn_before);
     }
 
@@ -439,7 +438,7 @@ impl Table {
             return;
         };
         if let Err(e) = self.room.forfeit_to(winner as i32, clock::now_ms()) {
-            tracing::warn!(code = %self.code, away = away_seat, "forfeit failed err={e}");
+            tracing::warn!(away = away_seat, "forfeit failed err={e}");
             return;
         }
         self.turn_started_at = None;
@@ -449,7 +448,7 @@ impl Table {
             .metrics()
             .matches_finished
             .fetch_add(1, Ordering::Relaxed);
-        tracing::info!(code = %self.code, away = away_seat, winner = %self.room.match_winner, "match forfeited");
+        tracing::info!(away = away_seat, winner = %self.room.match_winner, "match forfeited");
         self.record_finished_match(clock::system_now());
         self.broadcast_all(ServerMsg::MatchEnd(MatchEndMsg {
             match_winner: self.room.match_winner.clone(),

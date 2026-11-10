@@ -166,13 +166,13 @@ impl Table {
         while self.connected() > 0 && !self.room.players.is_empty() && self.is_bot(0) {
             let name = self.room.players[0].nickname.clone();
             if let Err(e) = self.room.remove_lobby_player(0) {
-                tracing::warn!(code = %self.code, "host promotion failed err={e}");
+                tracing::warn!("host promotion failed err={e}");
                 return;
             }
             self.drop_seat(0);
             if let Err(e) = self.room.join(&name) {
                 cx.hub.metrics().bots_active.fetch_sub(1, Ordering::Relaxed);
-                tracing::warn!(code = %self.code, nickname = %name, "bot reseat failed err={e}");
+                tracing::warn!(nickname = %name, "bot reseat failed err={e}");
                 return;
             }
             self.bots.insert(self.room.players.len() - 1);
@@ -382,7 +382,7 @@ impl Table {
             action.chosen_player,
             clock::now_ms(),
         ) {
-            tracing::info!(code = %self.code, player = seat, "bot interrupt refused err={e}");
+            tracing::info!(player = seat, "bot interrupt refused err={e}");
             return;
         }
         self.broadcast_interrupt(cx, seat, &action.cards, action.chosen_player);
@@ -458,7 +458,7 @@ impl Table {
 
     pub(crate) fn execute_bot_move(&mut self, cx: &TableCtx, mut bm: BotMove) {
         if self.room.status != Status::Playing {
-            tracing::info!(code = %self.code, player = bm.seat, "bot move skipped, room not playing");
+            tracing::info!(player = bm.seat, "bot move skipped, room not playing");
             return;
         }
         let Some(state) = self.room.state.as_ref() else {
@@ -468,7 +468,7 @@ impl Table {
             return;
         }
         if !self.is_bot(bm.seat) {
-            tracing::info!(code = %self.code, player = bm.seat, "bot move skipped, not a bot slot");
+            tracing::info!(player = bm.seat, "bot move skipped, not a bot slot");
             return;
         }
         if let Some(board) = bm.board_at
@@ -526,7 +526,7 @@ impl Table {
             )
         };
         if let Err(e) = res {
-            tracing::info!(code = %self.code, player = seat, "bot play error: {e}");
+            tracing::info!(player = seat, "bot play error: {e}");
             self.bot_recover(cx, seat);
             return;
         }
@@ -547,7 +547,7 @@ impl Table {
             action.chosen_color,
             clock::now_ms(),
         ) {
-            tracing::info!(code = %self.code, player = seat, "bot counter error: {e}");
+            tracing::info!(player = seat, "bot counter error: {e}");
             self.bot_recover(cx, seat);
             return;
         }
@@ -563,7 +563,7 @@ impl Table {
             return false;
         };
         if let Err(e) = self.room.draw_card(seat as i32, clock::now_ms()) {
-            tracing::info!(code = %self.code, player = seat, "bot draw error: {e}");
+            tracing::info!(player = seat, "bot draw error: {e}");
             return false;
         }
         let state = self.room.state.as_ref().expect("drawn");
@@ -638,7 +638,7 @@ impl Table {
             }
         }
         if let Err(e) = self.room.pass_turn(seat as i32, clock::now_ms()) {
-            tracing::info!(code = %self.code, player = seat, "bot recover pass error err={e}");
+            tracing::info!(player = seat, "bot recover pass error err={e}");
             return;
         }
         self.schedule_turn_timer(cx);

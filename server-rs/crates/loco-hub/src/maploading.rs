@@ -41,7 +41,6 @@ impl Table {
             started_at,
         });
         tracing::info!(
-            code = %self.code,
             map = %self.room.map_id.map(|m| m.as_str()).unwrap_or(""),
             waiting = self.pending_loaders().len(),
             "map loading"
@@ -110,7 +109,6 @@ impl Table {
             return;
         }
         tracing::info!(
-            code = %self.code,
             map = %self.room.map_id.map(|m| m.as_str()).unwrap_or(""),
             reason,
             waited_ms = st.started_at.elapsed().as_millis() as u64,
@@ -138,7 +136,7 @@ impl Table {
         if st.started_at != started_at {
             return; // this timer belongs to a previous gate
         }
-        tracing::warn!(code = %self.code, waiting_on = ?self.pending_loaders(), "map load timeout");
+        tracing::warn!(waiting_on = ?self.pending_loaders(), "map load timeout");
         self.open_gate(cx, "timeout");
     }
 }

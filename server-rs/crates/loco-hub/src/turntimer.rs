@@ -66,7 +66,7 @@ impl Table {
         if !self.still_the_same_turn(seat, started) {
             return;
         }
-        tracing::info!(code = %self.code, player = seat, "turn timeout, auto-acting");
+        tracing::info!(player = seat, "turn timeout, auto-acting");
         let s = seat as usize;
         if self.kick_if_afk(cx, s) {
             return;
@@ -75,7 +75,7 @@ impl Table {
             return;
         }
         if let Err(e) = self.room.pass_turn(seat, clock::now_ms()) {
-            tracing::info!(code = %self.code, player = seat, "turn timeout pass error err={e}");
+            tracing::info!(player = seat, "turn timeout pass error err={e}");
             return;
         }
         self.schedule_turn_timer(cx);
@@ -114,7 +114,7 @@ impl Table {
             if self.room.status != Status::Playing {
                 return false;
             }
-            tracing::info!(code = %self.code, player = seat, threshold = self.afk_threshold(), "AFK forfeit");
+            tracing::info!(player = seat, threshold = self.afk_threshold(), "AFK forfeit");
             if let Some(c) = &client {
                 c.send(ServerMsg::Error(ErrorMsg {
                     error: "afk_forfeit".into(),
@@ -125,7 +125,7 @@ impl Table {
             return true;
         }
         let Some(c) = client else { return false };
-        tracing::info!(code = %self.code, player = seat, threshold = self.afk_threshold(), "AFK kick");
+        tracing::info!(player = seat, threshold = self.afk_threshold(), "AFK kick");
         c.send(ServerMsg::Error(ErrorMsg {
             error: "afk_kicked".into(),
             ..Default::default()
@@ -146,7 +146,7 @@ impl Table {
         }
         let prior = state.hands[seat].cards.len();
         if let Err(e) = self.room.draw_card(seat as i32, clock::now_ms()) {
-            tracing::info!(code = %self.code, player = seat, "turn timeout draw error err={e}");
+            tracing::info!(player = seat, "turn timeout draw error err={e}");
             return false;
         }
         self.schedule_turn_timer(cx);

@@ -316,7 +316,7 @@ impl Table {
     /// The matchmaking reveal's way into the same deal.
     pub(crate) fn start_match(&mut self, cx: &TableCtx) {
         if let Err(e) = self.room.start(clock::now_ms()) {
-            tracing::warn!(code = %self.code, "matchmade start failed err={e}");
+            tracing::warn!("matchmade start failed err={e}");
             return;
         }
         self.deal_match(cx);
@@ -330,7 +330,6 @@ impl Table {
             .matches_started
             .fetch_add(1, Ordering::Relaxed);
         tracing::info!(
-            code = %self.code,
             players = self.room.players.len(),
             format = match_format_string(self.room.format).as_str(),
             matchmade = self.is_matchmade(),
@@ -441,7 +440,7 @@ impl Table {
         let Some(target) = self.client(seat).cloned() else {
             // No socket at that slot: in a lobby that is a bot.
             self.remove_unmanned_seat(cx, seat);
-            tracing::info!(code = %self.code, nickname = %nickname, bot = true, "player kicked");
+            tracing::info!(nickname = %nickname, bot = true, "player kicked");
             return;
         };
         // The seat first, the notice second: the removed client is out of the
@@ -449,7 +448,7 @@ impl Table {
         // itself.
         self.release_seat(cx, &target);
         target.send(ServerMsg::Kicked(Default::default()));
-        tracing::info!(code = %self.code, nickname = %nickname, bot = false, "player kicked");
+        tracing::info!(nickname = %nickname, bot = false, "player kicked");
     }
 
     /// Hands the table over: a swap of seat 0 with the target, the token
@@ -493,14 +492,14 @@ impl Table {
                 }));
             }
         }
-        tracing::info!(code = %self.code, nickname = %nickname, "host transferred");
+        tracing::info!(nickname = %nickname, "host transferred");
     }
 
     /// Drops a seat with no socket behind it and re-bases everything above it.
     pub(crate) fn remove_unmanned_seat(&mut self, cx: &TableCtx, seat: usize) {
         let nickname = self.room.players[seat].nickname.clone();
         if let Err(e) = self.room.remove_lobby_player(seat as i32) {
-            tracing::warn!(code = %self.code, player = seat, "RemoveLobbyPlayer failed err={e}");
+            tracing::warn!(player = seat, "RemoveLobbyPlayer failed err={e}");
             return;
         }
         if self.is_bot(seat) {
@@ -526,12 +525,12 @@ impl Table {
 
     fn handle_cleanup(&mut self, cx: &TableCtx, empty_at: Instant) {
         if self.empty_at != Some(empty_at) {
-            tracing::info!(code = %self.code, "room cleanup skipped, room rejoined");
+            tracing::info!("room cleanup skipped, room rejoined");
             return;
         }
         if !self.all_seats_empty() {
             self.empty_at = None;
-            tracing::info!(code = %self.code, "room cleanup skipped, active members still present");
+            tracing::info!("room cleanup skipped, active members still present");
             return;
         }
         let code = self.code.clone();
@@ -547,7 +546,7 @@ impl Table {
         {
             return false;
         }
-        tracing::info!(code = %self.code, "match abandoned, closing table");
+        tracing::info!("match abandoned, closing table");
         let code = self.code.clone();
         cx.hub
             .post_to_router("delete_abandoned", move |core| core.delete_room(&code));

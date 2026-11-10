@@ -74,14 +74,13 @@ impl Table {
         let askers = self.rematch_askers();
         self.prune_absent_players();
         if let Err(e) = self.room.reset_for_rematch() {
-            tracing::warn!(code = %self.code, "rematch reset failed err={e}");
+            tracing::warn!("rematch reset failed err={e}");
             return;
         }
         self.promote_rematch_host(&askers);
         self.keep_host_human(cx);
         self.reset_for_next_match();
         tracing::info!(
-            code = %self.code,
             players = self.room.players.len(),
             format = match_format_string(self.room.format).as_str(),
             "rematch opened"
@@ -125,11 +124,11 @@ impl Table {
             }
             let nickname = self.room.players[seat].nickname.clone();
             if let Err(e) = self.room.swap_lobby_players(0, seat as i32) {
-                tracing::warn!(code = %self.code, seat, "rematch host promotion failed err={e}");
+                tracing::warn!(seat, "rematch host promotion failed err={e}");
                 return;
             }
             self.swap_seats(0, seat);
-            tracing::info!(code = %self.code, seat, nickname = %nickname, "rematch host promoted");
+            tracing::info!(seat, nickname = %nickname, "rematch host promoted");
             return;
         }
     }
@@ -179,11 +178,11 @@ impl Table {
                 continue;
             }
             if let Err(e) = self.room.remove_lobby_player(id as i32) {
-                tracing::warn!(code = %self.code, player = id, "prune failed err={e}");
+                tracing::warn!(player = id, "prune failed err={e}");
                 continue;
             }
             self.drop_seat(id);
-            tracing::info!(code = %self.code, player = id, "pruned absent player");
+            tracing::info!(player = id, "pruned absent player");
         }
     }
 }

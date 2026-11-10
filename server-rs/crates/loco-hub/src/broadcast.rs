@@ -24,7 +24,7 @@ impl Table {
         let s = match serde_json::to_string(&msg) {
             Ok(s) => s,
             Err(e) => {
-                tracing::warn!(code = %self.code, "broadcast marshal error err={e}");
+                tracing::warn!("broadcast marshal error err={e}");
                 return;
             }
         };
@@ -102,7 +102,7 @@ impl Table {
             return;
         }
         let seat = c.player_id();
-        tracing::info!(conn = %c.conn_id, code = %self.code, player = seat, reason = %err, "state resync");
+        tracing::info!(conn = %c.conn_id, player = seat, reason = %err, "state resync");
         c.send(ServerMsg::GameState(GameStateMsg {
             state: Some(self.player_game_state_using(seat, self.player_list())),
             ..Default::default()

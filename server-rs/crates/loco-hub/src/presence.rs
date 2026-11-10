@@ -70,7 +70,7 @@ impl Table {
         }
         let seat = c.player_id();
         let nickname = self.nickname_of(seat);
-        tracing::info!(code = %self.code, nickname = %nickname, player_id = seat, "player disconnected");
+        tracing::info!(nickname = %nickname, player_id = seat, "player disconnected");
         let status = self.room.status;
 
         // A match, a finished ordinary table, and a matchmade reveal hold the
@@ -143,7 +143,7 @@ impl Table {
     pub(crate) fn reindex_lobby_disconnect(&mut self, cx: &TableCtx, c: &Arc<Client>) -> bool {
         let leaving = c.player_id();
         if let Err(e) = self.room.remove_lobby_player(leaving as i32) {
-            tracing::warn!(code = %self.code, player = leaving, "RemoveLobbyPlayer failed err={e}");
+            tracing::warn!(player = leaving, "RemoveLobbyPlayer failed err={e}");
         }
         let has_human = self.drop_client(c, leaving);
         self.keep_host_human(cx);
@@ -152,14 +152,14 @@ impl Table {
 
     pub(crate) fn handle_expire_reconnect(&mut self, cx: &TableCtx, hint: usize, at: Instant) {
         let Some(seat) = self.held_seat_at(hint, at) else {
-            tracing::info!(code = %self.code, player = hint, "reconnect expiry skipped, hold cleared or superseded");
+            tracing::info!(player = hint, "reconnect expiry skipped, hold cleared or superseded");
             return;
         };
         cx.hub
             .metrics()
             .reconnect_expirations
             .fetch_add(1, Ordering::Relaxed);
-        tracing::info!(code = %self.code, player = seat, "reconnect window expired");
+        tracing::info!(player = seat, "reconnect window expired");
         self.away_at.remove(&seat);
         let nickname = self.nickname_of(seat);
         // Absent for good: the roster must stop calling it connected.
@@ -174,7 +174,7 @@ impl Table {
                     removed = true;
                 }
                 Err(e) => {
-                    tracing::warn!(code = %self.code, player = seat, "expiry remove failed err={e}")
+                    tracing::warn!(player = seat, "expiry remove failed err={e}")
                 }
             }
         }
@@ -246,7 +246,7 @@ impl Table {
         // The counter measured a connection that died; a reclaim is somebody
         // there.
         self.afk.remove(&seat);
-        tracing::info!(code = %self.code, nickname = %nickname, player_id = seat, "player reconnected");
+        tracing::info!(nickname = %nickname, player_id = seat, "player reconnected");
         let tok = self.issue_token(seat);
         // A reclaim at a finished table gets no board: the match is over.
         let state = (self.room.status == Status::Playing).then(|| self.player_game_state(seat));

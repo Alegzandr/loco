@@ -139,7 +139,6 @@ impl Table {
                 .matches_finished
                 .fetch_add(1, Ordering::Relaxed);
             tracing::info!(
-                code = %self.code,
                 winner = %self.room.match_winner,
                 round = self.room.round_number,
                 of = crate::convert::match_format_string(self.room.format).as_str(),
@@ -156,7 +155,7 @@ impl Table {
         }
 
         if let Err(e) = self.room.begin_next_round(clock::now_ms()) {
-            tracing::warn!(code = %self.code, "BeginNextRound failed err={e}");
+            tracing::warn!("BeginNextRound failed err={e}");
             return;
         }
         self.schedule_turn_timer(cx);
