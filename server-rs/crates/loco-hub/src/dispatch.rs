@@ -135,7 +135,7 @@ pub fn post_to_table(core: &HubCore, c: &Arc<Client>, job: TableJob) -> bool {
 
 impl Table {
     /// The table's half of routing, on its own task.
-    pub(crate) fn dispatch_at_table(&mut self, cx: &TableCtx, c: &Arc<Client>, msg: ClientMsg) {
+    pub fn dispatch_at_table(&mut self, cx: &TableCtx, c: &Arc<Client>, msg: ClientMsg) {
         // Routed while the sender sat here; re-checked, because the seat can
         // have been given up, held or re-based since.
         if c.room_code().as_deref() != Some(self.code.as_str()) {

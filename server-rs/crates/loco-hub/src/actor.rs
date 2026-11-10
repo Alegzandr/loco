@@ -87,6 +87,22 @@ pub struct TableCtx {
     pub me: TableSender,
 }
 
+impl TableCtx {
+    /// A context for driving a `Table` by hand, with no task behind it: what
+    /// it posts to itself goes nowhere. The white-box tests and the benches
+    /// drive tables this way.
+    pub fn detached(hub: &Hub, code: &str) -> TableCtx {
+        let (tx, _rx) = mpsc::channel(TABLE_BOX_DEPTH);
+        TableCtx {
+            hub: hub.clone(),
+            me: TableSender {
+                code: Arc::from(code),
+                tx,
+            },
+        }
+    }
+}
+
 /// Whether a shutdown would interrupt something here: a match being played, or
 /// a matchmade pair whose reveal is running and whose deal is already
 /// scheduled. An ordinary lobby is not, because a drain refuses `start_game`.
