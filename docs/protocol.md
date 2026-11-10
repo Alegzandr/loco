@@ -2,11 +2,58 @@
 
 All messages are JSON over a single WebSocket per player.
 
-**`server/protocol/` is the source.** `messages.go` holds the envelopes and DTOs, `enums.go` the wire
-enums (pinned to the domain by `enums_test.go`), and `make protocol` generates the client's
-`src/types/protocol.ts` and `src/types/protocolSchemas.ts` from them. Those two files carry a
-"do not edit" header and CI fails on any difference. This page is prose for humans and is the one
-description of the wire that a program does not check: when it disagrees with the Go, the Go wins.
+**`server-rs/crates/loco-protocol/` is the source.** `client.rs` holds `ClientMsg`, `server.rs`
+`ServerMsg`, `dto.rs` the records they carry and `enums.rs` the wire enums (pinned to `loco-game` by
+`tests/enums.rs`). `make protocol` runs `server-rs/crates/protocolgen`, which writes the client's
+`src/types/protocol.ts` (by `ts-rs`) and `src/types/protocolSchemas.ts` (a JSON Schema by
+`schemars`, turned into Valibot by `tools/protocol/valibot.mjs`). Those two files carry a "do not
+edit" header and CI (`protocol_check_rs`) fails on any difference. This page is prose for humans and
+is the one description of the wire that a program does not check: when it disagrees with the crate,
+the crate wins.
+
+Until the cutover the server that runs is still the Go one (`server/protocol/`). The two describe the
+same bytes, and that is checked rather than hoped: see "Parity fixtures" below.
+
+### The shape
+
+`ClientMsg` and `ServerMsg` are tagged unions on `type`: one variant per message, each carrying the
+fields its handler reads or the hub writes, and nothing else. The JSON is flat, `type` beside the
+fields, exactly as the Go envelope wrote it. The omission rules are Go's, mechanically:
+
+- a Go `omitempty` field is skipped when zero (`#[serde(default, skip_serializing_if)]`) and
+  optional in TypeScript;
+- a Go pointer is an `Option`, skipped when `None` and optional in TypeScript, so **a zero behind it
+  is written**: seat 0, `pending_draw: 0`, `interrupt_open: false`;
+- anything else is always written, zero included, and required (`turn` on the four messages that
+  carry it, `drawn_count` on `card_drawn`, every DTO field without `omitempty`).
+
+One wrinkle is kept on purpose. The Go envelope never omitted `turn` or `drawn_count`, so it wrote
+`"turn":0,"drawn_count":0` on **every** message, `players_online` and `error` included. The Rust
+serializer writes the same two zeros beside every payload that does not own them (`server.rs`,
+`Wire`), so the bytes do not move; the generated TypeScript does not mention them there, and no
+client reads them. They go when the Go server does, in one place.
+
+The client reads a message by switching on `msg.type`, which narrows the union: a field is only
+readable on the messages that carry it (`client/src/hooks/serverMessages.ts`). `ServerMsgOf<'x'>`
+names one variant.
+
+Decoding a client message is a little stricter than Go's was, in one place: a `type` the server does
+not know, or an enum value outside the wire set (`chosen_color: "purple"`, an unknown emote), fails
+at decoding rather than in the handler. Case still does not matter for colours, kinds and formats,
+and an empty `chosen_color` still reads as `wild`, as Go's `parseColor` did. Stray fields are still
+ignored: Go accepted every field on every message, and so does serde.
+
+### Parity fixtures
+
+`server-rs/crates/loco-protocol/tests/fixtures/server-go.jsonl` (196 frames, every server message
+type) and `client-go.jsonl` (62 frames) are real frames from the Go server, and `tests/parity.rs`
+reads each into the Rust type and writes it back out: it must come out equal, as JSON, to what Go put
+on the wire. To recapture them (needed only if the Go wire changes before the cutover): add a
+temporary tee of every outbound frame (`Client.SendBytes`) and every inbound one (before the
+`json.Unmarshal` in `readPump`) to two files, run `go test -count=1 ./hub/`, keep one frame per
+distinct shape with `node tools/protocol/sample-frames.mjs capture.jsonl`, and do not commit the tee.
+The fixtures in the repository were captured that way from the whole hub suite (about 4,200 outbound
+and 1,400 inbound frames).
 
 ## Client → Server
 
