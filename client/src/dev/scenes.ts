@@ -440,7 +440,7 @@ export const SCENES: Scene[] = [
     overlay: 'rules-cards',
   },
   // Confidentialité, conditions et crédits ne sont plus une modale : ce sont des
-  // pages Astro (/privacy/, /fr/confidentialite/), donc rien à photographier ici.
+  // pages prérendues (/privacy/, /fr/confidentialite/), donc rien à photographier ici.
   {
     id: 'waiting-host',
     title: 'Salon · hôte',
@@ -877,7 +877,7 @@ export const SCENES: Scene[] = [
   // CSS table will sit. `make rooms` (tools/rooms/shoot.mjs) shoots these six
   // into client/src/assets/rooms/ and commits them; a content page ships no
   // script, so a photograph of the render is the only way it can show the
-  // room. The hours here and `SIGNATURE` in content/TablesArticle.astro are
+  // room. The hours here and `SIGNATURE` in content/TablesArticle.svelte are
   // one list, pinned by contentPages.test.ts.
   ...(
     [

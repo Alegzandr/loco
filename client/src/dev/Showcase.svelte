@@ -168,7 +168,7 @@
     if (scene) applyScene(scene)
 
     // What App.svelte does for every screen but the lobby, and the showcase does
-    // not mount App. Without it `GamePage.astro`'s footer stays up in every
+    // not mount App. Without it `GamePage.svelte`'s footer stays up in every
     // captured scene, and its burger — positioned top left, z-index 61 — lands on
     // the round indicator in every board screenshot. The contact sheets are the
     // review tool, so a scene that lies about its own chrome is worse than no

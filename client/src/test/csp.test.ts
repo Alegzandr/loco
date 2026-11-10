@@ -11,9 +11,10 @@
  * adding an inline script, a CDN or a `new Worker()` goes red here instead of in
  * front of players.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
+import { hashesConf, inlineScriptHashes, metaScriptHashes } from '../../scripts/csp-hashes.mjs'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 const conf = readFileSync(path.join(CLIENT, 'nginx.conf'), 'utf8')
@@ -24,14 +25,24 @@ const conf = readFileSync(path.join(CLIENT, 'nginx.conf'), 'utf8')
  */
 const headersConf = readFileSync(path.join(CLIENT, 'security-headers.conf'), 'utf8')
 
-/** Every .astro file: the layouts and pages that produce the served HTML. */
-function astroSources(dir: string, out: string[] = []): string[] {
+/**
+ * Every file that produces served HTML: the one template, and every Svelte
+ * component — a page, a layout, an article, or a component one of those
+ * prerenders into the document.
+ */
+function markupSources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
-    if (statSync(full).isDirectory()) astroSources(full, out)
-    else if (entry.endsWith('.astro')) out.push(full)
+    if (statSync(full).isDirectory()) {
+      if (entry !== 'test') markupSources(full, out)
+    } else if (entry.endsWith('.svelte') || entry === 'app.html') out.push(full)
   }
   return out
+}
+
+/** A component's markup: the file with its own `<script>` blocks taken out. */
+function markupOf(src: string): string {
+  return src.replace(/<script\b[^>]*\blang="ts"[^>]*>[\s\S]*?<\/script>/g, '')
 }
 
 /** Every .ts/.tsx/.svelte file: the app that ends up in the bundle. */
@@ -44,9 +55,9 @@ function bundledSources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-const astroFiles = astroSources(path.join(CLIENT, 'src'))
+const markupFiles = markupSources(path.join(CLIENT, 'src'))
 /** All of them concatenated, which is what ends up in one page or another. */
-const markup = astroFiles.map((f) => readFileSync(f, 'utf8')).join('\n')
+const markup = markupFiles.map((f) => markupOf(readFileSync(f, 'utf8'))).join('\n')
 
 /** The value of an `add_header <name> "..."` line, plus whether it is `always`. */
 function header(name: string): { value: string; always: boolean } {
@@ -84,50 +95,88 @@ function appSources(dir: string, out: string[] = []): string[] {
 }
 
 describe('Content-Security-Policy (client/nginx.conf)', () => {
-  it('keeps script-src closed, and no page inlines a script', () => {
-    // These two facts hold each other up. A plain <script> in an .astro file is
-    // bundled to an external module, which the policy allows; `is:inline` tells
-    // Astro to emit it verbatim into the HTML, which the policy refuses. The
-    // difference is one directive in the markup and a blank page in production,
-    // and nothing else would catch it: the dev server sends no CSP.
-    expect(directive('script-src')).toBe("'self'")
-    for (const file of astroFiles) {
-      const src = readFileSync(file, 'utf8')
-      for (const tag of src.match(/<script[^>]*\bis:inline\b[^>]*>/gi) ?? []) {
-        // The one exception, and it is not an exception to the policy: a script
-        // whose type is not a JavaScript MIME type is a data block that is never
-        // executed, so script-src does not apply to it. Structured data has to
-        // be inline to be read at all. Anything else inlined here is refused in
-        // production and nowhere else.
+  it('keeps script-src closed to everything but this origin and the hashes the build wrote', () => {
+    // No 'unsafe-inline', ever. The one inline script a page carries is the
+    // bootstrap SvelteKit writes to start its router, and it is allowed by its
+    // hash: `$loco_script_hashes`, set by the generated `csp-hashes.conf` this
+    // file includes on the line before the header.
+    expect(directive('script-src')).toBe("'self' $loco_script_hashes")
+    const include = headersConf.indexOf('include /etc/nginx/csp-hashes.conf;')
+    expect(include, 'security-headers.conf must include the generated hashes').toBeGreaterThan(-1)
+    expect(include).toBeLessThan(headersConf.indexOf('add_header Content-Security-Policy'))
+  })
+
+  it('writes no inline script into a page by hand', () => {
+    // The bootstrap is SvelteKit's and is hashed for us. One written into the
+    // markup would be hashed too, but by a list nobody reviews, so the rule is
+    // that our own markup carries none. The one exception is not an exception
+    // to the policy: a script whose type is not a JavaScript MIME type is a data
+    // block that is never executed, so script-src does not apply to it, and
+    // structured data has to be inline to be read at all (layouts/Head.svelte).
+    for (const file of markupFiles) {
+      const src = markupOf(readFileSync(file, 'utf8'))
+      for (const tag of src.match(/<script\b[^>]*>/gi) ?? []) {
         expect(
           /type=["']application\/ld\+json["']/i.test(tag),
-          `${path.relative(CLIENT, file)} inlines an executable <script>, which script-src refuses`,
+          `${path.relative(CLIENT, file)} inlines an executable <script>`,
         ).toBe(true)
       }
     }
   })
 
-  it('mounts no Astro island, whose runtime is inlined by construction', () => {
-    // This is the trap the migration to Astro walked into once already. A
-    // `client:*` directive makes Astro emit its hydration runtime as two inline
-    // <script> blocks — not `is:inline`, not opt-in, and not removable by
-    // config. `security.csp` answers this with hashes in a <meta>, which does
-    // not help: a meta policy and this header are both enforced, so the header
-    // still refuses them and the page renders blank in production alone.
-    //
-    // The game is mounted by src/entry.ts through an ordinary bundled <script>
-    // instead, and the content pages need no client JS at all.
-    for (const file of astroFiles) {
-      const src = readFileSync(file, 'utf8')
-      const island = /\bclient:(load|idle|visible|media|only)\b/.exec(src)
-      expect(island?.[0], `${path.relative(CLIENT, file)} mounts an island; its runtime is inline`).toBeUndefined()
+  it('hashes every inline script the build emits, and only executable ones', () => {
+    // What replaced the island ban. Astro inlined its hydration runtime and
+    // could only put the hash in a <meta>, which a header policy does not
+    // loosen; the build now reads the hashes out of its own HTML into the
+    // header. This is that reader, run on a page shaped like a built one.
+    const boot = 'kit.start(app, element, {})'
+    const page =
+      '<head><meta http-equiv="content-security-policy" content="script-src \'self\' \'sha256-x\'">' +
+      '<script type="application/ld+json">{"@type":"WebPage"}</script>' +
+      '<script type="module" src="/_app/a.js"></script></head>' +
+      `<body><div><script>${boot}</script></div></body>`
+    const hashes = inlineScriptHashes(page)
+    expect(hashes).toHaveLength(1)
+    expect(hashes[0]).toMatch(/^'sha256-[A-Za-z0-9+/]+=*'$/)
+    expect(metaScriptHashes(page)).toEqual(["'sha256-x'"])
+    expect(hashesConf([...hashes, ...hashes])).toMatch(/^set \$loco_script_hashes "'sha256-[^' ]+'";$/m)
+  })
+
+  it('ships the hashes with the image, from the HTML in that image', () => {
+    // Generated by the build, copied from the builder stage: a copy from the
+    // context would be the hashes of some other build's pages.
+    const pkg = JSON.parse(readFileSync(path.join(CLIENT, 'package.json'), 'utf8'))
+    expect(pkg.scripts.build).toMatch(/vite build && node scripts\/csp-hashes\.mjs/)
+    const docker = readFileSync(path.join(CLIENT, 'Dockerfile'), 'utf8')
+    expect(docker).toMatch(/COPY --from=builder \/app\/csp-hashes\.conf \/etc\/nginx\/csp-hashes\.conf/)
+    const vite = readFileSync(path.join(CLIENT, 'vite.config.ts'), 'utf8')
+    expect(vite).toMatch(/mode: 'hash'/)
+  })
+
+  it('covers every bootstrap of the last build, when there is one', () => {
+    // CI runs this before building, so it can only check a build that exists;
+    // `npm run build` fails on a miss itself, and `make csp` loads the pages
+    // behind the real header. Locally, after a build, this is the quick check.
+    const build = path.join(CLIENT, 'build')
+    const conf = path.join(CLIENT, 'csp-hashes.conf')
+    if (!existsSync(build) || !existsSync(conf)) return
+    const allowed = readFileSync(conf, 'utf8')
+    const walk = (d: string): string[] =>
+      readdirSync(d).flatMap((e) => {
+        const full = path.join(d, e)
+        return statSync(full).isDirectory() ? walk(full) : e.endsWith('.html') ? [full] : []
+      })
+    for (const file of walk(build)) {
+      for (const hash of inlineScriptHashes(readFileSync(file, 'utf8'))) {
+        expect(allowed, `${path.relative(build, file)}: ${hash}`).toContain(hash)
+      }
     }
   })
 
   it("keeps 'unsafe-inline' in style-src, which the app still needs", () => {
     // Not an oversight. The board is a fixed coordinate space and every card,
     // seat and pile is placed by a `style` attribute holding its pixel position;
-    // Astro additionally inlines the stylesheets. Dropping this directive takes
+    // the build additionally inlines the stylesheets. Dropping this directive takes
     // the layout with it.
     expect(directive('style-src')).toContain("'unsafe-inline'")
 
@@ -207,7 +256,7 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
     // from an outer level *only while the inner level declares none of its own*.
     // One `add_header Cache-Control` inside a location block therefore drops
     // every security header the server block set — for every response that block
-    // serves. `location /_astro/` did this, so the whole JS bundle and every
+    // serves. The bundle's location (`/_astro/` then) did this, so the whole JS bundle and every
     // optimised asset went out bare while the document response kept all four.
     //
     // Nothing else catches it. `tools/csp/check.mjs` reads headers off the
@@ -430,7 +479,7 @@ describe('the app stays inside the policy', () => {
 
     // Every src in a component or a page is relative or bound. An absolute one
     // is the shape the CSP refuses, whichever host it names.
-    const withSrc = [...sources, ...astroFiles].filter(f => /\.(svelte|astro)$/.test(f))
+    const withSrc = [...sources, ...markupFiles].filter(f => /\.(svelte|html)$/.test(f))
     const absolute: string[] = []
     for (const file of withSrc) {
       if (/src=["']https?:\/\//.test(readFileSync(file, 'utf8'))) absolute.push(path.relative(CLIENT, file))

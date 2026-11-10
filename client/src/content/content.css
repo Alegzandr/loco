@@ -3,7 +3,7 @@
  * page carries.
  *
  * Plain CSS on top of `styles/tokens.css`, not a CSS module, because these pages
- * ship no JavaScript at all and the classes are written by hand in .astro files.
+ * are prerendered markup and the classes are written by hand in their .svelte files.
  * Everything here obeys the three rules at the top of tokens.css: an ink outline
  * and a hard bottom shadow on anything raised, never white on white, and type
  * big enough to be read from across a room.
@@ -18,7 +18,7 @@
  * owns the viewport; these are ordinary documents that scroll.
  */
 
-/* A document, not the game. The reset in Base.astro kills text selection, which
+/* A document, not the game. The reset in styles/base.css kills text selection, which
    is right for a board you drag cards across and wrong for a page of rules
    somebody wants to quote. */
 body.doc {
@@ -112,21 +112,18 @@ html[data-scroll="smooth"]:has(body.doc) {
  * edge to edge; the row inside keeps `--shell`, which is what keeps the logo on
  * the same x as the <h1>.
  *
- * Near-opaque over a blur, the way the game's scrims sit over a board: the
- * canvas under it is a gradient now, and a flat band of one colour across a
- * gradient is a seam. At 92% of the canvas nothing under it is legible enough
- * to compete with the mark and the button, which was the reason it used to be
- * opaque; the blur is the frosted glass the rest of the product's overlays
- * wear, and on a static page it costs nothing per frame. The hairline is the
- * footer's border-top mirrored, so the page is a column between two rules.
+ * Opaque canvas. It wore frosted glass (92% of the canvas over a 14px blur)
+ * while the page under it was a gradient; the landings are flat now
+ * (`body.doc`), so the band of one colour is no seam, and DESIGN.md's No-Glass
+ * Rule keeps backdrop blur for the modal scrim alone. The hairline is the bar's
+ * border-top mirrored, so the page is a column between two rules — the same
+ * two as the game's own entry screen has one of.
  */
 .headerBar {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--color-canvas) 92%, transparent);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  background: var(--color-canvas);
   border-bottom: 2px solid var(--color-hairline);
 }
 
@@ -341,7 +338,7 @@ html[data-scroll="smooth"]:has(body.doc) {
    Filled by content/liveList.ts, and served hidden: what stands in for it in
    the markup is a paragraph that answers both an empty category and a browser
    with no scripts. Every selector here is scoped to a class like everything
-   else in this file, because GamePage.astro loads it too. */
+   else in this file, because GamePage.svelte loads it too. */
 .liveList {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -561,7 +558,7 @@ html[data-scroll="smooth"]:has(body.doc) {
 }
 
 /* Every rule below is scoped to `.tableWrap`, and that scope is the whole point.
-   This stylesheet is loaded by `GamePage.astro` as well as by the content pages,
+   This stylesheet is loaded by `GamePage.svelte` as well as by the content pages,
    so a bare `table`/`th`/`td` rule here reaches every table the *game* draws.
    `thead th`'s ink fill is what that cost: it landed behind the score table's
    and the recap's column heads, both of which set `--color-muted` believing they
@@ -1010,17 +1007,23 @@ html[data-scroll="smooth"]:has(body.doc) {
 /* ── The footer bar ────────────────────────────────────────────────────── */
 
 /*
- * The same row the home page carries under the game, pinned to the bottom of
- * the viewport instead of to the end of the document: on `/` it is always in
- * sight because that page is exactly one viewport, and a page that scrolls only
- * keeps that promise by staying put. Deliberately quiet — it is navigation
- * between pages, not the thing anybody came for — and deliberately the same five
- * links in the same order, so arriving from the home page changes nothing.
+ * The site's one bar (layouts/SiteFooter.svelte), on every page that is not a
+ * seat. Deliberately quiet — it is navigation between pages, not the thing
+ * anybody came for — and the same links in the same order everywhere.
  *
- * It is written here rather than shared with GamePage.astro because that page's
- * copy has a job this one does not: it disappears on `data-seated`, and it must
- * keep the whole page inside one viewport. Two short rulesets that look alike
- * beat one that has to be true of both.
+ * It was two once: this one, and a footer row under the game that the game
+ * page styled itself, on the argument that two short rulesets that look alike
+ * beat one that has to be true of both. They drifted — padding, a hairline on
+ * one only, the legal link in the list on one and at the end on the other, a
+ * globe on one only — and moving from a content page to the game read as
+ * moving to another site. One ruleset now, true of both: pinned to the foot of
+ * a page that scrolls, in the flow of the one page that does not (`.onHome`),
+ * the same height in the same place either way, and held still across the
+ * router's cross-fade (`view-transition-name`, styles/base.css).
+ *
+ * Opaque canvas, not the frosted glass it wore: DESIGN.md's No-Glass Rule keeps
+ * backdrop blur for the modal scrim alone, and a bar that let the page show
+ * through it blurred was a panel made of glass.
  */
 .siteFooter {
   position: fixed;
@@ -1028,18 +1031,26 @@ html[data-scroll="smooth"]:has(body.doc) {
   left: 0;
   right: 0;
   bottom: 0;
+  padding: 0.7rem max(1.5rem, var(--safe-right)) max(0.7rem, var(--safe-bottom))
+    max(1.5rem, var(--safe-left));
+  border-top: 2px solid var(--color-hairline);
+  background: var(--color-canvas);
+  view-transition-name: site-footer;
+}
+
+/* On `/` the bar closes the one viewport rather than floating over a page that
+   scrolls: the game takes what is left above it (GamePage.css). */
+.siteFooter.onHome {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.footerRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 0.3rem 1.4rem;
-  padding: 0.7rem max(1.5rem, var(--safe-right)) max(0.7rem, var(--safe-bottom))
-    max(1.5rem, var(--safe-left));
-  border-top: 2px solid var(--color-hairline);
-  /* The header's glass, mirrored: see `.headerBar`. */
-  background: color-mix(in srgb, var(--color-canvas) 92%, transparent);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
 }
 
 .footerNav,
@@ -1121,7 +1132,8 @@ html[data-scroll="smooth"]:has(body.doc) {
 }
 
 /* "Play" stands where the home page's sheet button stands, and is underlined
-   the same way: the one link in the bar that leaves the pages behind. */
+   the same way (GamePage.css: `.homeSheetBtn`): the one thing in the bar that
+   is not a destination among the others. */
 .footerPlay {
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -1186,7 +1198,7 @@ html[data-scroll="smooth"]:has(body.doc) {
    button that opened it, and a panel hinged on the corner your thumb is already
    at reads as that button's contents. */
 .navPop {
-  /* The reset in Base.astro zeroes the `margin: auto` the UA centres a popover
+  /* The reset in styles/base.css zeroes the `margin: auto` the UA centres a popover
      with, so every edge is placed by hand here. */
   position: fixed;
   inset: 0 auto 0 0;
@@ -1437,7 +1449,7 @@ html[data-scroll="smooth"]:has(body.doc) {
  * a popover is.
  */
 .langPop {
-  /* Centred by hand rather than by the UA: the reset in Base.astro zeroes every
+  /* Centred by hand rather than by the UA: the reset in styles/base.css zeroes every
      margin, including the `margin: auto` a popover is centred with, so without
      these four lines the panel opens in the top-left corner. */
   position: fixed;

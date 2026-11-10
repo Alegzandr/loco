@@ -1,7 +1,7 @@
 /**
  * The half of "no accidental zoom at the table" that CSS cannot do.
  *
- * `touch-action: pan-x pan-y` under `[data-seated]` (layouts/Base.astro) is the
+ * `touch-action: pan-x pan-y` under `[data-seated]` (styles/base.css) is the
  * declaration, and Chrome honours it. WebKit does not for this gesture: on iOS,
  * pinch-to-zoom is a browser-level gesture that `touch-action` never reaches,
  * and the only thing that ever stopped it is refusing the non-standard
@@ -12,7 +12,7 @@
  * Two things this deliberately is not:
  *
  *   - **Not the viewport tag.** `user-scalable=no` and `maximum-scale` are
- *     refused for the whole site (see `layouts/Base.astro`, and `a11y.test.ts`
+ *     refused for the whole site (see `styles/base.css`, and `a11y.test.ts`
  *     which fails on either): they would take pinch-zoom from `/`, from the prose
  *     behind its sheet and from every content page — the surfaces somebody reads
  *     rather than plays. Safari has ignored both since iOS 10 anyway, so the tag

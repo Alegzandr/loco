@@ -33,7 +33,7 @@
   color-scheme: dark;
 
   /* ── Device safe areas ─────────────────────────────────────────────────────
-     The page runs `viewport-fit=cover` (see layouts/Base.astro), so it owns the notch
+     The page runs `viewport-fit=cover` (see src/app.html), so it owns the notch
      and the home-indicator band and the room's picture reaches every edge of
      the screen. Nothing a player has to read or press may sit there, so every
      piece of chrome anchored to an edge offsets itself by these, and the board's

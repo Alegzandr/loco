@@ -1,7 +1,7 @@
 /**
  * The home page, translated where it stands.
  *
- * `/` is half application and half markup Astro served, and only the first half
+ * `/` is half application and half markup the build served, and only the first half
  * speaks both languages. This is the second half: every string and every link
  * the layout renders per language also carries the other one, in `data-alt`,
  * `data-alt-href` and `data-alt-aria`, and this walks them.

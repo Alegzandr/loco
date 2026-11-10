@@ -71,7 +71,7 @@
     if (code === lang) return
     // The choice *is* the application, on every screen. `setLang` swaps the
     // game's strings where they stand and writes the choice down; the call under
-    // it does the same for the half of `/` that Astro served, and moves the
+    // it does the same for the prerendered half of `/`, and moves the
     // address bar to the URL a reload would need. Nothing is left disagreeing,
     // so there is nothing for a second press to protect.
     //
@@ -165,7 +165,7 @@
   control to press.
 
   It used to have two, because the page has two halves. Half of `/` is markup
-  Astro rendered — the footer row, the burger's drawer, the sheet of prose — and
+  prerendered — the footer row, the burger's drawer, the sheet of prose — and
   that half is built per URL, so no amount of in-app state changed a word of it:
   a switch that only called `setLang` left the game in French under a menu still
   reading "With friends". The entry screen therefore spent the choice as a real
@@ -175,7 +175,7 @@
   segmented pair is exactly how it did.
 
   The served half speaks both languages now (`src/langSwap.ts`, and the
-  `data-alt` attributes in `layouts/GamePage.astro`), so applying costs nothing
+  `data-alt` attributes in `layouts/GamePage.svelte`), so applying costs nothing
   anywhere: the game, the footer, the drawer, the prose and the tab's own label
   all change together, and the address bar moves to the URL a reload would need.
   A button that protects nothing is a step asked for nothing, and the hint under
