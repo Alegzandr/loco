@@ -16,6 +16,15 @@ import { cpus } from 'os'
  *
  * CI: server binary is started by the CI script before running tests.
  */
+/**
+ * Where the suite runs. :8080 for the game server and :4173 for the client are
+ * the defaults everywhere; `LOCO_E2E_WS_PORT` / `LOCO_E2E_CLIENT_PORT` move them
+ * so a second server (the Rust one during the migration) can be run against
+ * without stopping the first.
+ */
+const WS_PORT = process.env.LOCO_E2E_WS_PORT ?? '8080'
+const CLIENT_PORT = Number(process.env.LOCO_E2E_CLIENT_PORT ?? 4173)
+
 export default defineConfig({
   testDir: './tests',
   // What `fullyParallel` buys is the granularity CI shards at, and it is what
@@ -64,7 +73,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['junit', { outputFile: 'playwright-results.xml' }], ['list']] : [['list']],
 
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: `http://localhost:${CLIENT_PORT}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     // Suppress PixiJS WebGL warnings in test output
@@ -96,10 +105,10 @@ export default defineConfig({
     //
     // Environment goes through `env` rather than a shell prefix: the prefix form
     // is POSIX-only and fails when the suite is run from Windows.
-    command: `npm run dev -- --port 4173 --ignore-lock`,
+    command: `npm run dev -- --port ${CLIENT_PORT} --ignore-lock`,
     env: {
-      VITE_WS_PORT: '8080',
-      VITE_HMR_CLIENT_PORT: '4173',
+      VITE_WS_PORT: WS_PORT,
+      VITE_HMR_CLIENT_PORT: String(CLIENT_PORT),
       // No room. The suite drives real matches through the map-loading gate
       // and asserts nothing about what the gate was waiting for: appearance
       // is `make visual`'s, behaviour is this suite's. Rendering it anyway
@@ -122,7 +131,7 @@ export default defineConfig({
       REPL_ID: '',
     },
     cwd: resolve(__dirname, '../client'),
-    port: 4173,
+    port: CLIENT_PORT,
     timeout: 120_000,
     // Always launch an isolated dev server for deterministic E2E behavior.
     reuseExistingServer: false,
