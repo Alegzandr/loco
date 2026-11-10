@@ -31,6 +31,31 @@ services:
             timeout: 5s
             retries: 5
 
+    # The Rust server (server-rs/), prepared and not switched on. To try it,
+    # comment the `server` service above out and this one in: same port, same
+    # name, so the client below and its LOCO_SERVER_ORIGIN do not change.
+    # `cargo watch` rebuilds on every save; the first build takes a few minutes.
+    #
+    # server:
+    #     image: rust:1.97-bookworm
+    #     working_dir: /app
+    #     volumes:
+    #         - ./server-rs:/app
+    #         - cargo-registry:/usr/local/cargo/registry
+    #         - cargo-target:/app/target
+    #     environment:
+    #         - PORT=8080
+    #         - LOCO_E2E=1
+    #     ports:
+    #         - "8080:8080"
+    #     command: sh -c "cargo install --locked cargo-watch && cargo watch -x 'run -p loco-server'"
+    #     restart: unless-stopped
+    #     healthcheck:
+    #         test: ["CMD", "/app/target/debug/loco-server", "healthcheck"]
+    #         interval: 10s
+    #         timeout: 5s
+    #         retries: 30
+
     client:
         # Astro 7 declares engines.node >= 22.12; the image is the current LTS.
         image: node:24-alpine
@@ -77,3 +102,6 @@ services:
 volumes:
     go-mod-cache:
     client-node-modules:
+    # For the commented Rust server above.
+    # cargo-registry:
+    # cargo-target:

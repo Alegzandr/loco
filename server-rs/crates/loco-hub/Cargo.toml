@@ -32,6 +32,16 @@ tokio-tungstenite = { workspace = true, optional = true }
 [dev-dependencies]
 loco-hub = { path = ".", features = ["testkit"] }
 tokio = { workspace = true, features = ["test-util"] }
+criterion.workspace = true
+
+[[bench]]
+name = "hub"
+harness = false
+
+[lib]
+# The lib has no benchmarks of its own; without this `cargo bench` hands
+# criterion's flags to the libtest harness, which refuses them.
+bench = false
 
 [lints]
 workspace = true
