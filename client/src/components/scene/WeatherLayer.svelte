@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Weather } from './sky'
-  import { graphicsPref } from '../../hooks/uiPrefs.svelte'
+  import { graphicsPref, reducedMotion, weatherShed } from '../../hooks/uiPrefs.svelte'
+  import { startWeatherGovernor, weatherTier } from './weatherLoad'
   import { DRIFT_S, FALL_S, LEAN_DEG, SPLASH_S, SWAY, TILES, sheetStyle, tileUrl, type TileKind } from './weatherTiles'
 
   /**
@@ -33,7 +34,11 @@
    * snow. A percentage of the frame is never enough, because a tile is not one.
    *
    * How many sheets there are is the graphics tier's to say: rain and snow
-   * three on `high`, two on `medium`, one on `light`; fog two, two and one. Under reduced motion every layer holds
+   * three on `high`, two on `medium`, one on `light`; fog two, two and one.
+   * **Under `auto` the device has a say too** (`weatherLoad.ts`): the sheets are
+   * the one thing a match costs per frame, so a device that is not holding its
+   * rate under them gives a step up, and the room behind is left as rendered.
+   * Under reduced motion every layer holds
    * its first frame: the rain is still rain, drawn as streaks that do not
    * move, which is the readable static state motion is required to degrade
    * to.
@@ -48,10 +53,24 @@
      * the table they read as a pattern printed on the cloth.
      */
     clear?: string
+    /**
+     * The room's frame is on screen. Until it is, the main thread is building
+     * it and a slow frame says nothing about the weather.
+     */
+    settled?: boolean
   }
-  let { weather, dry = false, clear = '' }: Props = $props()
+  let { weather, dry = false, clear = '', settled = false }: Props = $props()
 
-  const tier = $derived(graphicsPref.tier)
+  // A tier the player chose is the player's: only `auto` is measured.
+  const tier = $derived(graphicsPref.current === 'auto' ? weatherTier(graphicsPref.tier, weatherShed.steps) : graphicsPref.tier)
+  const still = $derived(reducedMotion.current)
+
+  $effect(() => {
+    if (!settled || still || weather === 'clear') return
+    // Nothing left to give up, or not ours to give: no frame is asked for.
+    if (graphicsPref.current !== 'auto' || tier === 'light') return
+    return startWeatherGovernor()
+  })
   const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? Math.min(2, devicePixelRatio) : 1
 
   const rainKinds = $derived<TileKind[]>(
@@ -236,10 +255,13 @@
     opacity: 0.7;
   }
 
+  /* Only the band it is seen in: the haze starts 58% down the frame, and a
+     full-frame layer of it was 58% of a frame blended every frame for
+     nothing. */
   .mist {
     position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(200, 214, 236, 0) 0%, rgba(200, 214, 236, 0) 58%, rgba(200, 214, 236, 0.1) 84%, rgba(210, 222, 240, 0.18) 100%);
+    inset: 58% 0 0;
+    background: linear-gradient(180deg, rgba(200, 214, 236, 0) 0%, rgba(200, 214, 236, 0.1) 61.9%, rgba(210, 222, 240, 0.18) 100%);
   }
 
   /* ─── Snow ─────────────────────────────────────────────────────────────── */

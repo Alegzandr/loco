@@ -83,6 +83,14 @@
   let shown: PreparedScene | null = null
   /** The same entry, for the life layer: what moves belongs to the frame on screen. */
   let alive = $state<PreparedScene | null>(null)
+  /**
+   * Gives the frame underneath back once the new one has finished coming up.
+   * Both canvases are the size of the render, and the one going out is fully
+   * covered from then on: kept, it was a second room held in memory for the
+   * rest of the match after any resize.
+   */
+  let release: ReturnType<typeof setTimeout> | undefined
+  $effect(() => () => clearTimeout(release))
 
   $effect(() => {
     tableDrawn = drawn && tableFits(alive, size.current.width, size.current.height, anchor)
@@ -118,6 +126,14 @@
     shown = entry
     alive = entry
     if (!first) topIsA = !topIsA
+    // The next paint draws on the canvas this would empty, so it calls it off.
+    clearTimeout(release)
+    const under = c === canvasA ? canvasB : canvasA
+    release = setTimeout(() => {
+      if (!under || !under.isConnected) return
+      under.width = 0
+      under.height = 0
+    }, FADE_MS + 200)
     entering = true
     drawn = true
     void tick().then(() => {
@@ -209,6 +225,7 @@
   <WeatherLayer
     weather={scene.weather}
     dry={scene.map.dry ?? false}
+    settled={drawn}
     clear="radial-gradient({anchor.rx}px {anchor.ry}px at {anchor.cx}px {anchor.cy}px, transparent 99%, #000 100%)"
   />
 </div>
