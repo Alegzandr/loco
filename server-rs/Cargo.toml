@@ -51,6 +51,9 @@ criterion = "0.7"
 # Added by the server crates (agent D).
 httpdate = "1"
 sha2 = "0.10"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "server-graceful", "http1"] }
+tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 panic = "unwind"

@@ -17,6 +17,9 @@ loco-twitch.workspace = true
 axum.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+tower.workspace = true
 
 [dev-dependencies]
 loco-hub = { workspace = true, features = ["testkit"] }
