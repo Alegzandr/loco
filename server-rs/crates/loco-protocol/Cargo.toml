@@ -1,0 +1,21 @@
+[package]
+name = "loco-protocol"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+ts-rs.workspace = true
+schemars.workspace = true
+
+[features]
+# Pins the wire enums to `loco-game` (tests/enums.rs). Empty until that crate is
+# merged; the merge makes it `["dep:loco-game"]` with `loco-game` an optional
+# dependency. Until then the enums are pinned to the Go server's instead.
+domain = []
+
+[lints]
+workspace = true

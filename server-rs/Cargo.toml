@@ -41,6 +41,7 @@ ipnet = "2"
 subtle = "2"
 ts-rs = "11"
 schemars = "1"
+dprint-plugin-typescript = "=0.95"
 proptest = "1"
 insta = { version = "1", features = ["json"] }
 criterion = "0.7"
