@@ -24,6 +24,8 @@ pub mod emotes;
 pub mod gameplay;
 pub mod gotime;
 pub mod hub;
+#[cfg(test)]
+mod internal_tests;
 pub mod live;
 pub mod logsink;
 pub mod maploading;
