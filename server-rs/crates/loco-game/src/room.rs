@@ -1624,8 +1624,10 @@ pub enum Action {
     ResetForRematch,
 }
 
-/// What an applied action produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What an applied action produced. Serialisable (tagged `event`) so a test
+/// can snapshot a transcript; it is not a wire shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// An entry the action appended to the round's event log, in order.
     Logged(GameEvent),
