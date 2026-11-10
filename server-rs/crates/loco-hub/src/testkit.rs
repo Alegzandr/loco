@@ -83,6 +83,12 @@ pub async fn try_dial_ws(th: &TestHub, headers: &[(&str, &str)]) -> Result<Ws, t
     Ok(ws)
 }
 
+/// Opens a socket on any URL: for a binary that builds its own router.
+pub async fn dial_url(url: &str) -> Result<Ws, tungstenite::Error> {
+    let (ws, _) = tokio_tungstenite::connect_async(url).await?;
+    Ok(ws)
+}
+
 /// The HTTP status a refused upgrade answered with.
 pub fn refusal_status(err: &tungstenite::Error) -> Option<u16> {
     match err {

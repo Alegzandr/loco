@@ -1,0 +1,26 @@
+[package]
+name = "loco-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The binary: environment, routes, SIGTERM → drain → snapshot → shutdown."
+
+[[bin]]
+name = "loco-server"
+path = "src/main.rs"
+
+[dependencies]
+loco-game.workspace = true
+loco-hub.workspace = true
+loco-twitch.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+loco-hub = { workspace = true, features = ["testkit"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true
