@@ -1,17 +1,25 @@
-//! One table, as one thing. Port of `server/hub/table.go`.
+//! One table, as one thing. Port of `server/hub/table.go`, reshaped.
 //!
 //! Everything the hub knows about one room code is a field here, and nothing
 //! here is touched by any task but the table's own — which is why none of it is
-//! locked. Add per-table state as a field, never as a map somewhere else and
-//! never as something another task reads. The seat bookkeeping below is the
-//! only code allowed to move a seat: `seat`, `drop_seat`, `swap_seats`.
+//! locked.
+//!
+//! **A seat is one value.** Go kept seven structures keyed by seat number —
+//! the sockets, the session tokens, the holds, the departed, the bots, the AFK
+//! counters, the rematch asks — and every removal had to re-base all seven in
+//! one hand-maintained list (`shiftSeatKeys`), where a map added and not listed
+//! kept its old indices while the others moved. Here they are the fields of one
+//! [`Seat`] in one `Vec`: removing a seat is `Vec::remove`, a host transfer is
+//! `Vec::swap`, and there is nothing to forget. Who is in the chair is an
+//! [`Occupant`], so a seat cannot be at once held and seated, or a bot with a
+//! socket.
 
 use crate::actor::{Deadlines, Phase};
 use crate::client::Client;
 use crate::room::{Room, Status};
 use crate::wire::{LatencyEntry, msg};
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::time::Instant;
@@ -21,8 +29,11 @@ use tokio::time::Instant;
 pub struct MatchRecord {
     pub rounds_won: Vec<i64>,
     pub scores: Vec<i64>,
-    /// The seat that took the match, or -1 once that seat has left the table.
-    pub winner: i64,
+    /// The seat that took the match, or `None` once that seat has left the
+    /// table. Written as Go did, `-1` for nobody, so the snapshot keeps its
+    /// shape.
+    #[serde(serialize_with = "winner_out", deserialize_with = "winner_in")]
+    pub winner: Option<usize>,
     /// How long it was played. Zero is "cannot say" and stays off the wire.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub duration_ms: i64,
@@ -32,26 +43,66 @@ fn is_zero(v: &i64) -> bool {
     *v == 0
 }
 
+fn winner_out<S: Serializer>(w: &Option<usize>, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_i64(w.map_or(-1, |w| w as i64))
+}
+
+fn winner_in<'de, D: Deserializer<'de>>(d: D) -> Result<Option<usize>, D::Error> {
+    let v = i64::deserialize(d)?;
+    Ok(usize::try_from(v).ok())
+}
+
+/// Who is in a chair.
+#[derive(Clone, Debug)]
+pub enum Occupant {
+    /// A socket is sitting here.
+    Human(Arc<Client>),
+    /// The socket went and the player has the reconnect window to come back,
+    /// since this instant.
+    Held { since: Instant },
+    /// The hold ran out, or the player walked out, while the match was still
+    /// running: the seat stays (hands and turn order are indexed by it) and
+    /// the roster must stop calling it connected.
+    Gone,
+    /// Played by the server.
+    Bot,
+    /// Nobody, and nobody owed it: a socket swept away to another table, or a
+    /// hold the next match cleared.
+    Vacant,
+}
+
+/// One seat and everything the table keeps about it.
+#[derive(Clone, Debug)]
+pub struct Seat {
+    pub occupant: Occupant,
+    /// The proof a returning player has to produce. Spent and reissued on
+    /// every reclaim; travels with the player on a swap.
+    pub token: Option<String>,
+    /// Consecutive turn timeouts; any voluntary action clears it.
+    pub afk: i64,
+    /// This seat has asked for another match.
+    pub wants_rematch: bool,
+}
+
+impl Seat {
+    pub fn new(occupant: Occupant) -> Seat {
+        Seat {
+            occupant,
+            token: None,
+            afk: 0,
+            wants_rematch: false,
+        }
+    }
+}
+
 /// Everything the hub knows about one room code.
 pub struct Table {
     pub code: String,
     pub room: Room,
-
-    /// Indexed by seat; `None` is a seat whose socket has gone. Never written
-    /// directly: [`Table::seat`] and [`Table::drop_seat`] are the ways in.
-    pub members: Vec<Option<Arc<Client>>>,
-    /// The proof a returning player has to produce. Spent and reissued on
-    /// every reclaim.
-    pub tokens: BTreeMap<usize, String>,
-    /// When a held seat's socket went.
-    pub away_at: BTreeMap<usize, Instant>,
-    /// Seats whose hold expired while the match was still running.
-    pub gone: BTreeSet<usize>,
-    /// Seats nobody is sitting in.
-    pub bots: BTreeSet<usize>,
-    /// Consecutive turn timeouts; any voluntary action clears it.
-    pub afk: BTreeMap<usize, i64>,
-    pub rematch_offers: BTreeSet<usize>,
+    /// Indexed by seat number. Never written directly: [`Table::seat`],
+    /// [`Table::hold`], [`Table::drop_seat`] and [`Table::swap_seats`] are the
+    /// ways in, because a seat also lives in its client (`Client::seat`).
+    pub seats: Vec<Seat>,
     /// Every match this table has finished, oldest first. Survives
     /// `reset_for_next_match`; cleared only with the table.
     pub match_history: Vec<MatchRecord>,
@@ -88,8 +139,7 @@ impl std::fmt::Debug for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Table")
             .field("code", &self.code)
-            .field("seats", &self.members.len())
-            .field("bots", &self.bots)
+            .field("seats", &self.seats)
             .finish_non_exhaustive()
     }
 }
@@ -101,13 +151,7 @@ impl Table {
         Table {
             code: code.to_owned(),
             room,
-            members: Vec::new(),
-            tokens: BTreeMap::new(),
-            away_at: BTreeMap::new(),
-            gone: BTreeSet::new(),
-            bots: BTreeSet::new(),
-            afk: BTreeMap::new(),
-            rematch_offers: BTreeSet::new(),
+            seats: Vec::new(),
             match_history: Vec::new(),
             match_started_at: None,
             turn_started_at: None,
@@ -134,23 +178,97 @@ impl Table {
 
     // ── who is where ────────────────────────────────────────────────────────
 
+    fn occupant(&self, seat: usize) -> Option<&Occupant> {
+        self.seats.get(seat).map(|s| &s.occupant)
+    }
+
     /// The socket at a seat, or `None` for one that is empty, held or out of
     /// range. Bounds-checked because seat numbers arrive from the wire.
     pub fn client(&self, seat: usize) -> Option<&Arc<Client>> {
-        self.members.get(seat).and_then(Option::as_ref)
+        match self.occupant(seat) {
+            Some(Occupant::Human(c)) => Some(c),
+            _ => None,
+        }
     }
 
+    /// Every seated socket, with its seat.
+    pub fn clients(&self) -> impl Iterator<Item = (usize, &Arc<Client>)> {
+        self.seats
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| match &s.occupant {
+                Occupant::Human(c) => Some((i, c)),
+                _ => None,
+            })
+    }
+
+    /// The sockets by seat, `None` where nobody is seated: a read-only view
+    /// for the tests and the log.
+    pub fn members(&self) -> Vec<Option<Arc<Client>>> {
+        (0..self.seats.len())
+            .map(|s| self.client(s).cloned())
+            .collect()
+    }
+
+    /// Lays the seats out by hand, a socket or an empty chair each: how a
+    /// white-box test builds a table without dealing through the handlers.
+    #[cfg(any(test, feature = "testkit"))]
+    pub fn set_members(&mut self, members: Vec<Option<Arc<Client>>>) {
+        self.seats = members
+            .into_iter()
+            .map(|m| Seat::new(m.map_or(Occupant::Vacant, Occupant::Human)))
+            .collect();
+        self.reseat();
+    }
+
+    /// Whether the seat's hold expired (or it walked out) mid-match.
     pub fn has_left(&self, seat: usize) -> bool {
-        self.gone.contains(&seat)
+        matches!(self.occupant(seat), Some(Occupant::Gone))
     }
 
-    /// Appends a seat with no socket behind it — a bot.
-    pub fn add_empty_seat(&mut self) {
-        self.members.push(None);
+    /// When the seat's hold began, if it is held.
+    pub fn held_since(&self, seat: usize) -> Option<Instant> {
+        match self.occupant(seat) {
+            Some(Occupant::Held { since }) => Some(*since),
+            _ => None,
+        }
+    }
+
+    pub fn is_held(&self, seat: usize) -> bool {
+        self.held_since(seat).is_some()
+    }
+
+    /// The held seats, in seat order.
+    pub fn held_seats(&self) -> Vec<usize> {
+        (0..self.seats.len()).filter(|&s| self.is_held(s)).collect()
     }
 
     pub fn is_bot(&self, seat: usize) -> bool {
-        self.bots.contains(&seat)
+        matches!(self.occupant(seat), Some(Occupant::Bot))
+    }
+
+    /// The bots' seats, in seat order.
+    pub fn bot_seats(&self) -> Vec<usize> {
+        (0..self.seats.len()).filter(|&s| self.is_bot(s)).collect()
+    }
+
+    pub fn bot_count(&self) -> usize {
+        self.seats
+            .iter()
+            .filter(|s| matches!(s.occupant, Occupant::Bot))
+            .count()
+    }
+
+    /// Appends a seat played by the server.
+    pub fn add_bot_seat(&mut self) {
+        self.seats.push(Seat::new(Occupant::Bot));
+    }
+
+    /// Makes a seat the server's (or a human's again): used when the seats
+    /// are rebuilt rather than moved, by a restore.
+    pub fn set_occupant(&mut self, seat: usize, occupant: Occupant) {
+        self.ensure(seat);
+        self.seats[seat].occupant = occupant;
     }
 
     pub fn is_matchmade(&self) -> bool {
@@ -163,29 +281,32 @@ impl Table {
     }
 
     pub fn all_seats_empty(&self) -> bool {
-        self.members.iter().all(Option::is_none)
+        self.connected() == 0
     }
 
     pub fn connected(&self) -> usize {
-        self.members.iter().filter(|m| m.is_some()).count()
+        self.clients().count()
+    }
+
+    fn ensure(&mut self, seat: usize) {
+        while self.seats.len() <= seat {
+            self.seats.push(Seat::new(Occupant::Vacant));
+        }
     }
 
     /// Binds a client to a seat. A seat lives in two places — the client's own
-    /// seat and the pointer in `members` — and this is the one way to move
-    /// both. The sweep is unconditional: wherever this client was here, it is
-    /// not there any more.
+    /// seat and the occupant here — and this is the one way to move both. The
+    /// sweep is unconditional: wherever this client was here, it is not there
+    /// any more.
     pub fn seat(&mut self, c: &Arc<Client>, id: usize) {
-        for (i, m) in self.members.iter_mut().enumerate() {
-            if i != id && m.as_ref().is_some_and(|m| Arc::ptr_eq(m, c)) {
-                *m = None;
+        for (i, s) in self.seats.iter_mut().enumerate() {
+            if i != id && matches!(&s.occupant, Occupant::Human(m) if Arc::ptr_eq(m, c)) {
+                s.occupant = Occupant::Vacant;
             }
         }
-        if self.members.len() <= id {
-            self.members.resize(id + 1, None);
-        }
-        self.members[id] = Some(c.clone());
+        self.ensure(id);
+        self.seats[id].occupant = Occupant::Human(c.clone());
         c.sit_at(&self.code, id);
-        self.gone.remove(&id);
         // Somebody is here, so any cleanup counting this table down is stale.
         self.empty_at = None;
     }
@@ -193,103 +314,86 @@ impl Table {
     /// Empties a seat without removing it: the player has the reconnect window
     /// to come back into it.
     pub fn hold(&mut self, seat: usize, at: Instant) {
-        if let Some(m) = self.members.get_mut(seat) {
-            *m = None;
+        self.ensure(seat);
+        self.seats[seat].occupant = Occupant::Held { since: at };
+    }
+
+    /// The seat is gone for the rest of the match: its hold ran out, or its
+    /// player walked out. What it was owed (a reclaim, a count) goes with it.
+    pub fn mark_gone(&mut self, seat: usize, forget_token: bool) {
+        self.ensure(seat);
+        let s = &mut self.seats[seat];
+        s.occupant = Occupant::Gone;
+        if forget_token {
+            s.token = None;
+            s.afk = 0;
         }
-        self.away_at.insert(seat, at);
     }
 
     /// Rewrites every seated client's seat from where it actually sits, and
     /// reports whether anybody is still here.
     pub fn reseat(&self) -> bool {
         let mut has_human = false;
-        for (i, m) in self.members.iter().enumerate() {
-            if let Some(c) = m {
-                c.sit_at(&self.code, i);
-                has_human = true;
-            }
+        for (i, c) in self.clients() {
+            c.sit_at(&self.code, i);
+            has_human = true;
         }
         has_human
     }
 
-    /// Removes a seat entirely and re-bases everything keyed above it, in one
-    /// move. The room's own roster is the caller's half.
+    /// Removes a seat entirely. Everything about the seats above it moves down
+    /// with them because it is them; the recap is re-based too. The room's own
+    /// roster is the caller's half.
     pub fn drop_seat(&mut self, id: usize) -> bool {
-        if id < self.members.len() {
-            self.members.remove(id);
+        if id < self.seats.len() {
+            self.seats.remove(id);
         }
-        self.shift_seat_keys(id);
+        drop_seat_from_history(&mut self.match_history, id);
         self.reseat()
     }
 
     /// `drop_seat` for a departure identified by socket: the pointer is the one
     /// of the pair that cannot be stale.
     pub fn drop_client(&mut self, c: &Arc<Client>, id: usize) -> bool {
-        self.members
-            .retain(|m| !m.as_ref().is_some_and(|m| Arc::ptr_eq(m, c)));
-        self.shift_seat_keys(id);
-        self.reseat()
-    }
-
-    /// Re-bases every seat-keyed structure above a removed seat. One list on
-    /// purpose: a structure added to the table and not to this list keeps its
-    /// old indices while `members` moves.
-    pub fn shift_seat_keys(&mut self, removed: usize) {
-        self.bots = shift_set(&self.bots, removed);
-        self.tokens = shift_map(&self.tokens, removed);
-        self.gone = shift_set(&self.gone, removed);
-        self.away_at = shift_map(&self.away_at, removed);
-        self.afk = shift_map(&self.afk, removed);
-        drop_seat_from_history(&mut self.match_history, removed);
+        let at = self
+            .clients()
+            .find(|(_, m)| Arc::ptr_eq(m, c))
+            .map_or(id, |(i, _)| i);
+        self.drop_seat(at)
     }
 
     /// The seat whose hold began at `at`, preferring `hint`. An expiry is armed
     /// against a seat number that can be re-based before it fires; the instant
     /// the hold began is what does not move.
     pub fn held_seat_at(&self, hint: usize, at: Instant) -> Option<usize> {
-        if self.away_at.get(&hint) == Some(&at) {
+        if self.held_since(hint) == Some(at) {
             return Some(hint);
         }
-        self.away_at
-            .iter()
-            .find(|&(_, &held)| held == at)
-            .map(|(&s, _)| s)
+        (0..self.seats.len()).find(|&s| self.held_since(s) == Some(at))
     }
 
-    /// Exchanges two seats and everything keyed by them. The token travels
-    /// with the player, not with the index.
+    /// Exchanges two seats and everything about them: the token travels with
+    /// the player, not with the index.
     pub fn swap_seats(&mut self, a: usize, b: usize) {
         if a == b {
             return;
         }
-        let hi = a.max(b);
-        if self.members.len() <= hi {
-            self.members.resize(hi + 1, None);
-        }
-        self.members.swap(a, b);
-        let (a_bot, b_bot) = (self.bots.contains(&a), self.bots.contains(&b));
-        set_membership(&mut self.bots, a, b_bot);
-        set_membership(&mut self.bots, b, a_bot);
-        let (a_tok, b_tok) = (self.tokens.remove(&a), self.tokens.remove(&b));
-        if let Some(t) = b_tok {
-            self.tokens.insert(a, t);
-        }
-        if let Some(t) = a_tok {
-            self.tokens.insert(b, t);
-        }
+        self.ensure(a.max(b));
+        self.seats.swap(a, b);
         swap_seats_in_history(&mut self.match_history, a, b);
         self.reseat();
     }
 
-    /// Clears everything that belonged to the match that just ended. The seats,
-    /// the tokens, the bots and the history survive: they describe who is at
-    /// the table, not what they were playing.
-    ///
+    /// Clears everything that belonged to the match that just ended. Who is at
+    /// the table — the sockets, the tokens, the bots — and the history survive.
     pub fn reset_for_next_match(&mut self) {
-        self.rematch_offers.clear();
-        self.afk.clear();
-        self.away_at.clear();
-        self.gone.clear();
+        for s in &mut self.seats {
+            s.afk = 0;
+            s.wants_rematch = false;
+            if matches!(s.occupant, Occupant::Held { .. } | Occupant::Gone) {
+                s.occupant = Occupant::Vacant;
+            }
+        }
         self.match_started_at = None;
         self.turn_started_at = None;
         self.empty_at = None;
@@ -316,28 +420,31 @@ impl Table {
     pub fn abandoned_by(&self, seat: usize) -> bool {
         (0..self.room.players.len())
             .filter(|&i| i != seat)
-            .all(|i| !self.is_bot(i) && self.client(i).is_none() && !self.away_at.contains_key(&i))
+            .all(|i| {
+                matches!(
+                    self.occupant(i),
+                    None | Some(Occupant::Gone | Occupant::Vacant)
+                )
+            })
     }
 
     /// The seats that can still act in the match: a bot, or a human who is
     /// here or inside their reconnect window, and not retired.
     pub fn playable_seats(&self) -> usize {
         (0..self.room.players.len())
-            .filter(|&seat| {
-                if self.is_bot(seat) {
-                    return true;
+            .filter(|&seat| match self.occupant(seat) {
+                Some(Occupant::Bot) => true,
+                Some(Occupant::Human(_) | Occupant::Held { .. }) => {
+                    !self.room.is_retired(seat as i32)
                 }
-                if self.room.is_retired(seat as i32) {
-                    return false;
-                }
-                self.client(seat).is_some() || self.away_at.contains_key(&seat)
+                _ => false,
             })
             .count()
     }
 
     /// The seat held for a disconnected player of that nickname, if any.
     pub fn find_held_seat(&self, nickname: &str) -> Option<usize> {
-        self.away_at.keys().copied().find(|&s| {
+        self.held_seats().into_iter().find(|&s| {
             self.room
                 .players
                 .get(s)
@@ -346,14 +453,12 @@ impl Table {
     }
 
     /// The seat a forfeit is awarded to: somebody still here, else somebody
-    /// held, else anybody not retired. -1 when nobody is left.
+    /// held, else anybody not retired.
     pub fn remaining_seat(&self, away_seat: usize) -> Option<usize> {
         let n = self.room.players.len();
         let here = (0..n).find(|&s| s != away_seat && self.client(s).is_some());
         here.or_else(|| {
-            (0..n).find(|&s| {
-                s != away_seat && self.away_at.contains_key(&s) && !self.room.is_retired(s as i32)
-            })
+            (0..n).find(|&s| s != away_seat && self.is_held(s) && !self.room.is_retired(s as i32))
         })
         .or_else(|| (0..n).find(|&s| s != away_seat && !self.room.is_retired(s as i32)))
     }
@@ -363,48 +468,60 @@ impl Table {
     pub fn record_finished_match(&mut self, now: SystemTime) {
         let room = &self.room;
         let n = room.players.len();
-        let mut rec = MatchRecord {
-            rounds_won: vec![0; n],
-            scores: vec![0; n],
-            winner: -1,
+        let rec = MatchRecord {
+            rounds_won: (0..n)
+                .map(|i| i64::from(room.rounds_won.get(i).copied().unwrap_or(0)))
+                .collect(),
+            scores: (0..n)
+                .map(|i| i64::from(room.scores.get(i).copied().unwrap_or(0)))
+                .collect(),
+            winner: room
+                .players
+                .iter()
+                .position(|p| p.nickname == room.match_winner),
             duration_ms: match_duration_ms(self.match_started_at, now),
         };
-        for i in 0..n {
-            rec.rounds_won[i] = i64::from(room.rounds_won.get(i).copied().unwrap_or(0));
-            rec.scores[i] = i64::from(room.scores.get(i).copied().unwrap_or(0));
-        }
-        if let Some(i) = room
-            .players
-            .iter()
-            .position(|p| p.nickname == room.match_winner)
-        {
-            rec.winner = i as i64;
-        }
         self.match_history.push(rec);
     }
 
-    /// Takes a socket out of `members` without touching anything else. Only
-    /// for a client that has turned up at another table.
+    /// Takes a socket out of its chair without touching anything else: for a
+    /// client that has turned up at another table, or walked out.
     pub fn sweep(&mut self, c: &Arc<Client>) {
-        for m in &mut self.members {
-            if m.as_ref().is_some_and(|m| Arc::ptr_eq(m, c)) {
-                *m = None;
+        for s in &mut self.seats {
+            if matches!(&s.occupant, Occupant::Human(m) if Arc::ptr_eq(m, c)) {
+                s.occupant = Occupant::Vacant;
             }
         }
     }
 
-    // ── tokens ──────────────────────────────────────────────────────────────
+    // ── per-seat bookkeeping ────────────────────────────────────────────────
 
     /// Creates and stores a session token for a seat.
     pub fn issue_token(&mut self, seat: usize) -> String {
         let tok = crate::tokens::generate_session_token();
-        self.tokens.insert(seat, tok.clone());
+        self.ensure(seat);
+        self.seats[seat].token = Some(tok.clone());
         tok
     }
 
     /// Checks a token against the one stored for the seat, in constant time.
     pub fn validate_token(&self, seat: usize, token: &str) -> bool {
-        crate::tokens::tokens_match(self.tokens.get(&seat).map(String::as_str), token)
+        crate::tokens::tokens_match(self.seats.get(seat).and_then(|s| s.token.as_deref()), token)
+    }
+
+    pub fn token(&self, seat: usize) -> Option<&str> {
+        self.seats.get(seat).and_then(|s| s.token.as_deref())
+    }
+
+    pub fn afk(&self, seat: usize) -> i64 {
+        self.seats.get(seat).map_or(0, |s| s.afk)
+    }
+
+    /// The seats that have asked for another match, in seat order.
+    pub fn rematch_offers(&self) -> Vec<usize> {
+        (0..self.seats.len())
+            .filter(|&s| self.seats[s].wants_rematch)
+            .collect()
     }
 
     // ── sending ─────────────────────────────────────────────────────────────
@@ -467,12 +584,11 @@ pub fn drop_seat_from_history(history: &mut [MatchRecord], removed: usize) {
         if removed < h.scores.len() {
             h.scores.remove(removed);
         }
-        let r = removed as i64;
-        if h.winner == r {
-            h.winner = -1;
-        } else if h.winner > r {
-            h.winner -= 1;
-        }
+        h.winner = match h.winner {
+            Some(w) if w == removed => None,
+            Some(w) if w > removed => Some(w - 1),
+            w => w,
+        };
     }
 }
 
@@ -486,202 +602,19 @@ pub fn swap_seats_in_history(history: &mut [MatchRecord], a: usize, b: usize) {
         if a < h.scores.len() && b < h.scores.len() {
             h.scores.swap(a, b);
         }
-        let (ai, bi) = (a as i64, b as i64);
-        if h.winner == ai {
-            h.winner = bi;
-        } else if h.winner == bi {
-            h.winner = ai;
-        }
-    }
-}
-
-fn shift_set(s: &BTreeSet<usize>, removed: usize) -> BTreeSet<usize> {
-    s.iter()
-        .filter(|&&k| k != removed)
-        .map(|&k| if k > removed { k - 1 } else { k })
-        .collect()
-}
-
-fn shift_map<V: Clone>(m: &BTreeMap<usize, V>, removed: usize) -> BTreeMap<usize, V> {
-    m.iter()
-        .filter(|&(&k, _)| k != removed)
-        .map(|(&k, v)| (if k > removed { k - 1 } else { k }, v.clone()))
-        .collect()
-}
-
-fn set_membership(s: &mut BTreeSet<usize>, key: usize, present: bool) {
-    if present {
-        s.insert(key);
-    } else {
-        s.remove(&key);
+        h.winner = match h.winner {
+            Some(w) if w == a => Some(b),
+            Some(w) if w == b => Some(a),
+            w => w,
+        };
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Hub;
 
-    // Port of the parts of table_internal_test.go and
-    // match_history_internal_test.go that need no game.
-
-    fn table() -> Table {
-        Table::new("AAAAAA", crate::room::new_room("AAAAAA"))
-    }
-
-    #[tokio::test]
-    async fn seat_moves_rather_than_duplicates() {
-        let hub = Hub::start(Default::default());
-        let (c, _rx) = Client::detached(&hub);
-        let mut t = table();
-        t.seat(&c, 2);
-        t.seat(&c, 0);
-        let seen = t
-            .members
-            .iter()
-            .flatten()
-            .filter(|m| Arc::ptr_eq(m, &c))
-            .count();
-        assert_eq!(seen, 1, "the client sits at {seen} indices");
-        assert!(
-            Arc::ptr_eq(t.client(0).unwrap(), &c),
-            "not at the seat it was moved to"
-        );
-        assert_eq!(c.player_id(), 0);
-        hub.stop().await;
-    }
-
-    // Seating somebody means the table is not empty, so a cleanup counting it
-    // down is stale.
-    #[tokio::test]
-    async fn seat_cancels_the_pending_cleanup() {
-        let hub = Hub::start(Default::default());
-        let (c, _rx) = Client::detached(&hub);
-        let mut t = table();
-        t.empty_at = Some(Instant::now());
-        t.seat(&c, 0);
-        assert!(
-            t.empty_at.is_none(),
-            "a seated table is still counting down to deletion"
-        );
-        hub.stop().await;
-    }
-
-    // Removing a seat shifts the members, the clients' own seats, the bots and
-    // the tokens in one move.
-    #[tokio::test]
-    async fn drop_seat_shifts_everything_together() {
-        let hub = Hub::start(Default::default());
-        let (a, _ra) = Client::detached(&hub);
-        let (c, _rc) = Client::detached(&hub);
-        let mut t = table();
-        t.seat(&a, 0);
-        t.add_empty_seat(); // seat 1: a bot
-        t.bots.insert(1);
-        t.seat(&c, 2);
-        t.tokens.insert(0, "tok-a".into());
-        t.tokens.insert(1, "tok-bot".into());
-        t.tokens.insert(2, "tok-c".into());
-        let away = Instant::now();
-        t.away_at.insert(2, away);
-        t.afk.insert(2, 1);
-
-        assert!(
-            t.drop_seat(0),
-            "drop_seat reported nobody left, but c is still seated"
-        );
-
-        assert_eq!(t.members.len(), 2);
-        assert!(t.members[0].is_none() && Arc::ptr_eq(t.members[1].as_ref().unwrap(), &c));
-        assert_eq!(c.player_id(), 1, "the client's own seat did not follow");
-        assert!(
-            t.is_bot(0) && !t.is_bot(1),
-            "the bot set did not shift: {:?}",
-            t.bots
-        );
-        assert_eq!(t.tokens.get(&0).map(String::as_str), Some("tok-bot"));
-        assert_eq!(t.tokens.get(&1).map(String::as_str), Some("tok-c"));
-        assert!(
-            !t.tokens.contains_key(&2),
-            "the removed seat's token survived"
-        );
-        assert_eq!(t.away_at.get(&1), Some(&away), "a hold kept its old key");
-        assert_eq!(t.afk.get(&1), Some(&1), "an AFK counter kept its old key");
-        hub.stop().await;
-    }
-
-    // An expiry finds its hold by the instant it began, never by the seat it
-    // was armed with.
-    #[test]
-    fn held_seat_at_follows_the_instant() {
-        let mut t = table();
-        let (t1, t2) = (Instant::now(), Instant::now() + Duration::from_secs(1));
-        t.away_at.insert(1, t1);
-        t.away_at.insert(3, t2);
-        assert_eq!(t.held_seat_at(3, t2), Some(3));
-        t.shift_seat_keys(0);
-        assert_eq!(t.held_seat_at(3, t2), Some(2), "the hold moved down a key");
-        assert_eq!(t.held_seat_at(0, t1), Some(0));
-        assert_eq!(t.held_seat_at(0, t1 + Duration::from_secs(9)), None);
-    }
-
-    // The token travels with the player, and an absence moves as readily as a
-    // presence.
-    #[tokio::test]
-    async fn swap_seats_moves_the_token_and_the_bot_flag() {
-        let hub = Hub::start(Default::default());
-        let (a, _ra) = Client::detached(&hub);
-        let mut t = table();
-        t.seat(&a, 0);
-        t.add_empty_seat();
-        t.bots.insert(1);
-        t.tokens.insert(0, "tok-a".into());
-        t.match_history.push(MatchRecord {
-            rounds_won: vec![2, 0],
-            scores: vec![0, 40],
-            winner: 0,
-            duration_ms: 5,
-        });
-
-        t.swap_seats(0, 1);
-
-        assert!(Arc::ptr_eq(t.client(1).unwrap(), &a));
-        assert_eq!(a.player_id(), 1);
-        assert!(t.is_bot(0) && !t.is_bot(1));
-        assert_eq!(t.tokens.get(&1).map(String::as_str), Some("tok-a"));
-        assert!(!t.tokens.contains_key(&0));
-        assert_eq!(t.match_history[0].rounds_won, vec![0, 2]);
-        assert_eq!(t.match_history[0].winner, 1);
-        hub.stop().await;
-    }
-
-    #[tokio::test]
-    async fn reset_for_next_match_empties_the_match_not_the_table() {
-        let hub = Hub::start(Default::default());
-        let (c, _rx) = Client::detached(&hub);
-        let mut t = table();
-        t.seat(&c, 0);
-        t.tokens.insert(0, "tok".into());
-        t.bots.insert(1);
-        t.afk.insert(0, 3);
-        t.away_at.insert(0, Instant::now());
-        t.rematch_offers.insert(0);
-        t.deadlines.arm(
-            crate::actor::DeadlineKey::table("turn"),
-            Instant::now(),
-            |_, _| {},
-        );
-
-        t.reset_for_next_match();
-
-        assert!(t.afk.is_empty() && t.away_at.is_empty() && t.rematch_offers.is_empty());
-        assert!(
-            t.deadlines.is_empty(),
-            "a deadline from the last match survived"
-        );
-        assert!(t.client(0).is_some() && t.validate_token(0, "tok") && t.is_bot(1));
-        hub.stop().await;
-    }
+    // The seat bookkeeping's tests are in internal_tests/table_internal.rs.
 
     #[test]
     fn match_duration_rounds_up_and_zero_means_unknown() {
@@ -708,21 +641,25 @@ mod tests {
             MatchRecord {
                 rounds_won: vec![1, 2, 0],
                 scores: vec![10, 0, 30],
-                winner: 1,
+                winner: Some(1),
                 duration_ms: 0,
             },
             MatchRecord {
                 rounds_won: vec![2, 0, 1],
                 scores: vec![0, 5, 3],
-                winner: 0,
+                winner: Some(0),
                 duration_ms: 0,
             },
         ];
         drop_seat_from_history(&mut h, 0);
         assert_eq!(h[0].rounds_won, vec![2, 0]);
-        assert_eq!(h[0].winner, 0, "a winner above the removed seat moves down");
         assert_eq!(
-            h[1].winner, -1,
+            h[0].winner,
+            Some(0),
+            "a winner above the removed seat moves down"
+        );
+        assert_eq!(
+            h[1].winner, None,
             "a winner who left is nobody, not whoever slid in"
         );
         // A record older than the seat is shorter than the roster: a no-op.
@@ -734,21 +671,12 @@ mod tests {
         let r = MatchRecord {
             rounds_won: vec![1],
             scores: vec![0],
-            winner: 0,
+            winner: Some(0),
             duration_ms: 0,
         };
         assert_eq!(
             serde_json::to_string(&r).unwrap(),
             r#"{"rounds_won":[1],"scores":[0],"winner":0}"#
         );
-    }
-
-    #[tokio::test]
-    async fn a_token_is_checked_against_its_own_seat() {
-        let mut t = table();
-        let tok = t.issue_token(1);
-        assert!(t.validate_token(1, &tok));
-        assert!(!t.validate_token(0, &tok));
-        assert!(!t.validate_token(1, ""));
     }
 }

@@ -21,7 +21,7 @@ async fn catch_uno_silent_refusals_are_counted_as_refusals() {
     let (caller, _rx_caller) = Client::detached(&hub);
     let (other, _rx_other) = Client::detached(&hub);
     caller.sit_at("AAAAAA", 0);
-    tbl.members = vec![Some(caller.clone()), Some(other)];
+    tbl.set_members(vec![Some(caller.clone()), Some(other)]);
 
     let press = |tbl: &mut Table, label: &str, want_refused: bool| {
         let before = caller.refusals();

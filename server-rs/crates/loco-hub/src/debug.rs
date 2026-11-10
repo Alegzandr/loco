@@ -94,8 +94,8 @@ impl Table {
         }
         let pl = self.player_list();
         let shared = self.shared_game_state();
-        for (i, m) in self.members.iter().enumerate() {
-            if let Some(m) = m {
+        for (i, m) in self.clients() {
+            {
                 m.send(ServerMsg::GameState(GameStateMsg {
                     state: Some(self.player_game_state_with(i, pl.clone(), &shared)),
                     ..Default::default()

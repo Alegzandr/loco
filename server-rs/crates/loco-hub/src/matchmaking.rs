@@ -203,12 +203,7 @@ impl Table {
     fn announce_match_found(&mut self) {
         let pl = self.player_list();
         let starts_in = self.timings.matchmaking.reveal_delay.as_millis() as i64;
-        let seats: Vec<usize> = self
-            .members
-            .iter()
-            .enumerate()
-            .filter_map(|(s, m)| m.as_ref().map(|_| s))
-            .collect();
+        let seats: Vec<usize> = self.clients().map(|(s, _)| s).collect();
         for seat in seats {
             let tok = self.issue_token(seat);
             if let Some(m) = self.client(seat) {
@@ -245,7 +240,7 @@ impl Table {
             return;
         }
         // A held seat counts as present: a reload during the reveal keeps it.
-        if self.connected() == 0 || self.connected() + self.away_at.len() < 2 {
+        if self.connected() == 0 || self.connected() + self.held_seats().len() < 2 {
             self.requeue_survivor(cx);
             return;
         }
@@ -257,8 +252,8 @@ impl Table {
     pub(crate) fn requeue_survivor(&mut self, cx: &TableCtx) {
         let mut survivor = None;
         let mut nickname = String::new();
-        for (seat, m) in self.members.iter().enumerate() {
-            if let Some(m) = m {
+        for (seat, m) in self.clients() {
+            {
                 survivor = Some(m.clone());
                 nickname = self
                     .room
@@ -268,7 +263,10 @@ impl Table {
                     .unwrap_or_default();
             }
         }
-        tracing::info!(requeued = survivor.is_some(), "matchmaking pairing lost before start");
+        tracing::info!(
+            requeued = survivor.is_some(),
+            "matchmaking pairing lost before start"
+        );
         if let Some(s) = &survivor {
             s.leave_seat();
         }
@@ -343,7 +341,11 @@ impl Table {
             if self.is_matchmade() {
                 self.forfeit_match(cx, seat);
             } else if self.solo || self.abandoned_by(seat) {
-                tracing::info!(player = seat, solo = self.solo, "leave allowed, nothing left to play");
+                tracing::info!(
+                    player = seat,
+                    solo = self.solo,
+                    "leave allowed, nothing left to play"
+                );
                 self.sweep(c);
                 c.leave_seat();
                 self.close_abandoned_match(cx);
@@ -384,10 +386,7 @@ impl Table {
         }
         self.sweep(c);
         c.leave_seat();
-        self.gone.insert(seat);
-        self.away_at.remove(&seat);
-        self.afk.remove(&seat);
-        self.tokens.remove(&seat);
+        self.mark_gone(seat, true);
         tracing::info!(
             player = seat,
             nickname = %nickname,
@@ -409,11 +408,12 @@ impl Table {
             tracing::warn!(player = seat, "retire on expiry failed err={e}");
             return;
         }
-        self.gone.insert(seat);
-        self.away_at.remove(&seat);
-        self.afk.remove(&seat);
-        self.tokens.remove(&seat);
-        tracing::info!(player = seat, left = self.playable_seats(), "absent seat retired");
+        self.mark_gone(seat, true);
+        tracing::info!(
+            player = seat,
+            left = self.playable_seats(),
+            "absent seat retired"
+        );
         self.announce_retired_seat(cx, turn_before);
     }
 
@@ -443,7 +443,9 @@ impl Table {
         }
         self.turn_started_at = None;
         self.loading = None;
-        self.afk.clear();
+        for s in &mut self.seats {
+            s.afk = 0;
+        }
         cx.hub
             .metrics()
             .matches_finished

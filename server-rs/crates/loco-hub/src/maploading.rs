@@ -37,7 +37,7 @@ impl Table {
     pub fn begin_map_loading(&mut self, cx: &TableCtx) {
         let started_at = Instant::now();
         self.loading = Some(MapLoadState {
-            ready: self.bots.iter().copied().collect::<BTreeSet<_>>(),
+            ready: self.bot_seats().into_iter().collect::<BTreeSet<_>>(),
             started_at,
         });
         tracing::info!(
@@ -59,11 +59,9 @@ impl Table {
         let Some(st) = self.loading.as_ref() else {
             return Vec::new();
         };
-        self.members
-            .iter()
-            .enumerate()
-            .filter(|(seat, m)| m.is_some() && !st.ready.contains(seat))
+        self.clients()
             .map(|(seat, _)| seat)
+            .filter(|seat| !st.ready.contains(seat))
             .collect()
     }
 

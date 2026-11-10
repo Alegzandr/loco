@@ -61,7 +61,7 @@ async fn seat_client_leaves_no_pointer_behind() {
     let hub = Hub::start(HubConfig::default());
 
     let mut first = Table::new("AAAAAA", new_room("AAAAAA"));
-    first.members = vec![None, None];
+    first.set_members(vec![None, None]);
     let second = Table::new("BBBBBB", new_room("BBBBBB"));
 
     let (c, _rx) = Client::detached(&hub);
@@ -69,7 +69,7 @@ async fn seat_client_leaves_no_pointer_behind() {
     // does its own filling in.
     first.seat(&c, 1);
     assert!(
-        same(first.members[1].as_ref(), &c)
+        same(first.client(1), &c)
             && c.player_id() == 1
             && c.room_code().as_deref() == Some("AAAAAA"),
         "first seating did not take: seat={:?}",
@@ -86,7 +86,7 @@ async fn seat_client_leaves_no_pointer_behind() {
 
     let c2 = c.clone();
     assert!(
-        on_table(&hub, "BBBBBB", move |t| same(t.members[0].as_ref(), &c2)).await,
+        on_table(&hub, "BBBBBB", move |t| same(t.client(0), &c2)).await,
         "the new table does not point at the client"
     );
     assert!(
@@ -99,7 +99,7 @@ async fn seat_client_leaves_no_pointer_behind() {
     let mut swept = false;
     let deadline = Instant::now() + Duration::from_secs(2);
     while !swept && Instant::now() < deadline {
-        swept = on_table(&hub, "AAAAAA", |t| t.members[1].is_none()).await;
+        swept = on_table(&hub, "AAAAAA", |t| t.client(1).is_none()).await;
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     assert!(swept, "the old table still points at the client");
@@ -116,10 +116,14 @@ async fn seat_moves_rather_than_duplicates() {
     tbl.seat(&c, 2);
     tbl.seat(&c, 0);
 
-    let seen = tbl.members.iter().filter(|m| same(m.as_ref(), &c)).count();
-    assert_eq!(seen, 1, "client sits at {seen} indices: {:?}", tbl.members);
+    let seen = tbl
+        .members()
+        .iter()
+        .filter(|m| same(m.as_ref(), &c))
+        .count();
+    assert_eq!(seen, 1, "client sits at {seen} indices: {:?}", tbl.seats);
     assert!(
-        same(tbl.members[0].as_ref(), &c),
+        same(tbl.client(0), &c),
         "client is not at the seat it was moved to"
     );
     hub.stop().await;
@@ -160,12 +164,11 @@ async fn drop_seat_shifts_everything_together() {
     let (a, _ra) = Client::detached(&hub);
     let (c, _rc) = Client::detached(&hub);
     tbl.seat(&a, 0);
-    tbl.members.push(None); // seat 1: a bot
-    tbl.bots.insert(1);
+    tbl.add_bot_seat(); // seat 1: a bot
     tbl.seat(&c, 2);
-    tbl.tokens.insert(0, "tok-a".into());
-    tbl.tokens.insert(1, "tok-bot".into());
-    tbl.tokens.insert(2, "tok-c".into());
+    tbl.seats[0].token = Some("tok-a".into());
+    tbl.seats[1].token = Some("tok-bot".into());
+    tbl.seats[2].token = Some("tok-c".into());
 
     // Seat 0 leaves: the bot becomes seat 0 and c becomes seat 1.
     assert!(
@@ -174,24 +177,23 @@ async fn drop_seat_shifts_everything_together() {
     );
 
     assert!(
-        tbl.members.len() == 2 && tbl.members[0].is_none() && same(tbl.members[1].as_ref(), &c),
+        tbl.seats.len() == 2 && tbl.client(0).is_none() && same(tbl.client(1), &c),
         "members did not shift: {:?}",
-        tbl.members
+        tbl.seats
     );
     assert_eq!(c.player_id(), 1, "the client's own seat did not follow");
     assert!(
         tbl.is_bot(0) && !tbl.is_bot(1),
         "the bot set did not shift: {:?}",
-        tbl.bots
+        tbl.seats
     );
     assert!(
-        tbl.tokens.get(&0).map(String::as_str) == Some("tok-bot")
-            && tbl.tokens.get(&1).map(String::as_str) == Some("tok-c"),
+        tbl.token(0) == Some("tok-bot") && tbl.token(1) == Some("tok-c"),
         "the tokens did not shift: {:?}",
-        tbl.tokens
+        tbl.seats
     );
     assert!(
-        !tbl.tokens.contains_key(&2),
+        tbl.token(2).is_none(),
         "the removed seat's token survived the shift"
     );
     hub.stop().await;
@@ -204,7 +206,7 @@ async fn drop_seat_shifts_everything_together() {
 async fn delete_room_forgets_the_table_whole() {
     let hub = Hub::start(HubConfig::default());
     let mut tbl = Table::new("AAAAAA", new_room("AAAAAA"));
-    tbl.bots.insert(0);
+    tbl.add_bot_seat();
     hub.on_loop(move |core| {
         core.open_table(tbl); // counts the room
     })
@@ -238,15 +240,16 @@ async fn reset_for_next_match_clears_the_gate() {
     let mut tbl = Table::new("AAAAAA", new_room("AAAAAA"));
     let (c, _rx) = Client::detached(&hub);
     tbl.seat(&c, 0);
-    tbl.tokens.insert(0, "tok".into());
-    tbl.bots.insert(1);
+    tbl.seats[0].token = Some("tok".into());
+    tbl.add_bot_seat();
     tbl.loading = Some(MapLoadState {
         ready: Default::default(),
         started_at: Instant::now(),
     });
-    tbl.afk.insert(0, 3);
-    tbl.away_at.insert(0, Instant::now());
-    tbl.rematch_offers.insert(0);
+    tbl.seats[0].afk = 3;
+    tbl.seats[0].wants_rematch = true;
+    // Seat 2 is held: a hold is per-match too.
+    tbl.hold(2, Instant::now());
 
     tbl.reset_for_next_match();
 
@@ -255,17 +258,13 @@ async fn reset_for_next_match_clears_the_gate() {
         "the map gate survived into the next match"
     );
     assert!(
-        tbl.afk.is_empty() && tbl.away_at.is_empty() && tbl.rematch_offers.is_empty(),
-        "per-match bookkeeping survived: afk={:?} away={:?} offers={:?}",
-        tbl.afk,
-        tbl.away_at,
-        tbl.rematch_offers
+        tbl.afk(0) == 0 && tbl.held_seats().is_empty() && tbl.rematch_offers().is_empty(),
+        "per-match bookkeeping survived: {:?}",
+        tbl.seats
     );
     // Who is at the table is not per-match and must survive.
     assert!(
-        same(tbl.members[0].as_ref(), &c)
-            && tbl.tokens.get(&0).map(String::as_str) == Some("tok")
-            && tbl.is_bot(1),
+        same(tbl.client(0), &c) && tbl.token(0) == Some("tok") && tbl.is_bot(1),
         "reset_for_next_match emptied the table instead of the match"
     );
     hub.stop().await;

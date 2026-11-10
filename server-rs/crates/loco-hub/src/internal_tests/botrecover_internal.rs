@@ -21,8 +21,8 @@ fn two_seat_table(hub: &Hub) -> Table {
     room.start(clock::now_ms()).expect("start");
     let mut t = Table::new("AAAAAA", room);
     let (alice, _rx) = Client::detached(hub);
-    t.members = vec![Some(alice), None];
-    t.bots.insert(1);
+    t.set_members(vec![Some(alice)]);
+    t.add_bot_seat();
     t
 }
 
@@ -41,7 +41,11 @@ async fn bot_recover_passes_when_it_has_already_drawn() {
         st.has_drawn = true;
     }
     t.bot_recover(&cx, 1);
-    assert_eq!(t.room.state.as_ref().unwrap().current_turn, 0, "the seat has to move on");
+    assert_eq!(
+        t.room.state.as_ref().unwrap().current_turn,
+        0,
+        "the seat has to move on"
+    );
     hub.stop().await;
 }
 
@@ -59,7 +63,11 @@ async fn bot_recover_draws_first_when_it_still_may() {
     };
     t.bot_recover(&cx, 1);
     let st = t.room.state.as_ref().unwrap();
-    assert_eq!(st.hands[1].size(), before + 1, "the recovery draws before it passes");
+    assert_eq!(
+        st.hands[1].size(),
+        before + 1,
+        "the recovery draws before it passes"
+    );
     // Either the drawn card is playable and a move is rescheduled — the seat
     // keeps the turn with the draw spent — or the turn has passed.
     assert!(!(st.current_turn == 1 && !st.has_drawn));

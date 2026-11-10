@@ -365,7 +365,8 @@ async fn a_deadline_can_rearm_from_its_own_job() {
 async fn a_deleted_room_stops_and_forgets_its_bots() {
     let hub = Hub::start(cfg());
     let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
-    t.bots.insert(1);
+    t.set_occupant(0, loco_hub::table::Occupant::Vacant);
+    t.add_bot_seat();
     hub.metrics().bots_active.fetch_add(1, Ordering::Relaxed);
     open(&hub, t).await;
     let sender = hub
@@ -523,17 +524,20 @@ async fn snapshot_match_survives_a_restart() {
 
     let first = Hub::start(cfg());
     let mut t = Table::new("PLAYIN", playing_room("PLAYIN", 3));
-    t.tokens.insert(0, "tok-0".into());
-    t.tokens.insert(2, "tok-2".into());
-    t.bots.insert(1);
-    t.afk.insert(2, 1);
+    for seat in 0..3 {
+        t.set_occupant(seat, loco_hub::table::Occupant::Vacant);
+    }
+    t.set_occupant(1, loco_hub::table::Occupant::Bot);
+    t.seats[0].token = Some("tok-0".into());
+    t.seats[2].token = Some("tok-2".into());
+    t.seats[2].afk = 1;
     t.solo = true;
     t.streamer_mode = true;
     t.match_started_at = Some(started);
     t.match_history.push(MatchRecord {
         rounds_won: vec![2, 0, 1],
         scores: vec![0, 30, 12],
-        winner: 0,
+        winner: Some(0),
         duration_ms: 1234,
     });
     open(&first, t).await;
@@ -571,12 +575,12 @@ async fn snapshot_match_survives_a_restart() {
                 let _ = tx.send((
                     t.validate_token(2, "tok-2"),
                     t.is_bot(1),
-                    t.afk.get(&2).copied(),
+                    Some(t.afk(2)),
                     t.solo && t.streamer_mode,
                     t.match_history.clone(),
                     t.match_started_at,
-                    t.away_at.keys().copied().collect::<Vec<_>>(),
-                    t.members.len(),
+                    t.held_seats(),
+                    t.seats.len(),
                     t.room.is_seeded(),
                 ));
             }));

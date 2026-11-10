@@ -13,7 +13,7 @@ fn rec(rounds_won: &[i64], scores: &[i64], winner: i64) -> MatchRecord {
     MatchRecord {
         rounds_won: rounds_won.to_vec(),
         scores: scores.to_vec(),
-        winner,
+        winner: usize::try_from(winner).ok(),
         duration_ms: 0,
     }
 }
@@ -24,7 +24,7 @@ fn history_table() -> Table {
     room.join("bob").unwrap();
     room.join("carol").unwrap();
     let mut t = Table::new("HIST", room);
-    t.members = vec![None, None, None];
+    t.set_members(vec![None, None, None]);
     t.match_history = vec![
         rec(&[2, 1, 0], &[80, 40, 10], 0),
         rec(&[0, 0, 2], &[5, 15, 70], 2),
@@ -93,7 +93,7 @@ fn match_history_record_copies_the_scoreboard() {
         "recorded score followed the room"
     );
     assert_eq!(tb.match_history[0].rounds_won, vec![2, 0]);
-    assert_eq!(tb.match_history[0].winner, 0);
+    assert_eq!(tb.match_history[0].winner, Some(0));
 }
 
 // The duration on a record is the difference between the moment the table

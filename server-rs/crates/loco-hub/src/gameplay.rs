@@ -161,8 +161,8 @@ impl Table {
         self.schedule_turn_timer(cx);
         let pl = self.player_list();
         let shared = self.shared_game_state();
-        for (seat, m) in self.members.iter().enumerate() {
-            if let Some(m) = m {
+        for (seat, m) in self.clients() {
+            {
                 m.send(ServerMsg::GameStarted(GameStartedMsg {
                     state: Some(self.player_game_state_with(seat, pl.clone(), &shared)),
                     ..Default::default()

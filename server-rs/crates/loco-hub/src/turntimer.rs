@@ -49,7 +49,9 @@ impl Table {
 
     /// An action the server took clears the seat's consecutive-timeout count.
     pub fn reset_afk(&mut self, seat: usize) {
-        self.afk.remove(&seat);
+        if let Some(s) = self.seats.get_mut(seat) {
+            s.afk = 0;
+        }
     }
 
     fn still_the_same_turn(&self, seat: i32, started: Instant) -> bool {
@@ -101,11 +103,11 @@ impl Table {
         if self.is_bot(seat) {
             return false;
         }
-        let n = {
-            let e = self.afk.entry(seat).or_insert(0);
-            *e += 1;
-            *e
+        let Some(slot) = self.seats.get_mut(seat) else {
+            return false;
         };
+        slot.afk += 1;
+        let n = slot.afk;
         if n < self.afk_threshold() {
             return false;
         }
@@ -114,7 +116,11 @@ impl Table {
             if self.room.status != Status::Playing {
                 return false;
             }
-            tracing::info!(player = seat, threshold = self.afk_threshold(), "AFK forfeit");
+            tracing::info!(
+                player = seat,
+                threshold = self.afk_threshold(),
+                "AFK forfeit"
+            );
             if let Some(c) = &client {
                 c.send(ServerMsg::Error(ErrorMsg {
                     error: "afk_forfeit".into(),

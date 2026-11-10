@@ -13,7 +13,7 @@
 use crate::Hub;
 use crate::hub::{Control, HubCore};
 use crate::room::{Room, Status};
-use crate::table::{MatchRecord, Table};
+use crate::table::{MatchRecord, Occupant, Table};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -110,12 +110,23 @@ impl RoomSnapshot {
         }
         Some(RoomSnapshot {
             room: t.room.clone(),
-            session_tokens: t.tokens.clone(),
-            bot_slots: t.bots.iter().copied().collect(),
+            session_tokens: t
+                .seats
+                .iter()
+                .enumerate()
+                .filter_map(|(i, s)| s.token.clone().map(|tok| (i, tok)))
+                .collect(),
+            bot_slots: t.bot_seats(),
             matchmade: t.is_matchmade(),
             solo: t.solo,
             streamer_mode: t.streamer_mode,
-            afk_timeouts: t.afk.clone(),
+            afk_timeouts: t
+                .seats
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.afk > 0)
+                .map(|(i, s)| (i, s.afk))
+                .collect(),
             match_history: t.match_history.clone(),
             match_started_at: t.match_started_at,
         })
@@ -256,24 +267,27 @@ impl HubCore {
         }
         let players = room.players.len();
         let mut t = Table::new(&code, room);
-        t.members = vec![None; players];
-        t.tokens = rs.session_tokens;
-        t.afk = rs.afk_timeouts;
+        // Every seat comes back held — every human one: the bots are the
+        // server's — exactly as if its player had just dropped.
+        let now = Instant::now();
+        for seat in 0..players {
+            let occupant = if rs.bot_slots.contains(&seat) {
+                Occupant::Bot
+            } else {
+                Occupant::Held { since: now }
+            };
+            t.set_occupant(seat, occupant);
+            t.seats[seat].token = rs.session_tokens.get(&seat).cloned();
+            t.seats[seat].afk = rs.afk_timeouts.get(&seat).copied().unwrap_or(0);
+        }
         t.match_history = rs.match_history;
         t.match_started_at = rs.match_started_at;
-        t.bots = rs.bot_slots.into_iter().collect();
-        let bots = t.bots.len();
+        let bots = t.bot_count();
         if rs.matchmade {
             t.matchmade_at = Some(Instant::now());
         }
         t.solo = rs.solo;
         t.streamer_mode = rs.streamer_mode;
-        let now = Instant::now();
-        for seat in 0..players {
-            if !t.is_bot(seat) {
-                t.away_at.insert(seat, now);
-            }
-        }
         self.hub
             .metrics()
             .bots_active

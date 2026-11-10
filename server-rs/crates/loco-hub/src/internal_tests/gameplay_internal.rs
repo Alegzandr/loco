@@ -50,7 +50,7 @@ async fn penalize_failed_catch_dry_piles_tell_only_the_caller() {
     let mut tbl = Table::new("AAAAAA", room);
     let (caller, mut caller_rx) = Client::detached(&hub);
     let (bystander, mut bystander_rx) = Client::detached(&hub);
-    tbl.members = vec![Some(caller), Some(bystander)];
+    tbl.set_members(vec![Some(caller), Some(bystander)]);
 
     tbl.penalize_failed_catch(0, now_ms());
 

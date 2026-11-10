@@ -11,7 +11,6 @@ use crate::convert::match_format_string;
 use crate::table::Table;
 use loco_game::Status;
 use loco_protocol::{RematchOfferedMsg, RematchStartedMsg, ServerMsg};
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 /// Two asks deal the next match, whatever the table's size.
@@ -37,11 +36,12 @@ impl Table {
         }
         let seat = c.player_id();
         // A repeat publishes nothing.
-        if !self.rematch_offers.insert(seat) {
+        if self.seats.get(seat).is_none_or(|s| s.wants_rematch) {
             return;
         }
+        self.seats[seat].wants_rematch = true;
         self.broadcast_rematch_offers(Some(seat as i32));
-        if self.rematch_offers.len() < self.rematch_quorum() {
+        if self.rematch_offers().len() < self.rematch_quorum() {
             return;
         }
         self.deal_agreed_rematch(cx);
@@ -53,7 +53,11 @@ impl Table {
     }
 
     pub(crate) fn broadcast_rematch_offers(&self, seat: Option<i32>) {
-        let offers: Vec<i32> = self.rematch_offers.iter().map(|&s| s as i32).collect();
+        let offers: Vec<i32> = self
+            .rematch_offers()
+            .into_iter()
+            .map(|s| s as i32)
+            .collect();
         self.broadcast_all(ServerMsg::RematchOffered(RematchOfferedMsg {
             player_index: seat,
             rematch_offers: Some(offers),
@@ -86,7 +90,7 @@ impl Table {
             "rematch opened"
         );
         let pl = self.player_list();
-        for m in self.members.iter().flatten() {
+        for (_, m) in self.clients() {
             m.send(ServerMsg::RematchStarted(RematchStartedMsg {
                 room_code: self.code.clone(),
                 player_id: Some(m.player_id() as i32),
@@ -100,9 +104,9 @@ impl Table {
 
     /// The sockets that asked, in seat order.
     fn rematch_askers(&self) -> Vec<Arc<Client>> {
-        self.rematch_offers
-            .iter()
-            .filter_map(|&s| self.client(s).cloned())
+        self.rematch_offers()
+            .into_iter()
+            .filter_map(|s| self.client(s).cloned())
             .collect()
     }
 
@@ -134,18 +138,16 @@ impl Table {
     }
 
     /// A departure re-bases the asks above it, and may complete the quorum.
-    pub(crate) fn release_rematch_offer(&mut self, cx: &TableCtx, seat: usize) {
-        if self.rematch_offers.is_empty() {
+    pub(crate) fn release_rematch_offer(&mut self, cx: &TableCtx, _seat: usize) {
+        // The seat has already left `seats`, so the asks above it moved down
+        // with their seats: there is nothing to re-base by hand.
+        if self.rematch_offers().is_empty() {
             return;
         }
-        self.rematch_offers = self
-            .rematch_offers
-            .iter()
-            .filter(|&&s| s != seat)
-            .map(|&s| if s > seat { s - 1 } else { s })
-            .collect::<BTreeSet<_>>();
         if self.room.status != Status::Finished || self.is_matchmade() {
-            self.rematch_offers.clear();
+            for s in &mut self.seats {
+                s.wants_rematch = false;
+            }
             return;
         }
         self.after_offer_change(cx);
@@ -153,10 +155,12 @@ impl Table {
 
     /// A seat going away (held, not removed) retires its ask.
     pub(crate) fn retire_rematch_offer(&mut self, cx: &TableCtx, seat: usize) {
-        if self.rematch_offers.is_empty() {
+        if self.rematch_offers().is_empty() {
             return;
         }
-        self.rematch_offers.remove(&seat);
+        if let Some(s) = self.seats.get_mut(seat) {
+            s.wants_rematch = false;
+        }
         if self.room.status != Status::Finished || self.is_matchmade() {
             return;
         }
@@ -165,7 +169,7 @@ impl Table {
 
     fn after_offer_change(&mut self, cx: &TableCtx) {
         self.broadcast_rematch_offers(None);
-        let n = self.rematch_offers.len();
+        let n = self.rematch_offers().len();
         if n > 0 && n >= self.rematch_quorum() {
             self.deal_agreed_rematch(cx);
         }
@@ -173,8 +177,8 @@ impl Table {
 
     /// Drops every human seat with nobody in it before a rematch deals.
     fn prune_absent_players(&mut self) {
-        for id in (0..self.members.len()).rev() {
-            if self.members[id].is_some() || self.is_bot(id) {
+        for id in (0..self.seats.len()).rev() {
+            if self.client(id).is_some() || self.is_bot(id) {
                 continue;
             }
             if let Err(e) = self.room.remove_lobby_player(id as i32) {

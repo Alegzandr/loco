@@ -17,7 +17,7 @@ impl Table {
     /// Marshals once and sends the same bytes to every seated socket but
     /// `exclude`. Every message carries `server_now`, stamped here.
     pub fn broadcast(&self, mut msg: ServerMsg, exclude: Option<&Arc<Client>>) {
-        if self.members.iter().all(Option::is_none) {
+        if self.all_seats_empty() {
             return;
         }
         msg.stamp_now(clock::now_ms());
@@ -29,7 +29,7 @@ impl Table {
             }
         };
         let bytes = Utf8Bytes::from(s);
-        for c in self.members.iter().flatten() {
+        for (_, c) in self.clients() {
             if exclude.is_some_and(|x| Arc::ptr_eq(x, c)) {
                 continue;
             }
@@ -115,8 +115,8 @@ impl Table {
     pub fn broadcast_personalized_game_state(&self) {
         let pl = self.player_list();
         let shared = self.shared_game_state();
-        for (seat, m) in self.members.iter().enumerate() {
-            if let Some(m) = m {
+        for (seat, m) in self.clients() {
+            {
                 m.send(ServerMsg::GameState(GameStateMsg {
                     state: Some(self.player_game_state_with(seat, pl.clone(), &shared)),
                     ..Default::default()

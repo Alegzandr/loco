@@ -5,12 +5,12 @@
 //! after a Swap, the card_played broadcast alone, one recipient's state.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use loco_game::{Card, Color, Kind};
 use loco_hub::actor::DeadlineKey;
 use loco_hub::room::new_room;
+use loco_hub::wire::ClientMsg;
 use loco_hub::wire::msg;
 use loco_hub::{AsyncLog, Client, Hub, HubConfig, Table};
-use loco_game::{Card, Color, Kind};
-use loco_hub::wire::ClientMsg;
 use std::hint::black_box;
 use std::sync::Arc;
 use std::time::Duration;
@@ -122,29 +122,33 @@ fn dispatch_play_card(c: &mut Criterion) {
     let mut g = c.benchmark_group("dispatch(play_card)");
     for n in [2usize, 4, 10] {
         let (mut t, cx, clients, mut rxs) = bench_table(&hub, n);
-        g.bench_with_input(BenchmarkId::from_parameter(format!("players={n}")), &n, |b, _| {
-            b.iter_custom(|iters| {
-                let mut total = Duration::ZERO;
-                for _ in 0..iters {
-                    let state = t.room.state.as_mut().expect("dealt");
-                    let seat = state.current_turn as usize;
-                    state.hands[seat].add(&[Card {
-                        color: Color::Wild,
-                        kind: Kind::WildCard,
-                        value: 0,
-                    }]);
-                    state.pending_draw = 0;
-                    let c = clients[seat].clone();
-                    let m = msg.clone();
-                    let start = std::time::Instant::now();
-                    t.dispatch_at_table(&cx, &c, m);
-                    total += start.elapsed();
-                    drain(&mut rxs);
-                    t.deadlines.clear();
-                }
-                total
-            })
-        });
+        g.bench_with_input(
+            BenchmarkId::from_parameter(format!("players={n}")),
+            &n,
+            |b, _| {
+                b.iter_custom(|iters| {
+                    let mut total = Duration::ZERO;
+                    for _ in 0..iters {
+                        let state = t.room.state.as_mut().expect("dealt");
+                        let seat = state.current_turn as usize;
+                        state.hands[seat].add(&[Card {
+                            color: Color::Wild,
+                            kind: Kind::WildCard,
+                            value: 0,
+                        }]);
+                        state.pending_draw = 0;
+                        let c = clients[seat].clone();
+                        let m = msg.clone();
+                        let start = std::time::Instant::now();
+                        t.dispatch_at_table(&cx, &c, m);
+                        total += start.elapsed();
+                        drain(&mut rxs);
+                        t.deadlines.clear();
+                    }
+                    total
+                })
+            },
+        );
     }
     g.finish();
 }
@@ -157,12 +161,15 @@ fn broadcasts(c: &mut Criterion) {
     let hub = Hub::start(HubConfig::default());
     for n in [2usize, 4, 10] {
         let (mut t, cx, _clients, mut rxs) = bench_table(&hub, n);
-        c.bench_function(&format!("broadcast_personalized_game_state/players={n}"), |b| {
-            b.iter(|| {
-                t.broadcast_personalized_game_state();
-                drain(&mut rxs);
-            })
-        });
+        c.bench_function(
+            &format!("broadcast_personalized_game_state/players={n}"),
+            |b| {
+                b.iter(|| {
+                    t.broadcast_personalized_game_state();
+                    drain(&mut rxs);
+                })
+            },
+        );
         t.room.round_ended = true;
         c.bench_function(&format!("broadcast_card_played/players={n}"), |b| {
             b.iter(|| {

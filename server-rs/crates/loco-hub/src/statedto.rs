@@ -48,7 +48,7 @@ impl Table {
                     .as_ref()
                     .and_then(|s| s.hands.get(i))
                     .map_or(0, |h| h.size() as i32);
-                let away = self.away_at.contains_key(&i);
+                let away = self.is_held(i);
                 PlayerDTO {
                     index: p.index,
                     nickname: p.nickname.clone(),
@@ -80,7 +80,7 @@ impl Table {
             .map(|rec| MatchRecordDTO {
                 rounds_won: rec.rounds_won.iter().map(|&v| v as i32).collect(),
                 scores: rec.scores.iter().map(|&v| v as i32).collect(),
-                winner_index: rec.winner as i32,
+                winner_index: rec.winner.map_or(-1, |w| w as i32),
                 duration_ms: rec.duration_ms,
             })
             .collect()

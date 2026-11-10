@@ -82,8 +82,7 @@ impl HubCore {
         let mut t = self.new_table(&code, room);
         t.solo = true;
         self.seat_into(&mut t, c, 0);
-        t.add_empty_seat();
-        t.bots.insert(1);
+        t.add_bot_seat();
         let m = self.hub.metrics();
         m.bots_active.fetch_add(1, Ordering::Relaxed);
         m.matches_solo.fetch_add(1, Ordering::Relaxed);

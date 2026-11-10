@@ -146,10 +146,8 @@ impl Table {
             c.send_error(&e.to_string());
             return;
         }
-        let bot = self.room.players.len() - 1;
-        self.bots.insert(bot);
         cx.hub.metrics().bots_active.fetch_add(1, Ordering::Relaxed);
-        self.add_empty_seat();
+        self.add_bot_seat();
         self.broadcast_all(ServerMsg::PlayerJoined(PlayerJoinedMsg {
             nickname,
             players: self.player_list(),
@@ -175,8 +173,7 @@ impl Table {
                 tracing::warn!(nickname = %name, "bot reseat failed err={e}");
                 return;
             }
-            self.bots.insert(self.room.players.len() - 1);
-            self.add_empty_seat();
+            self.add_bot_seat();
         }
     }
 
@@ -269,7 +266,7 @@ impl Table {
     }
 
     fn schedule_bot_catch(&mut self, target: usize) {
-        if !self.bots.iter().any(|&b| b != target) {
+        if !self.bot_seats().into_iter().any(|b| b != target) {
             return;
         }
         let Some(state) = self.room.state.as_ref() else {
@@ -298,7 +295,7 @@ impl Table {
 
     /// After every play, a bot holding a copy of the top card may slam it.
     pub fn maybe_schedule_bot_interrupt(&mut self, _cx: &TableCtx) {
-        if self.room.status != Status::Playing || self.room.round_ended || self.bots.is_empty() {
+        if self.room.status != Status::Playing || self.room.round_ended || self.bot_count() == 0 {
             return;
         }
         let Some(state) = self.room.state.as_ref() else {
@@ -329,7 +326,7 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        if state.last_play_at != last_play_at || self.bots.is_empty() {
+        if state.last_play_at != last_play_at || self.bot_count() == 0 {
             return;
         }
         if let Some(seat) = committed {
@@ -349,10 +346,10 @@ impl Table {
             return;
         }
         let candidates: Vec<(usize, BotInterruptAction)> = self
-            .bots
-            .iter()
-            .filter(|&&b| b as i32 != state.last_play_by)
-            .filter_map(|&b| loco_game::bot_interrupt(state, b as i32).map(|a| (b, a)))
+            .bot_seats()
+            .into_iter()
+            .filter(|&b| b as i32 != state.last_play_by)
+            .filter_map(|b| loco_game::bot_interrupt(state, b as i32).map(|a| (b, a)))
             .collect();
         if candidates.is_empty() {
             return;
@@ -428,7 +425,11 @@ impl Table {
         {
             return;
         }
-        let eligible: Vec<usize> = self.bots.iter().copied().filter(|&b| b != target).collect();
+        let eligible: Vec<usize> = self
+            .bot_seats()
+            .into_iter()
+            .filter(|&b| b != target)
+            .collect();
         if eligible.is_empty() {
             return;
         }
@@ -592,7 +593,7 @@ impl Table {
     /// Arms the declarations and the catches every action can open: after
     /// **every** action, human or bot.
     pub fn maybe_schedule_bot_reactions(&mut self, _cx: &TableCtx) {
-        if self.room.status != Status::Playing || self.room.round_ended || self.bots.is_empty() {
+        if self.room.status != Status::Playing || self.room.round_ended || self.bot_count() == 0 {
             return;
         }
         let Some(state) = self.room.state.as_ref() else {

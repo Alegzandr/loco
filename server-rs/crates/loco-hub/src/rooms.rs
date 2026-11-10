@@ -338,8 +338,8 @@ impl Table {
         );
         let pl = self.player_list();
         let shared = self.shared_game_state();
-        for (seat, m) in self.members.iter().enumerate() {
-            if let Some(m) = m {
+        for (seat, m) in self.clients() {
+            {
                 m.send(ServerMsg::GameStarted(GameStartedMsg {
                     state: Some(self.player_game_state_with(seat, pl.clone(), &shared)),
                     ..Default::default()
@@ -482,8 +482,8 @@ impl Table {
         self.swap_seats(0, seat);
         // Per recipient: the two seats that moved read their own player_id.
         let pl = self.player_list();
-        for (i, m) in self.members.iter().enumerate() {
-            if let Some(m) = m {
+        for (i, m) in self.clients() {
+            {
                 m.send(ServerMsg::HostChanged(HostChangedMsg {
                     player_id: Some(i as i32),
                     nickname: nickname.clone(),
@@ -542,7 +542,9 @@ impl Table {
     /// that becomes true rather than on the five-minute cleanup. A lobby is
     /// left to the cleanup: its code is live.
     pub fn close_abandoned_match(&mut self, cx: &TableCtx) -> bool {
-        if self.room.status == Status::Lobby || !self.away_at.is_empty() || !self.all_seats_empty()
+        if self.room.status == Status::Lobby
+            || !self.held_seats().is_empty()
+            || !self.all_seats_empty()
         {
             return false;
         }

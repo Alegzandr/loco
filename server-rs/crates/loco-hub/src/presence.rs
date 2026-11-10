@@ -152,7 +152,10 @@ impl Table {
 
     pub(crate) fn handle_expire_reconnect(&mut self, cx: &TableCtx, hint: usize, at: Instant) {
         let Some(seat) = self.held_seat_at(hint, at) else {
-            tracing::info!(player = hint, "reconnect expiry skipped, hold cleared or superseded");
+            tracing::info!(
+                player = hint,
+                "reconnect expiry skipped, hold cleared or superseded"
+            );
             return;
         };
         cx.hub
@@ -160,10 +163,10 @@ impl Table {
             .reconnect_expirations
             .fetch_add(1, Ordering::Relaxed);
         tracing::info!(player = seat, "reconnect window expired");
-        self.away_at.remove(&seat);
         let nickname = self.nickname_of(seat);
-        // Absent for good: the roster must stop calling it connected.
-        self.gone.insert(seat);
+        // Absent for good: the roster must stop calling it connected. The
+        // token stays, as Go's did: a finished table removes the seat anyway.
+        self.mark_gone(seat, false);
 
         let status = self.room.status;
         let mut removed = false;
@@ -223,7 +226,7 @@ impl Table {
         {
             return;
         }
-        if self.connected() == 0 && self.away_at.is_empty() {
+        if self.connected() == 0 && self.held_seats().is_empty() {
             return;
         }
         if self.playable_seats() >= crate::matchmaking::WALK_OUT_FLOOR {
@@ -241,11 +244,11 @@ impl Table {
         seat: usize,
         nickname: &str,
     ) {
+        // Seating replaces the hold.
         self.seat_client(cx, c, seat);
-        self.away_at.remove(&seat);
         // The counter measured a connection that died; a reclaim is somebody
         // there.
-        self.afk.remove(&seat);
+        self.seats[seat].afk = 0;
         tracing::info!(nickname = %nickname, player_id = seat, "player reconnected");
         let tok = self.issue_token(seat);
         // A reclaim at a finished table gets no board: the match is over.

@@ -125,7 +125,7 @@ pub(crate) struct Published {
 impl Published {
     fn publish(&self, t: &Table) {
         self.phase.store(t.phase() as u8, Ordering::Release);
-        self.bots.store(t.bots.len() as i32, Ordering::Release);
+        self.bots.store(t.bot_count() as i32, Ordering::Release);
     }
 }
 
@@ -346,7 +346,10 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
             .metrics()
             .handler_panics
             .fetch_add(1, Ordering::Relaxed);
-        let player = client.as_ref().and_then(|c| c.seat()).map_or(-1, |s| s.id as i64);
+        let player = client
+            .as_ref()
+            .and_then(|c| c.seat())
+            .map_or(-1, |s| s.id as i64);
         tracing::warn!(
             job = %what,
             player,
