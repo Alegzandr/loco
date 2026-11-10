@@ -140,11 +140,16 @@ describe('reaching it', () => {
   })
 
   it('is linked from the footer of the game and of every content page', () => {
+    // One bar and one drawer since the site's chrome was unified, and both
+    // page layouts render them.
     const layouts = path.join(CLIENT, 'src', 'layouts')
-    for (const file of ['GamePage.svelte', 'ContentPage.svelte']) {
+    for (const file of ['SiteFooter.svelte', 'SiteDrawer.svelte']) {
       const src = readFileSync(path.join(layouts, file), 'utf8')
       expect(src, file).toMatch(/LEGAL\.path\[lang\]/)
       expect(src, file).toMatch(/legalNav/)
+    }
+    for (const file of ['GamePage.svelte', 'ContentPage.svelte']) {
+      expect(readFileSync(path.join(layouts, file), 'utf8'), file).toMatch(/<SiteFooter\b/)
     }
   })
 

@@ -22,7 +22,9 @@ asserted the discard and the turn that `debug_set_state` had itself just configu
 months while the server rejected every interrupt with "interrupt window closed".
 
 Keep tests fast, targeted, non-brittle, and cover game rules over UI details. Review layout, colour
-and motion changes with `make visual` instead: reading four contact sheets catches what no assertion
+and motion changes with `make visual` instead (it also shoots the content pages and the 404, which
+share the game's shell since SvelteKit: `--pages=only` for those alone, `--pages=off` to skip them):
+reading four contact sheets catches what no assertion
 was going to describe. Assertions own behaviour, screenshots own appearance.
 
 Both browser harnesses (`make visual`, `make audio-verify`) launch the Chromium their `playwright`

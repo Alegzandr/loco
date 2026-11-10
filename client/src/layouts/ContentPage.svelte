@@ -1,6 +1,8 @@
 <script lang="ts">
-  // The shell every content page shares: a header, one column, and the same
-  // footer bar the home page carries.
+  // The shell every content page shares: a header, one column, and the site's
+  // bar at the foot — the same bar, the same drawer and the same language
+  // chooser the game page carries (SiteFooter.svelte, SiteDrawer.svelte), so
+  // moving between this page and the game is moving inside one app.
   //
   // Prerendered whole, and readable with no script at all: everything below is
   // markup in the served HTML. <LocoLogo /> is the game's own component, so the
@@ -10,14 +12,16 @@
   // drawer are native popovers for the same reason: they dismiss on Escape and on
   // a click outside with no script behind them.
   //
-  // The navigation lives in the footer, not in the header, because that is where
-  // the home page puts it: one bar, pinned to the bottom of the viewport, holding
-  // the same links in the same order. A player who arrives from `/` meets the
-  // same row they left, with "Play" where the home page's sheet button was.
+  // What only this page has is the header: the mark back to the game and the
+  // "Play" beside it, pinned, because these documents are long. The game page
+  // has none — its entry screen is its own composition, with the wordmark at its
+  // centre — and that is the one deliberate difference between the two shells.
   import { onMount, untrack, type Snippet } from 'svelte'
   import Head from './Head.svelte'
+  import SiteFooter from './SiteFooter.svelte'
+  import SiteDrawer from './SiteDrawer.svelte'
   import LocoLogo from '../components/LocoLogo.svelte'
-  import { NAV, HOME, LEGAL, LANGS, LOCALE, type Lang, type PageDef } from '../seo/meta'
+  import { HOME, type Lang, type PageDef } from '../seo/meta'
   import { applyDocument, documentFor } from '../seo/document'
   import { ui } from '../content/ui'
   import { bootContentPage } from '../content/page-boot'
@@ -59,111 +63,13 @@
   -->
   <div class="headerBar" id="top">
     <header class="siteHeader">
-      <!--
-        The burger, and only on a phone. The bar at the foot of the page is the
-        navigation everywhere there is room for it; under 46rem it had folded
-        into two lines of 12px text with nothing on it big enough to aim a thumb
-        at, so on that width the bar goes and everything it carried moves in
-        here. Native `popover`, like the language chooser beside it: Escape and
-        a tap outside both close it with no script on the page.
-      -->
-      <button
-        type="button"
-        class="menuBtn"
-        popovertarget="navPop"
-        aria-label={ui('menuLabel', lang)}
-      >
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
-          <path
-            d="M4 7h16M4 12h16M4 17h16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.4"
-            stroke-linecap="round"
-          ></path>
-        </svg>
-      </button>
+      <SiteDrawer {page} {lang} />
 
       <a class="brand" href={HOME.path[lang]} aria-label={ui('homeLabel', lang)}>
         <LocoLogo size="1.5rem" />
       </a>
       <a class="cta" href={HOME.path[lang]}>{ui('play', lang)}</a>
     </header>
-  </div>
-
-  <!--
-    Everything the footer bar holds, at a size a thumb can hit: the same links
-    in the same order, so the two are one navigation rendered twice rather than
-    two navigations. Only ever one of them is on screen.
-  -->
-  <div id="navPop" popover="auto" class="navPop">
-    <div class="navPopHead">
-      <!--
-        The wordmark, not the word "Menu". "Menu" named the thing the reader
-        had just opened and was already looking at; the mark puts the game's
-        own colour at the top of a panel that is otherwise a column of text,
-        and it is the same drawing on the game page's drawer, which has no
-        header behind it to carry the brand at all.
-      -->
-      <div class="navPopTitle"><LocoLogo size="1.25rem" /></div>
-      <button
-        type="button"
-        class="navPopClose"
-        popovertarget="navPop"
-        popovertargetaction="hide"
-        aria-label={ui('menuClose', lang)}
-      >
-        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
-          <path
-            d="M6 6l12 12M18 6L6 18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.4"
-            stroke-linecap="round"
-          ></path>
-        </svg>
-      </button>
-    </div>
-
-    <nav class="navPopLinks" aria-label={ui('navLabel', lang)}>
-      <!-- The drawer's one action among its destinations, and the accent that
-           comes with it. `navPopCta` is what the game page's Preferences row
-           wears too, so neither menu is the colourless one. -->
-      <a class="navPopCta navPopPlay" href={HOME.path[lang]}>{ui('play', lang)}</a>
-      {#each NAV as p (p.id)}
-        <a href={p.path[lang]} aria-current={p.id === page.id ? 'page' : undefined}>
-          {p.navLabel?.[lang] ?? p.title[lang]}
-        </a>
-      {/each}
-      <a href={LEGAL.path[lang]} aria-current={LEGAL.id === page.id ? 'page' : undefined}>
-        {ui('legalNav', lang)}
-      </a>
-    </nav>
-
-    <!--
-      The two settings, on one row at the foot of the drawer. The globe opens
-      the same `#langPop` the bar's does — a popover invoked from inside
-      another one nests rather than replacing it, so this one stays put behind
-      it, and where that is not honoured the language panel still opens, which
-      is the whole job of the button.
-    -->
-    <div class="navPopEnd">
-      <button
-        type="button"
-        class="langBtn"
-        popovertarget="langPop"
-        aria-label={ui('langLabel', lang)}
-      >
-        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
-          <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <circle cx="12" cy="12" r="9"></circle>
-            <ellipse cx="12" cy="12" rx="4.1" ry="9"></ellipse>
-            <path d="M3.2 9h17.6M3.2 15h17.6"></path>
-          </g>
-        </svg>
-        <span>{ui('langName', lang)}</span>
-      </button>
-    </div>
   </div>
 
   <main class="content" id="content">
@@ -192,113 +98,14 @@
     </svg>
   </a>
 
-  <footer class="siteFooter">
-    <!--
-      First, on the left of the links, exactly where the home page's sheet
-      button sits: that row is the one thing these pages share with `/`, and a
-      control that moves between two pages is a different control.
-    -->
-    <a class="footerPlay" href={HOME.path[lang]}>{ui('play', lang)}</a>
-
-    <nav class="footerNav" aria-label={ui('navLabel', lang)}>
-      {#each NAV as p (p.id)}
-        <a href={p.path[lang]} aria-current={p.id === page.id ? 'page' : undefined}>
-          {p.navLabel?.[lang] ?? p.title[lang]}
-        </a>
-      {/each}
-    </nav>
-
-    <div class="footerEnd">
+  <SiteFooter {page} {lang}>
+    {#snippet lead()}
       <!--
-        At the right-hand end, apart from the five: it is not a page anybody
-        came to read, it is the one that has to be findable from anywhere. Same
-        position on the home page, under the game.
+        First, on the left of the links, exactly where the home page's sheet
+        button sits: the bar is the one thing these pages share with `/`, and a
+        control that moves between two pages is a different control.
       -->
-      <a
-        class="footerLegal"
-        href={LEGAL.path[lang]}
-        aria-current={LEGAL.id === page.id ? 'page' : undefined}
-      >
-        {ui('legalNav', lang)}
-      </a>
-
-      <!--
-        A drawn globe, never a glyph: an emoji globe is a different object on
-        every platform and renders as a coloured picture next to flat 12px text.
-
-        The globe alone, with no language name beside it: the page is already
-        in that language, so the word only restated what the reader is looking
-        at. The name is where the choice is made, on the two links inside the
-        panel. `aria-label` still says "Language", which is what a button with
-        no text owes a screen reader.
-      -->
-      <button
-        type="button"
-        class="langBtn"
-        popovertarget="langPop"
-        aria-label={ui('langLabel', lang)}
-      >
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
-          <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <circle cx="12" cy="12" r="9"></circle>
-            <ellipse cx="12" cy="12" rx="4.1" ry="9"></ellipse>
-            <path d="M3.2 9h17.6M3.2 15h17.6"></path>
-          </g>
-        </svg>
-      </button>
-    </div>
-
-    <!--
-      Real links to the same page in the other language, not an in-app toggle:
-      it is the href that makes the hreflang pair navigable, and a crawler
-      follows nothing else. `hreflang` and `lang` describe the destination,
-      which is what stops a screen reader announcing French in an English
-      voice. They are inside the popover and therefore in the document either
-      way — a popover hides its contents, it does not withhold them.
-    -->
-    <div id="langPop" popover="auto" class="langPop">
-      <!--
-        A panel that opens over a scrim needs a way out that is visible, not
-        only one that is known: Escape and a click outside are both native to
-        `popover="auto"` and both are invisible to a reader on a phone, who has
-        neither key nor outside to press. `popovertargetaction="hide"` is the
-        same native control in the other direction, so the way out costs no
-        script either.
-      -->
-      <div class="langPopHead">
-        <p class="langPopTitle">{ui('langTitle', lang)}</p>
-        <button
-          type="button"
-          class="langPopClose"
-          popovertarget="langPop"
-          popovertargetaction="hide"
-          aria-label={ui('langClose', lang)}
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
-            <path
-              d="M6 6l12 12M18 6L6 18"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.4"
-              stroke-linecap="round"
-            ></path>
-          </svg>
-        </button>
-      </div>
-      <ul>
-        {#each LANGS as l (l)}
-          <li>
-            <a
-              href={page.path[l]}
-              hreflang={LOCALE[l]}
-              lang={l}
-              aria-current={l === lang ? 'true' : undefined}
-            >
-              {ui('langName', l)}
-            </a>
-          </li>
-        {/each}
-      </ul>
-    </div>
-  </footer>
+      <a class="footerPlay" href={HOME.path[lang]}>{ui('play', lang)}</a>
+    {/snippet}
+  </SiteFooter>
 </div>

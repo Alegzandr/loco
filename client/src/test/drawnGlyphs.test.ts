@@ -41,7 +41,7 @@ const GLYPH =
   /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}]|\u{FE0F}/u
 
 /** Surfaces a player reads. Not `audio/`, not `dev/`, not `test/`. */
-const SCANNED = /\.(svelte|astro)$/
+const SCANNED = /\.svelte$|^app\.html$/
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

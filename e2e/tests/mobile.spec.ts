@@ -214,7 +214,7 @@ test.describe('mobile viewport', () => {
 
     // The row is still in the document for a crawler; it is simply not what a
     // phone is shown.
-    await expect(page.locator('.homeLinks')).toBeHidden()
+    await expect(page.locator('.siteFooter .footerNav')).toBeHidden()
 
     const burger = page.locator('.homeBurger')
     await expect(burger).toBeVisible()
@@ -235,7 +235,8 @@ test.describe('mobile viewport', () => {
     // that six had become seven without naming which link it was.
     const hrefs = (sel: string) =>
       page.locator(sel).evaluateAll((els) => els.map((el) => el.getAttribute('href')))
-    const rowHrefs = await hrefs('.homeLinks a')
+    // The bar's destinations: the pages and privacy, which closes the row.
+    const rowHrefs = await hrefs('.siteFooter .footerNav a, .siteFooter .footerLegal')
     // Both empty would agree with each other for ever.
     expect(rowHrefs.length).toBeGreaterThan(4)
     expect(await hrefs('.navPopLinks a')).toEqual(rowHrefs)
@@ -383,6 +384,6 @@ test.describe('mobile viewport', () => {
     await expect(drawer).toBeVisible()
     await page.setViewportSize({ width: 1100, height: 800 })
     await expect(drawer).toBeHidden()
-    await expect(page.locator('.homeLinks')).toBeVisible()
+    await expect(page.locator('.siteFooter .footerNav')).toBeVisible()
   })
 })

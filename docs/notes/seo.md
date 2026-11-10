@@ -362,18 +362,26 @@ screenful. `html:has(body.doc)` takes a `scroll-padding-top`, or the skip link a
 anchor land on a heading the band is sitting on. `contentPages.test.ts` pins the sticky, the nesting
 and the scroll padding.
 
-The bar is written in `content.css` rather than shared with `GamePage.svelte`. That copy has two jobs
-this one does not — vanishing on `data-seated`, and keeping the whole page inside one viewport — and two
-short rulesets that look alike beat one that has to be true of both.
+**One bar for the whole site, and it does not move between pages.** It was two: this one, and a row
+under the game that `GamePage` styled itself, on the argument that the home copy had two jobs this one
+did not — vanishing on `data-seated`, and keeping the page inside one viewport — and that two short
+rulesets that look alike beat one that has to be true of both. They drifted exactly the way that
+argument invites: different padding, a hairline on one only, privacy inside the list on `/` and at
+the end here, a language globe on one side only. Since SvelteKit the router moves between the two
+without a reload, and the drift became the one thing that changed on screen: crossing from the rules
+to the game read as crossing into another site.
 
-**Privacy and terms is last, not apart.** It is not a page anybody came to read, it is the one that
-has to be findable from anywhere, and on the home page it stood off at the right-hand end for that
-reason. Held apart it read as a second navigation of one item, and the gap the centring left between
-it and the five gave the row two centres, so on `/` it closes the same list the other five are in,
-which is how both drawers had always carried it. That row is a plain centred flex again: the three
-grid columns existed only to keep the five centred against an item pushed right, and there is
-nothing to push. The content pages' bar keeps it in `.footerEnd`, beside the
-globe, where the far end of the bar is settings rather than empty space.
+So it is one component, `layouts/SiteFooter.svelte`, and one ruleset in `content.css`, rendered by
+both layouts. What each page needs at the left-hand end is passed in — `Play` here, the sheet of prose
+on `/` — and everything else is the same object: the destinations, **privacy at the right-hand end in
+`.footerEnd` beside the globe** (where the far end of the bar is settings rather than empty space),
+the hairline, the opaque canvas. On a content page it is `position: fixed`; on `/` it is in the flow
+(`.onHome`), closing the one viewport. **The two are one height** — the closed sheet's `<details>`
+took the body's line box and made the home bar 8px taller until it was made a flex box itself — and
+the bar carries `view-transition-name: site-footer`, so the router's cross-fade
+(`routes/+layout.svelte`) leaves it exactly where it was. The two jobs the home copy had are a class
+(`.onHome`) and a rule in `GamePage.css` (`:root[data-seated] .siteFooter.onHome`): one ruleset was
+true of both after all.
 
 **And a way back up.** These pages are long and their navigation is pinned to the *bottom*, so the
 return trip was a full scroll or a key a phone does not have. `.toTop` appears once the reader is
@@ -403,7 +411,7 @@ pages never mount. The listener is live rather than read once at boot, and with 
 nothing glides, which is the safe half of the fallback. `contentPages.test.ts` pins both halves —
 either alone is silent.
 
-`body.doc` also puts text selection back: the reset in `Head.svelte` disables it for the board, where
+`body.doc` also puts text selection back: the reset in `styles/base.css` disables it for the board, where
 dragging a card must not select the table, and a page of rules nobody can quote is a different kind
 of broken.
 
@@ -423,9 +431,14 @@ top left**. The same control, in the same corner, on the content pages and on `/
   bar, privacy and the globe — the whole bar, in order, as rows of 2.75rem.
 - **The game page**: the burger is fixed over the board at the offsets `Lobby.svelte`'s `<style>`
   gives `.topBar`, so it lands on the line the gear, the speaker and the "?" already sit on. The drawer
-  carries the same pages and privacy. **No `Play`** — this is where playing happens — and no
-  language, which is behind the lobby's own gear. The footer row costs the board no height at all at
-  that width.
+  carries the same pages and privacy. **No `Play`** — this is where playing happens — and it ends on
+  the same globe as every other drawer: the language is reached the same way on every page that is
+  not a seat (it used to be behind the lobby's gear alone on `/`; the gear still has it). The bar's
+  row costs the board no height at all at that width.
+
+They are one component, `layouts/SiteDrawer.svelte`, for the reason the bar is: two copies drift.
+The game page passes `home`, which swaps `Play` for the `About` row and adds the `Preferences` CTA,
+and carries both languages on every string for `langSwap.ts`.
 
 **Both open on the wordmark, and both carry exactly one action.** The head used to read "Menu",
 which named the panel to somebody already looking at it and left this the one branded surface on the
@@ -446,8 +459,7 @@ and beats a bare class on specificity whatever the order. It went unnoticed whil
 white against an ink colour that is also near white.
 
 `#navPrefs` is the seam between the two halves of `/`. It ships `hidden` and `homeSheet.ts` reveals
-it, for the reason the content pages' back-to-top does: the panel it opens belongs to the game's
-bundle, and a
+it, for the reason the content pages' back-to-top does: the panel it opens belongs to the game, and a
 scriptless page is better off without a button than with one that does nothing. It closes the popover
 and dispatches `loco:preferences`; `<Preferences />` listens. An event rather than a shared module —
 the drawer is `#root`'s sibling, not in its tree, and a store both halves imported would put the
@@ -665,8 +677,9 @@ between them.
 It was a block under the fold, and that was the wrong shape. Nothing else in this game is reached by
 scrolling, the entry screen is one viewport by design, and parking two hundred words below it made
 the home page behave like a site that happened to have a game at the top. So the page is now exactly
-one viewport, always: `body` is a flex column, `#root` takes what is left, and the footer is a quiet
-row of links at the bottom. The prose moved into a sheet the row opens.
+one viewport, always: `body.game` is a flex column, `#root` takes what is left, and the site's bar
+(the same one every content page carries, see "The shell" above) closes it at the bottom. The prose
+moved into a sheet the bar's left-hand end opens.
 
 That sheet is a native `<details>`, not a modal of ours, and both halves of that matter. It is markup,
 so the prose stays in the served HTML where a crawler reads it — content inside an expandable section
@@ -711,20 +724,23 @@ desktop half.
 
 The burger goes with it. It sits at the sheet's own layer and later in the document, so it was
 painted over the card's top-left corner: a floating control on a panel that already carries its ✕,
-and the one it had just been pressed on. `.homeIntro:has(.homeSheet[open]) .homeBurger` takes it off
+and the one it had just been pressed on. `:root:has(.homeSheet[open]) .homeBurger` takes it off
 screen for as long as the sheet is up.
 
 `HomeProse.svelte`'s sections head at `<h3>`, under the sheet's own `<h2>` title, which keeps the
 document's heading order the served `<h1>` establishes.
 
-Under 46rem none of that row is on screen: the burger described above replaces it, and the drawer
-carries the links. The sheet is the prose's one control — it is what opens it on a wide screen, and
+Under 46rem none of the bar's row is on screen: the burger described above replaces it, and the
+drawer carries the links; only the *closed* sheet's button goes, so the open sheet the drawer's
+`About` row asks for still shows. The sheet is the prose's one control — it is what opens it on a wide screen, and
 `HomeProse.svelte` is rendered once, in it. The drawer held a second copy for a while; see the two
 drawers above for why it does not any more.
 
-The footer disappears the moment a seat is taken. That is not the app's to do — it is the page's
-markup, not the app's — so `App.svelte` writes `data-seated` on `<html>` and CSS hides it. The burger and the drawer
-sit inside that same element, so a seat takes them with it. The body no longer needs
+The bar disappears the moment a seat is taken, and the burger with it. That is not the app's to do —
+it is the page's markup — so `App.svelte` writes `data-seated` on `<html>` and `GamePage.css` hides
+both: at a seat the board is the board, with no site chrome over the table. (While the game is
+parked behind a content page, `App.svelte` writes no `data-seated` at all — see
+`hooks/gameShown.svelte.ts` in `client.md`.) The body no longer needs
 `overflow: hidden` restoring, because it never lost it: a board that can be scrolled off-screen
 mid-match is a bug, and now so is a lobby that can. `appSubscription.test.ts` owns the attribute,
 `seo.spec.ts` owns the CSS and the no-scroll guarantee.

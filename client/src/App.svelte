@@ -189,7 +189,7 @@
   // The home page carries a footer under the game — the links a search engine
   // follows, and the sheet somebody who has never played opens. It has no business
   // being there once a seat has been taken, and it is not the app's to remove: it
-  // is markup Astro rendered, so the document is told instead and CSS hides it.
+  // is prerendered markup, so the document is told instead and CSS hides it.
   // Purely presentational, and absent from every other page.
   // Same question, asked by something outside this document: a tab that is not
   // holding the game draws a curtain, and the curtain's copy turns on whether

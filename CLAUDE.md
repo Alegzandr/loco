@@ -60,7 +60,7 @@ client and E2E targets do need Node.
 | One E2E file / case | `cd e2e && npx playwright test tests/matchmaking.spec.ts -g "<title substring>"` |
 | Lint | `make lint` (golangci-lint in docker + ESLint) |
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
-| Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
+| Type-check | `make build-client` (`svelte-kit sync && svelte-check && vite build`, then the CSP hashes); `cd client && npm run check` alone |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch,landscape"` |
 | Pack the rooms' models | `make models` after editing `scene/models/manifest.json` (needs the kits unpacked under `.assets-in/unpacked/`); `make models-check` says what is missing |
 | Re-shoot the rooms page's stills | `make rooms` after touching a builder, the kit, the light rig or the finishing passes — commit the result |
@@ -112,14 +112,19 @@ Detail, and the full required-coverage list: [`docs/notes/testing-ci.md`](docs/n
   appearance. Cover game rules over UI details.
 
 ## Repository structure
-**`client/`** Astro site + Svelte game. `vite.config.ts` holds integrations, the dev server, the dev
-toolbar (off) and the `VITE_` env prefix. **At the root: no `vite.config.ts` and no `index.html`** —
-Astro owns the pages; `vitest.config.ts` is the only Vite config, and it exists because the test run
-needs jsdom and the `browser` resolve condition.
-- `src/routes/` one `.astro` per URL · `src/layouts/` `Head.svelte`, `GamePage.svelte`, `ContentPage.svelte`
+**`client/`** SvelteKit site + Svelte game, one app. `vite.config.ts` is **the** config: the
+`sveltekit({...})` plugin (adapter-static, the CSP hashes, `runes`, `public/` as assets — there is no
+`svelte.config.js` since SvelteKit 3), the dev server and the `VITE_` env prefix; `vitest.config.ts`
+merges it and adds jsdom and the `browser` resolve condition. `src/app.html` the one template,
+`src/hooks.server.ts` its `<html>`/`<body>` attributes at prerender, `scripts/csp-hashes.mjs` the
+header's script hashes out of the build.
+- `src/routes/` one `+page.svelte` per URL (`+layout.ts`: `prerender`, `trailingSlash`; `404/`;
+  the two `sitemap-*.xml/+server.ts`) · `src/layouts/` `Head.svelte`, `GamePage.svelte` + `.css`,
+  `ContentPage.svelte`, `NotFound.svelte`, and the site's one chrome: `SiteFooter.svelte` (the bar),
+  `SiteDrawer.svelte` (the burger and the drawer) · `src/seo/document.ts` `<html>`/`<body>` per path
 - `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
-  the curtain saying another tab holds the game · `src/entry.ts` mounts *that* into `#root` via a
-  bundled module script, never an island
+  the curtain saying another tab holds the game · `src/entry.ts` boots once per document and
+  `mount()`s *that* into `#root`, then parks it across navigations (`attachGame`)
 - `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/lang.ts` (storage key, the two
   home paths, `chooseLang`) — framework-free, so a content page can use it · `src/langSwap.ts`
   translates the served half of `/` in place and moves the address bar, app-only · `src/pinchGuard.ts`
@@ -130,7 +135,7 @@ needs jsdom and the `browser` resolve condition.
   `HomeProse.svelte`, `CardsArticle.svelte`, `LiveArticle.svelte`, `TablesArticle.svelte`,
   `RulesArticle.svelte`, `FaqArticle.svelte`, `FriendsArticle.svelte`, `LegalArticle.svelte`, `deck.ts`
   (the deck as the content pages read it), `contrasts.ts`, `ui.ts` (the pages' own chrome strings),
-  `liveList.ts`, `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
+  `liveList.ts`, `navMenu.ts`, `page-boot.ts` (`bootContentPage()`). **Never imported by the app** · `src/assets/rooms/` the six stills
   the rooms page shows, shot by `make rooms` and committed · `src/assets/plates/` the painted rooms'
   plates and their tables' two strips, three WebPs a room, made by `tools/plates` and committed
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
@@ -560,20 +565,29 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
 Detail: [`docs/notes/client.md`](docs/notes/client.md).
 
 **Build and framework**
-- **The game is never an Astro island.** A `client:*` directive emits inline scripts the CSP refuses;
-  `entry.ts` is mounted by a bundled `<script>`. `csp.test.ts` fails on any `client:*` or `is:inline`, except an `is:inline`
-  `application/ld+json` data block (the structured data in `layouts/Head.svelte`), which never executes.
+- **The CSP header allows the router's bootstrap by hash, and nothing inline by hand.** SvelteKit
+  starts a prerendered page with one inline script; `csp: { mode: 'hash' }` hashes it, and
+  `scripts/csp-hashes.mjs` (last step of `npm run build`) reads every hash out of `build/` into the
+  generated, git-ignored `csp-hashes.conf` that `security-headers.conf` splices into `script-src` — a
+  `<meta>` policy alone does not loosen the header. `csp.test.ts` refuses any hand-written inline
+  script except the `application/ld+json` data block (`layouts/Head.svelte`), which never executes.
+- **The game is never server-rendered, and never unmounted by a navigation.** The game route is
+  prerendered for its served half with `#root` empty; `entry.ts` boots it **once per document, on the
+  game page only** (a content tab must never be elected by `initTabLock`), and parks it in an inert
+  holder while a content page is up, so the socket, the bed and a match survive. While parked it
+  releases `data-seated` and TAB (`hooks/gameShown.svelte.ts`).
 - **`make csp` belongs after a dependency bump too**: a dependency can break the CSP without
   appearing in our sources. The validator is Valibot, not Zod, whose JIT reached for `Function()`.
-- **`vite.config.ts` puts the `VITE_` env prefix back**, which Astro narrows away (`wsEnv.test.ts`).
+- **`vite.config.ts` names the `VITE_` env prefix** (Astro once narrowed it away; `wsEnv.test.ts`).
 - **The client is Svelte 5, and React is gone — do not bring it back.** No `react`, `react-dom`,
   `@astrojs/react`, framer-motion, `.tsx` or `.module.css`. `noReact.test.ts` checks the manifest,
   both configs, every import and every file extension.
-- **`astro check` does not type-check `.svelte`**: `make build-client` is `astro check &&
-  svelte-check && astro build`; dropping the middle one leaves every component untyped under a green
-  build. **TypeScript stays on 6.x** — three tools refuse 7.x independently.
+- **`vite build` type-checks nothing**: `make build-client` is `svelte-kit sync && svelte-check &&
+  vite build` (+ the hashes); dropping svelte-check leaves every component untyped under a green
+  build. **TypeScript stays on 6.x** — svelte-check and SvelteKit both refuse 7.x.
 - **Every type import is an `import type`.** A `<script lang="ts">` keeps its imports after the types
-  are stripped, so `src/types/protocol.ts` gets asked for something to run.
+  are stripped, so `src/types/protocol.ts` gets asked for something to run. SvelteKit 3 enforces
+  `verbatimModuleSyntax`, so it is now a build error rather than a convention.
 - **`src/types/protocol.ts` and `protocolSchemas.ts` are generated and must not be edited.** A new
   wire shape goes in `server/protocol/`, then `make protocol`; CI's `protocol_check` undoes a hand edit.
 
@@ -664,7 +678,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   read on `/i/` only.
 - **`/i/` is a page of its own because a link preview is served HTML**: `noindex`, absent from
   `PAGES` and from the sitemap, and it carries the invitation's own title, description and art. **The
-  code stays a query parameter** — `/i/CODE` would need a fallback `astro dev` cannot be given.
+  code stays a query parameter** — `/i/CODE` would need a fallback in the dev server as well as in nginx.
   `invitePage.test.ts`.
 - **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`). A prefill that
   authenticates nothing, which is why it is not the `loco_session` record.
@@ -694,7 +708,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `handTouch.test.ts`. Same rule as the deck's
   `@media (hover: hover)`.
 - **At a seat, text selection is refused on every element, not inherited from the body**
-  (`Head.svelte`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
+  (`styles/base.css`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
   **Its `::after` is its own**: a component paint on it keeps the global `translate(-50%, -50%)` and
@@ -733,7 +747,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   with it.**
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
 - **Every glyph a player sees is one we drew** (`drawnGlyphs.test.ts`, scanning every `.svelte`,
-  `.astro` and both copy files): an emoji arrives at a weight and a hue nothing here chose and takes
+  `app.html` and both copy files): an emoji arrives at a weight and a hue nothing here chose and takes
   neither the ink outline nor the hard shadow. **The four ways a match ends are `OutcomeMark.svelte`**
   — **no trophy and no face** — same component at `size="sm"` on the round summary.
 - **The rules opener is a "How to play" pill before the deal and the "?" chip at the table**
@@ -869,11 +883,13 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **A content page restates what the game already knows, so it is pinned to the source**: the rules
   page maps `t.rules` rather than copying it, and the deck table is checked against
   `server/game/deck.go` and `card.go` by `contentPages.test.ts`.
-- **A content page ships no JavaScript except `page-boot.ts`.** No `client:` directive, so
-  `<LocoLogo />` and every `<Card />` on `/cards/` are static markup. Anything interactive is a
-  **native control**: the home sheet is `<details>`, the language chooser a `[popover]`. That one
-  script also fills the live list on `/live/` (a same-origin `fetch`, so `connect-src` is untouched)
-  — **still one script, still no island, still nothing third-party**.
+- **A content page is readable with no script.** It loads the router (that is what makes the move to
+  the game a navigation), but it is prerendered whole: `<LocoLogo />` and every `<Card />` are in the
+  served HTML, an article carries **no effect, no `{@html}`, no inline script** (`livePage.test.ts`,
+  `legal.test.ts`), and anything interactive is a **native control** — the home sheet is `<details>`,
+  the drawer and the language chooser `[popover]`s. `page-boot.ts: bootContentPage()` adds the rest
+  on mount and removes it on destroy, the live list included (a same-origin `fetch`, so
+  `connect-src` is untouched) — **still nothing third-party**.
 - **`/live/` is prose first and a list second** ([`live.md`](docs/notes/live.md)). What is indexable
   is what the game gives a stream and how to appear in the category; the list of who is live is
   filled in the browser and is `WebPage`, never `Article`. Served with **a sentence rather than a
@@ -882,20 +898,34 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   `legal.test.ts`'s guard over `PAGES`, `UI` and every `src/content/**` file).
 
 **Layout and navigation**
-- **`content.css` is loaded by `GamePage.svelte` too, so every selector in it is scoped to a class.**
-  A bare `table`/`th`/`td` rule there would style the score table and the evening recap.
-  `contentPages.test.ts` fails on a bare element selector.
-- **One `--shell`, one bar, no backdrop.** Header, column and footer share one width; the navigation
-  is a **fixed footer bar**, same links and order as the home page's row. `body.doc` is flat canvas.
+- **`content.css` is loaded by `GamePage.svelte` too, and a loaded stylesheet stays loaded across a
+  navigation, so every selector in it is scoped to a class** (and `GamePage.css` scopes its body
+  rules to `body.game`). A bare `table`/`th`/`td` rule there would style the score table and the
+  evening recap. `contentPages.test.ts` fails on a bare element selector.
+- **One bar and one drawer for the whole site** (`layouts/SiteFooter.svelte`,
+  `layouts/SiteDrawer.svelte`, styled once in `content.css`): the game page and every content page
+  render the same components, so the same links, the legal link at the end and **the language globe
+  in the same place on every page that is not a seat**. Pinned under a content page, in the flow on
+  `/` (`.onHome`), **one height in both**, and **held still across the router's cross-fade**
+  (`view-transition-name: site-footer`). On `/` a globe pick is the gear's in-place swap, not a
+  navigation (`homeSheet.ts`). What differs is passed in: the sheet of prose vs. "Play" at the
+  left-hand end, Preferences vs. Play as the drawer's one action. **The content header (mark + Play)
+  is the one deliberate difference**: the entry screen is its own composition.
+- **One `--shell`, one bar, no backdrop, no glass.** Header, column and footer share one width;
+  `body.doc` is flat canvas; the header and the bar are **opaque canvas** — backdrop blur is the
+  modal scrim's alone (DESIGN.md's No-Glass Rule).
+- **A move between pages is one short cross-fade** (`routes/+layout.svelte`, View Transitions,
+  0.22s, opacity only), skipped under reduced motion — the game's `data-motion` once it has booted,
+  the system's before — and for a fragment.
 - **The header is sticky and the bar is fixed, so both ways out are always on screen.**
 - **Every in-page jump glides**: `scroll-behavior: smooth` behind `html[data-scroll="smooth"]`,
   written by `page-boot.ts` from the system preference — a media query is refused here and
   `data-motion` is the game's. **Anything that focuses an element after a smooth scroll passes
   `preventScroll: true`.**
-- **Under 46rem the bar is gone and one burger is the whole navigation**, on the content pages *and*
-  on `/`, styled once in `content.css`. **Only the list differs** (the game's carries no `Play`); a
-  `.navPop*` rule in `GamePage.svelte` is a divergence by definition. Both drawers open on the
-  wordmark and carry exactly one action (`.navPopCta`). **Read the note before touching any of it**:
+- **Under 46rem the bar's row is gone and one burger is the whole navigation**, on the content pages
+  *and* on `/` — one component, styled once in `content.css`. A `.navPop*` or `.siteFooter` rule in
+  `GamePage.css` is a divergence by definition. The drawer opens on the wordmark, carries exactly one
+  action (`.navPopCta`: Play, or Preferences on `/`) and ends on the globe. **Read the note before touching any of it**:
   the drawer, the language popover and the sticky header have six documented failure modes between
   them, five of which fail silently.
 - **The language chooser's two links are real `<a href>`s** with `hreflang`/`lang`, in the document
@@ -910,8 +940,8 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **The home page is exactly one viewport and never scrolls.** The indexable markup is a quiet footer
   row plus the prose in a **native `<details>` sheet** that must keep opening with **scripts
   disabled**. **A board that can be scrolled off-screen mid-match is a bug**, and so is a lobby that
-  hides text under the fold. The footer vanishes on `data-seated`: it is markup Astro rendered, so it
-  is never the app's to unmount.
+  hides text under the fold. The bar and the burger vanish on `data-seated`: they are the page's
+  markup, never the app's to unmount — **at a seat the board is the board**.
 - **Open, that sheet is `RulesModal` down to the measurements**: the card **is** the `<details>`, the
   `<summary>` is the footer button (`order`), the scrim is a **sibling** of the card, and the ✕ ships
   `hidden` for `homeSheet.ts` to reveal. `contentPages.test.ts` reads the card off `RulesModal.svelte`.
@@ -921,8 +951,9 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   `pinchGuard.ts` refuses WebKit's `gesturestart`. Safari has ignored `user-scalable=no` since iOS 10.
   **White on LOCO Red is 3.43:1**, so anything wearing it is 1.2rem or larger, never darkened. **A box
   that scrolls sideways takes `tabindex="0"`** and a `:focus-visible` ring. `a11y.test.ts`.
-- **Two things keep a page fast**: `build.inlineStylesheets: 'always'` (`style-src` allows
-  `'unsafe-inline'`, **scripts still may not**) and the tables page's art through `<Image />`.
+- **Two things keep a page fast**: `inlineStyleThreshold: Infinity` (`style-src` allows
+  `'unsafe-inline'`, **scripts only by hash**) and the tables page's art through
+  `@sveltejs/enhanced-img`.
 - **Never fade in the element the browser measures the LCP against.** Chrome takes its candidate at
   the first paint and skips anything at `opacity: 0`, so a screen fading up from zero can produce
   **no candidate at all** — `NO_LCP`, which scores performance **0**. Fade a veil off the top instead.
@@ -1576,7 +1607,7 @@ nginx with `ws-proxy.conf` and a 404 for everything else. Why, and what it costs
 `add_header` of its own must `include` it** — in `nginx.conf` *and* in `client/ws-proxy.conf`, which
 `csp.test.ts` scans beside it. nginx inherits `add_header` only into a level that
 declares none, so one `Cache-Control` in a block silently strips all five from everything that block
-serves — which is how the whole `/_astro/` bundle shipped bare while the document response, the only
+serves — which is how the whole bundle (`/_astro/` then, `/_app/immutable/` now) shipped bare while the document response, the only
 one `make csp` looked at, reported clean. `csp.test.ts` fails on a block that declares without
 including.
 

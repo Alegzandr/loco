@@ -23,7 +23,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
 3. Type is display-weight and large — a spectator reads it at 720p, not a designer at arm's length.
 
 - Fonts: **Fredoka Variable** (display) + **Nunito Variable** (body), self-hosted via
-  `@fontsource-variable/*` and imported in `layouts/Head.svelte`, not from the game's entry: the
+  `@fontsource-variable/*` and imported by the root layout (`routes/+layout.svelte`), not from the game's entry: the
   content pages mount no application at all and still have to be typeset. No CDN — the CSP stays closed.
 - Press feedback (hover lifts, active travels *into* the ledge) is written per component. `tokens.css`
   used to carry a `.btn-chunky` for it, plus a family of `.t-*` type classes, both described as what

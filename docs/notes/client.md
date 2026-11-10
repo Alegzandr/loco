@@ -147,7 +147,7 @@ appends to a `$state` array here has to do the same.
 ## How the game gets on the page
 
 The site is one SvelteKit app (`@sveltejs/kit` 3, `adapter-static`). Every URL is a prerendered file
-in `client/build/`, served by nginx exactly as Astro's `dist/` was — there is no Node in production —
+in `client/build/`, served by nginx exactly as Astro's output directory was — there is no Node in production —
 and the router moves between them without a document load. That last part is the reason for the
 move: under Astro a content page and the game were two builds glued at the document, so reading the
 rules from the lobby threw away the socket, the music and the store, and the way back was a cold
@@ -247,6 +247,36 @@ one `set $loco_script_hashes "…";` that `security-headers.conf` includes and s
 generated and git-ignored: a stale copy would refuse the bootstrap of every page it no longer
 matches. `csp.test.ts` pins the wiring and the reader; `make csp` (`tools/csp/check.mjs`) is what
 proves it, on the page nginx serves. The 404 carries no script at all.
+
+### One shell, not two sites
+
+The router made the seam between the site and the game visible: under Astro every crossing was a page
+load and nobody compared the two sides, and once it became a navigation everything that differed
+between them was the one thing that changed on screen. So what both sides draw is now drawn once:
+
+- **One bar and one drawer** (`layouts/SiteFooter.svelte`, `layouts/SiteDrawer.svelte`), rendered by
+  `GamePage` and `ContentPage` alike and styled once in `content.css`. Same links in the same order,
+  privacy at the end, **the language globe in the same place on every page that is not a seat**, one
+  height on both. What each page needs is passed in: the sheet of prose or "Play" at the bar's left
+  end, Preferences or Play as the drawer's one action. Reasoning and history: `seo.md`, "The shell".
+- **The bar does not move between pages.** It carries `view-transition-name: site-footer`, and
+  `routes/+layout.svelte` turns every navigation into a 0.22s cross-fade (`onNavigate` +
+  `document.startViewTransition`, progressive), skipped under reduced motion — the game's
+  `data-motion` once it has booted, the system's before — and for a fragment.
+- **On `/` a globe pick is the gear's swap**, not a navigation: `homeSheet.ts` catches the click in
+  the capture phase and does what `LanguageSwitcher` does (`setLang` + `swapServedLang`), so the
+  game, the bar and the address bar change together without the router re-rendering the page it is
+  already on. On a content page the same links navigate, and `page-boot.ts: recordLangChoice()`
+  writes the choice down on the way.
+- **No glass.** The content header and the bar were 92% canvas over a 14px backdrop blur; they are
+  opaque canvas now, as the game's own surfaces are, because DESIGN.md keeps blur for the modal scrim
+  alone.
+
+What stays deliberately distinct: the content pages' **header** (the mark back to the game and
+"Play", pinned, because those documents are long) has no counterpart on `/`, whose entry screen is
+its own composition with the wordmark at its centre; the game's **top-right chip row** (fullscreen,
+gear, audio, rules) stays the game's, because everything behind it is a game setting; and **at a
+seat there is no site chrome at all** — the bar and the burger go on `data-seated`.
 
 What the plan retired with Astro, and what replaced it:
 
@@ -656,14 +686,14 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
 
 ### The rest of the transport
 
-- **The socket's URL comes from `import.meta.env.VITE_WS_PORT`, and Astro does not expose that name
-  by default.** Astro narrows Vite's `envPrefix` to `PUBLIC_`, which leaves `import.meta.env.VITE_*`
+- **The socket's URL comes from `import.meta.env.VITE_WS_PORT`, and a config that narrows the env
+  prefix hides it.** Astro narrowed Vite's `envPrefix` to `PUBLIC_`, which leaves `import.meta.env.VITE_*`
   in the transformed module verbatim and reading `undefined` in the browser, with no warning at any
   layer. `webSocket` then took its production branch in dev and dialled same-origin `/ws`, which
   is the Vite dev server proxying nothing: `ws://localhost:5173/ws` closed before it opened, and the
   symptom a player got was a table that never opened and a queue that never paired.
-  `vite.config.ts` restores the prefix (`envPrefix: ['PUBLIC_', 'VITE_']`) rather than renaming the
-  variable, because `docker-compose.dev.yml`, `e2e/playwright.config.ts`, `client/Dockerfile` and the
+  The prefix was restored rather than the variable renamed, and since SvelteKit `vite.config.ts`
+  writes Vite's own default out (`envPrefix: ['VITE_']`) so the test has something to read, because `docker-compose.dev.yml`, `e2e/playwright.config.ts`, `client/Dockerfile` and the
   README all already name it. `src/test/wsEnv.test.ts` fails whenever the hook reads a prefix the
   config does not expose. Anything else the app needs from the environment obeys the same rule.
 - `webSocket.send(msg)` queues `{ type, data, at }` when not OPEN; FIFO flush on `onopen`, **after**
@@ -979,15 +1009,17 @@ this section.
   through `GamePage` with `chrome={false}`.
 - **The code stays a query parameter, and `/i/CODE` was tried and rejected.** A path form is not a
   page the build emitted — a static build cannot emit one per table — so it needs a fallback in
-  whoever serves the request. nginx can do that in four lines. `astro dev` cannot be made to at all,
-  and this is worth writing down because all three attempts looked correct: a Vite plugin's
+  whoever serves the request. nginx can do that in four lines. Under Astro the dev server could not
+  be made to at all, and this is worth writing down because all three attempts looked correct: a Vite plugin's
   `configureServer` never fires under Astro 7 (it does under Vitest, which is what makes it look
   wired up), `astro:server:setup` fires but its middleware never sees the URL even at the head of
   the connect stack — Astro routes first and answers the 404 itself — and a dynamic entry in
   `redirects` refuses to start the server without an SSR adapter. So a path form would resolve in
   production and 404 under `make dev` and the entire Playwright suite: a link a developer cannot
   open and the E2E suite cannot exercise, in exchange for three characters. The query form is the
-  same URL in every environment and needs nothing in `nginx.conf`.
+  same URL in every environment and needs nothing in `nginx.conf`. (Vite's own dev server, under
+  SvelteKit, could be given the fallback; the reason above is gone, the conclusion is not — one URL
+  that needs no help anywhere is still worth more than three characters.)
 
 - **The link carries no language.** It is always `/i/?t=…`, whichever language it was copied from. A
   link gets forwarded, and the person who copied it does not know who ends up pressing it, so
@@ -1512,7 +1544,7 @@ The key, the pair of languages and the two home paths live in `src/lang.ts`, fre
 the content pages take part in this decision and mount nothing at all.
 
 The bug that produced it. A stored choice outranks the URL in `detectLang`, and half of `/` is markup
-Astro built per URL — the footer row, the drawer, the sheet of prose — which no in-app state rewrites.
+prerendered per URL — the bar, the drawer, the sheet of prose — which no in-app state rewrites.
 So `/` opened with French stored rendered the game in French under a footer reading "With friends",
 having rewritten `<html lang>` to `fr`: a document declaring itself French while half its text was
 English, which is a lie to a screen reader before it is anything else.
@@ -1563,7 +1595,7 @@ What the swap deliberately does **not** touch is `data-served-lang`. It says wha
 that rewrote it would make the app detect its own output.
 
 **The document at the new URL is real.** That is the property the whole arrangement rests on: `/fr/`
-is a page Astro built, so reloading serves it, sharing the link hands it over, and the swap is only
+is a page the build emitted, so reloading serves it, sharing the link hands it over, and the swap is only
 ever a shortcut to a document that exists. A crawler asking for `/` still gets the English page, with
 its own canonical and its `hreflang` pair intact.
 
@@ -1620,7 +1652,7 @@ with Escape is offered "Full screen" again and never a button that thinks it is 
 - **The language is a dropdown, and the pick is the application — on every screen.** The graphics tier below
   it is a segmented row applied on the press, which is right for a setting that changes the screen
   in place, and the language is now exactly that setting: `setLang` swaps the game's strings and
-  records the choice, `swapServedLang` takes the half Astro served and the address bar with it.
+  records the choice, `swapServedLang` takes the prerendered half and the address bar with it.
 
   It used to be two steps at the entry screen, and the reason is worth keeping. Applying there *left
   the page* — half of `/` is markup built per URL — and a control that reloads must not fire on the
@@ -1765,7 +1797,7 @@ with Escape is offered "Full screen" again and never a button that thinks it is 
   Labels step to 15px, hints to 13px, the switch row to 56px, the language control and its rows to
   46px, the slider track to 16px with a 30px thumb — all of it inside the same `max-width: 46rem`
   block, in each component, so the two shapes stay one decision.
-- **The drawer opens it by event.** `#navPrefs` is markup Astro rendered, outside `#root`, so
+- **The drawer opens it by event.** `#navPrefs` is the page's prerendered markup, outside `#root`, so
   `homeSheet.ts` closes the popover and dispatches `loco:preferences`; the mounted `<Preferences />`
   answers. Only one screen is mounted at a time, so only one panel opens. It also remembers what had
   the focus, because `hidePopover()` hands it back to the burger and closing the panel has to return

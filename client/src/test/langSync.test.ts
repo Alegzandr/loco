@@ -200,8 +200,13 @@ describe('both halves of the site write the choice down', () => {
 
     // The links themselves stay real: the href is what makes an hreflang pair
     // navigable, and a crawler follows nothing else.
-    const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.svelte'), 'utf8')
+    const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'SiteFooter.svelte'), 'utf8')
     expect(layout).toMatch(/<a\s+href=\{page\.path\[l\]\}/)
+    // And the game page, which carries the same panel since the bar is one,
+    // turns a pick into the gear's in-place swap rather than a navigation.
+    const sheet = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
+    expect(sheet).toMatch(/#langPop a\[lang\]/)
+    expect(sheet).toMatch(/setLang\(code\)[\s\S]{0,80}swapServedLang\(/)
   })
 
   it('settles the language before anything one-shot is spent', () => {

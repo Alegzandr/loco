@@ -17,6 +17,24 @@ import { isLang, rememberLang } from '../lang'
 import { closeMenuWhenWidened } from './navMenu'
 import { fillLiveList } from './liveList'
 
+/**
+ * The globe's choice, written down on the way out — on a content page and on
+ * the game page alike, since both carry the same panel (layouts/SiteFooter.svelte).
+ *
+ * Delegated from the document rather than bound per link, because the panel is
+ * opened by two buttons (the bar's globe and the drawer's) and its markup is
+ * rendered once for both.
+ */
+export function recordLangChoice(): () => void {
+  const onLangClick = (e: MouseEvent) => {
+    const link = (e.target as Element | null)?.closest?.('#langPop a[lang]')
+    const chosen = link?.getAttribute('lang')
+    if (isLang(chosen)) rememberLang(chosen)
+  }
+  document.addEventListener('click', onLangClick)
+  return () => document.removeEventListener('click', onLangClick)
+}
+
 export function bootContentPage(): () => void {
   const undo: (() => void)[] = []
 
@@ -42,16 +60,7 @@ export function bootContentPage(): () => void {
   // line the lobby's switcher runs before following its own link; both halves of
   // the site now write the choice down in the same place.
   //
-  // Delegated from the document rather than bound per link, because the panel is
-  // opened by two buttons (the bar's globe and the drawer's) and its markup is
-  // rendered once for both.
-  const onLangClick = (e: MouseEvent) => {
-    const link = (e.target as Element | null)?.closest?.('#langPop a[lang]')
-    const chosen = link?.getAttribute('lang')
-    if (isLang(chosen)) rememberLang(chosen)
-  }
-  document.addEventListener('click', onLangClick)
-  undo.push(() => document.removeEventListener('click', onLangClick))
+  undo.push(recordLangChoice())
 
   // ── Smooth in-page travel ────────────────────────────────────────────────
   //

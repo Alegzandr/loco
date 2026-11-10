@@ -11,6 +11,9 @@
  * it, so a page arrived at twice is listened to once.
  */
 import { closeMenuWhenWidened } from './content/navMenu'
+import { getLang, setLang } from './i18n/store'
+import { isLang, langUrl } from './lang'
+import { swapServedLang } from './langSwap'
 
 export function wireHomeSheet(): () => void {
   const undo: (() => void)[] = []
@@ -24,6 +27,34 @@ export function wireHomeSheet(): () => void {
   // own links back, with the burger that closes it gone. The sheet below is the
   // wide screen's half of the same job.
   undo.push(closeMenuWhenWidened())
+
+  // The bar's globe — the same panel, in the same place, as on every content
+  // page — but here a pick does what the gear's language does rather than
+  // follow its link: this is the one page that translates itself in place
+  // (`langSwap.ts`), so the game, the bar and the address bar all change
+  // together and nothing reloads. The links stay real `<a href>`s for a crawler
+  // and for a reader with no script, who get the other home by navigation.
+  // Capture phase, so the router never sees a click it would turn into a
+  // navigation to the page already on screen.
+  const onPick = (e: MouseEvent) => {
+    const link = (e.target as Element | null)?.closest?.('#langPop a[lang]')
+    const code = link?.getAttribute('lang')
+    if (!isLang(code)) return
+    e.preventDefault()
+    try {
+      document.getElementById('langPop')?.hidePopover()
+    } catch {
+      /* already shut */
+    }
+    const shown = getLang()
+    if (code === shown) return
+    setLang(code)
+    swapServedLang(
+      langUrl(code, document.documentElement.dataset.servedLang, shown, location.search, location.hash),
+    )
+  }
+  document.addEventListener('click', onPick, true)
+  undo.push(() => document.removeEventListener('click', onPick, true))
 
   /**
    * The drawer's one action, and the one place on this page where served markup

@@ -14,7 +14,7 @@
  * registry.
  * `ORIGIN` is therefore read defensively — see below — and everything that
  * depends on it (the absolute URLs, the JSON-LD) is only ever called from an
- * .astro file, where `process` exists.
+ * page's server render, where the build's own origin is defined (see `ORIGIN`).
  */
 
 export type Lang = 'en' | 'fr'
@@ -70,7 +70,7 @@ export function absolute(path: string): string {
 /**
  * One page of the site, in every language it exists in.
  *
- * Paths always end in a slash. Astro builds directories (`/rules/index.html`),
+ * Paths always end in a slash. The build emits directories (`/rules/index.html`),
  * nginx would happily serve that at both `/rules` and `/rules/`, and picking one
  * form here is what stops the two from competing as duplicates.
  */
@@ -299,7 +299,7 @@ export const INVITE_OG: OgImage = {
  *    `hreflang` set and in no navigation. It is a door somebody was handed, not
  *    a page anybody should arrive at from a search result.
  *  - **It is served `noindex`**, which is also what keeps it out of the
- *    canonical graph — `Base.astro` emits no canonical for a noindex page, and a
+ *    canonical graph — `layouts/Head.svelte` emits no canonical for a noindex page, and a
  *    duplicate of the home page claiming one would be competing with it.
  *  - **It has one path in both languages.** An invitation carries no language
  *    (see `hooks/tableInvite.ts`): the reader's browser decides, exactly as it
@@ -308,7 +308,7 @@ export const INVITE_OG: OgImage = {
  *  - **The code is not in the built path.** `/i/` is one emitted page and the
  *    code rides in the query string (`/i/?t=ABC234`), because a static build
  *    cannot emit a page per table. `/i/ABC234` would need a fallback in
- *    whoever serves the request; nginx can do that, `astro dev` cannot, so the
+ *    whoever serves the request; nginx can do that, and the dev server would need a hook of its own, so the
  *    path form would 404 under `make dev` and take the whole Playwright suite
  *    with it. `invitePage.test.ts` asserts the fallback stays absent.
  */

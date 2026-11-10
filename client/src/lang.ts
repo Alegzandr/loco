@@ -9,7 +9,7 @@
  *
  * ## Why the home page translates itself rather than navigating
  *
- * Half of `/` is markup Astro built per URL — the footer row, the drawer, the
+ * Half of `/` is markup prerendered per URL — the footer row, the drawer, the
  * prose in the sheet — and no in-app state changes a word of it. A stored choice
  * outranks the URL when the app picks its language (see `chooseLang`), so a
  * player who had chosen French and then opened `/` got the game in French under
@@ -58,7 +58,7 @@ export const DEFAULT_LANG: Lang = 'en'
  * Where the game lives in each language. Two constants rather than an import of
  * `seo/meta.ts`, which carries every page on the site and is read at build time
  * by markup no player downloads. `seo.test.ts` pins these against `HOME.path`,
- * so they cannot drift from the pages Astro actually emits.
+ * so they cannot drift from the pages the build actually emits.
  */
 export const HOME_PATH: Record<Lang, string> = { en: '/', fr: '/fr/' }
 

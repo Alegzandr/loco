@@ -69,3 +69,23 @@ body {
   user-select: none;
   -webkit-touch-callout: none;
 }
+
+/*
+  A move between two pages of the site is one cross-fade (src/routes/+layout.svelte
+  starts it), short enough to read as the same app changing its mind rather than
+  a page loading: the site's bar is named on its own (`site-footer`, content.css)
+  and does not fade with the page around it. Opacity only, as everything that
+  arrives on this site does. Under the game's reduced-motion preference the
+  layout never starts one; this is the stylesheet's half of the same promise.
+*/
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: var(--ease-out);
+}
+
+:root[data-motion='reduce']::view-transition-group(*),
+:root[data-motion='reduce']::view-transition-old(*),
+:root[data-motion='reduce']::view-transition-new(*) {
+  animation: none;
+}

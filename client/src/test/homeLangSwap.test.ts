@@ -107,6 +107,10 @@ describe('the served markup carries both languages', () => {
   const sources = [
     ['layouts', 'GamePage.svelte'],
     ['content', 'HomeProse.svelte'],
+    // The site's bar and drawer, which `/` renders like every other page and
+    // which therefore carry both languages there (their `other()`).
+    ['layouts', 'SiteFooter.svelte'],
+    ['layouts', 'SiteDrawer.svelte'],
   ] as const
 
   for (const file of sources) {
