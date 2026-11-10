@@ -57,11 +57,11 @@ URL that 404s.
 
 ## URLs
 
-English at the root, French under `/fr/`, via Astro's `i18n` with `prefixDefaultLocale: false`. The
-game's own URL stays `/` deliberately: it is the address people paste, and moving it to `/en/` for
+English at the root, French under `/fr/`: the French pages are routes of their own under
+`src/routes/fr/`, and the English ones sit at the root with no prefix. The game's own URL stays `/` deliberately: it is the address people paste, and moving it to `/en/` for
 symmetry would break every link already shared.
 
-`trailingSlash: 'always'`. Astro builds directories, so `/fr/` is `/fr/index.html`, and nginx serves
+`trailingSlash: 'always'` (`src/routes/+layout.ts`). The build emits directories, so `/fr/` is `/fr/index.html`, and nginx serves
 that at both `/fr` and `/fr/`. Pinning the slashed form in the registry means the canonical, the
 sitemap and the `hreflang` set all name the same URL rather than competing as duplicates of each
 other.
@@ -78,8 +78,11 @@ is the single most common way to implement this and get nothing for it. There is
 `x-default`, pointing at the default language.
 
 Both the page head and the sitemap carry the alternates. The head links are what Google reads most
-reliably; the sitemap is what it discovers. `@astrojs/sitemap`'s `i18n` option emits the
-`xhtml:link` pairs, and `src/seo/meta.ts` emits the head links.
+reliably; the sitemap is what it discovers. Both come from `src/seo/meta.ts`: `layouts/Head.svelte`
+writes the head links, and `src/seo/sitemap.ts` writes `sitemap-0.xml` with the `xhtml:link` pairs
+(prerendered by `routes/sitemap-0.xml/+server.ts`). Astro's integration walked the emitted pages
+instead and missed every pair whose two paths it could not match — `/cards/` and `/fr/cartes/` went
+out with no alternates at all; built from the registry, every page carries both.
 
 ## The language the page was served as
 
@@ -111,7 +114,7 @@ is not a canonicalisation signal. A crawler asking for `/` is answered with the 
 its self-referential canonical and its reciprocal `hreflang` pair, and nothing about the graph
 changes.
 
-What makes the shortcut honest is that the destination exists: `/fr/` is a page Astro built, so a
+What makes the shortcut honest is that the destination exists: `/fr/` is a page the build emitted, so a
 reload fetches it, sharing the link hands it over, and the swap only ever anticipates a document
 somebody could have asked for directly. Nothing is written to storage on the way — a stored value is
 a *choice*, and a choice outranks the URL, so persisting a detection would make the next French link
@@ -175,13 +178,15 @@ tag.
   accident, so it is drawn like the game and not like an error console: the mark as a way home, a
   hand of four `<CardBack />`s nobody was dealt, the code painted the way a card glyph is painted
   (off-white over ink, carried by the outline), and two ledged controls — a table, and the other language. Both components are
-  rendered without a `client:` directive, so the page still ships **no JavaScript at all**: no
-  `page-boot.ts` either. That is on
+  prerendered into the file, and the route sets `csr = false`, so the page still ships **no
+  JavaScript at all** — not even the router's bootstrap, which leaves it nothing to hash either. It
+  builds to `404.html` (`trailingSlash = 'never'` on that one route). That is on
   purpose — this page is served when something is already broken, so it depends on nothing the
   build might not have emitted.
 - `gzip` on text, JS, JSON, XML and SVG only. webp and woff2 are already compressed, so a second
   pass costs CPU per request and saves nothing.
-- `Cache-Control: immutable` for a year on `/_astro/`, whose names are content-hashed.
+- `Cache-Control: immutable` for a year on `/_app/immutable/`, whose names are content-hashed —
+  and not on the rest of `/_app/`: `version.json` keeps a fixed name and must stay fresh.
 
 `seo.test.ts` asserts each of these against `nginx.conf`, because nothing else in the loop meets that
 file: unit tests read sources and the E2E suite runs against a dev server that sends none of it.
@@ -308,10 +313,10 @@ unrelated documents. They are strings on both sides, so a typo is invisible — 
 and the pages simply stop being related — which is why the test compares them rather than eyeballing
 the output.
 
-The block is `is:inline`, which is required (Astro would otherwise bundle it away as a module) and
+The block is written inline by `layouts/Head.svelte` (with `<` escaped, so no string in the data can
+close the element), which is required — structured data has to be in the document to be read — and
 safe: `script-src` does not apply to a script whose type is not a JavaScript MIME type, because such
-a block is data and is never executed. `csp.test.ts` allows `is:inline` for `application/ld+json`
-and for nothing else.
+a block is data and is never executed. `csp.test.ts` refuses every other hand-written inline script.
 
 ## The content pages
 
@@ -579,9 +584,9 @@ the whole squeeze, and every row grows to three or four lines.
 
 ### The cards page draws the real cards
 
-`<Card />` is rendered with no client directive, so Astro turns the game's own component into static
-markup at build time: the card on the page is the card in the hand, gradient, mark and glyph
-included, and the page still ships no JavaScript for it. Its face is sized in container-query units against the
+`<Card />` is the game's own component, prerendered into the page: the card on the page is the card
+in the hand, gradient, mark and glyph included, and it is in the served HTML whether a script runs or
+not. Its face is sized in container-query units against the
 element, so passing a width and height as a style is all it takes to draw one bigger. This is why
 `CardArt.svelte` carrying its own `<style>` block and importing nothing mattered enough to check
 before the migration.
@@ -607,7 +612,7 @@ no script, so it cannot render the room; `make rooms` (`tools/rooms/shoot.mjs`) 
 `room-still-<id>` showcase scene for each room — the room alone at its signature hour, 16:9, the
 camera solved and the table built under exactly the ellipse the page's CSS table draws — and writes
 `src/assets/rooms/<id>.webp`, committed like `og.png` because CI has no browser. The page serves
-each through `<Image />` (three widths, lazy, with the hour's sky gradient behind it while it
+each through `@sveltejs/enhanced-img` (`<enhanced:img>`, three widths written at build time, lazy, with the hour's sky gradient behind it while it
 loads) and lays `.roomTable` / `.roomGlow` over it — a transcription of `GameBoard.svelte`'s
 table, no plinth since the render carries what stands under the felt — and tells the rest: the hours and skies the
 room can be dealt under. `roomsPage.test.ts` pins the hour written on the page to the
@@ -651,8 +656,8 @@ game going right now, not browsing a feature list.
 
 ### The footer under the game
 
-`/` and `/fr/` are the pages everyone links to, and until this they had nothing to index. Markup that
-Astro renders answers that: what LOCO is, the three things that make it different, and links to every
+`/` and `/fr/` are the pages everyone links to, and until this they had nothing to index. Prerendered
+markup answers that: what LOCO is, the three things that make it different, and links to every
 content page. It is in the served HTML, so it is read without running a script — and those links are
 the **only** path from the game to the rest. The sitemap lists them; a link is what carries weight
 between them.
@@ -717,28 +722,29 @@ carries the links. The sheet is the prose's one control — it is what opens it 
 `HomeProse.svelte` is rendered once, in it. The drawer held a second copy for a while; see the two
 drawers above for why it does not any more.
 
-The footer disappears the moment a seat is taken. That is not the app's to do — it is markup Astro
-rendered — so `App.svelte` writes `data-seated` on `<html>` and CSS hides it. The burger and the drawer
+The footer disappears the moment a seat is taken. That is not the app's to do — it is the page's
+markup, not the app's — so `App.svelte` writes `data-seated` on `<html>` and CSS hides it. The burger and the drawer
 sit inside that same element, so a seat takes them with it. The body no longer needs
 `overflow: hidden` restoring, because it never lost it: a board that can be scrolled off-screen
 mid-match is a bug, and now so is a lobby that can. `appSubscription.test.ts` owns the attribute,
 `seo.spec.ts` owns the CSS and the no-scroll guarantee.
 
-### Zero JavaScript, with one exception
+### Readable with no script, and what the script adds
 
-`<LocoLogo />` is the game's own Svelte component rendered with **no client directive**, so Astro
-turns it into static markup at build time and ships none of the runtime: the mark on the page is the
-mark in the game rather than a redrawn copy, and it costs nothing to load.
+Under Astro a content page shipped no JavaScript but `page-boot.ts`. Under SvelteKit it loads the
+router and its own page chunk — that is what makes the move to the game a navigation rather than a
+reload — so that rule is retired. **What it protected is kept: a content page is prerendered whole
+and reads the same with scripts off.** `<LocoLogo />`, every `<Card />`, the drawer, the language
+panel and the prose are in the served HTML; the drawer and the panel are native popovers; and an
+article may carry no effect, no `{@html}` and no inline script (`livePage.test.ts`,
+`legal.test.ts`), because an effect draws nothing on the server and its markup would be missing from
+the file.
 
-The exception is `src/content/page-boot.ts`, one deferred module that imports nothing with a
-framework in it (`src/lang.ts`, `content/navMenu.ts`, `content/liveList.ts`). It was named for the
-theme it used to boot; the site has one palette now and it boots none.
-
-That file wires the back-to-top button, calls `closeMenuWhenWidened()` and fills the live list
-on `/live/`, and it is the same file on purpose: there is only ever **one** script on these pages, so
-a second behaviour is a few more lines rather than a second request and a second thing to remember
-when counting what a content page loads. `content/navMenu.ts` and `content/liveList.ts` are modules
-that script imports; neither is a second request.
+What a script adds is `content/page-boot.ts: bootContentPage()`, called by `ContentPage.svelte` on
+mount and undone on destroy, so a reader moving between pages is listened to once: the back-to-top
+button, `closeMenuWhenWidened()`, the language choice written down on the way out, the smooth
+scroll attribute, and the live list on `/live/`. Every control it needs is `hidden` in the markup and
+revealed there.
 
 The live list is the one thing on these pages that is fetched rather than served, and three things
 keep it inside every rule above. The fetch is **same-origin** — `/live.json` is answered by our own
@@ -819,11 +825,10 @@ JavaScript, so an invitation that lives at `/?t=CODE` can only ever preview as t
 `<head>` is the invitation's; everything under it is `GamePage` with `chrome={false}`, because the
 footer row, the sheet and the burger are the indexable half of `/` and this page is not indexed.
 
-**Staying out of `PAGES` is not what keeps it out of the sitemap.** `@astrojs/sitemap` walks the
-pages Astro emitted, not the registry, so `/i/` shipped in `sitemap-0.xml` the first time this page
-was built — a URL submitted for crawling that then answers `noindex`. The `filter` in
-`vite.config.ts` is what removes it, and `src/test/invitePage.test.ts` runs that predicate rather
-than restating it.
+**Staying out of `PAGES` is what keeps it out of the sitemap — now.** Astro's sitemap integration
+walked the pages it emitted, not the registry, so `/i/` shipped in `sitemap-0.xml` the first time
+this page was built and needed a filter. The sitemap is built from `PAGES` since SvelteKit
+(`src/seo/sitemap.ts`), and `src/test/invitePage.test.ts` runs it rather than restating it.
 
 `favicon.ico` is a 6-byte directory, one 16-byte entry and the PNG bytes verbatim — every browser
 since Vista reads a PNG payload directly, so there is no re-encoding and no dependency. It exists
@@ -919,7 +924,8 @@ lands in the wrong containing block is invisible in both.
 
 Three changes, none of them page-specific:
 
-- `build.inlineStylesheets: 'always'` in `vite.config.ts`. The three stylesheets are 3-22 kB and
+- `inlineStyleThreshold: Infinity` in `vite.config.ts` (Astro's `build.inlineStylesheets: 'always'`
+  before it). The stylesheets are 3-22 kB and
   all three were render-blocking requests; the game page waited 753 ms on one of them before it could
   paint a word. `style-src` allows `'unsafe-inline'` in `client/nginx.conf`, so this is legal —
   **scripts are not**, and must stay external (`csp.test.ts`).
@@ -929,7 +935,7 @@ And one that was tried and reverted: **preloading the two Latin `woff2` files**.
 move — the wordmark is the LCP element on `/` and it spent its render delay waiting on a font nothing
 had asked for yet — and with the preload in place Chrome reported **no LCP candidate at all** on the
 home page. Removing it brings the candidate straight back, reproducibly, at the same paint time. It
-buys nothing now anyway: `inlineStylesheets: 'always'` puts the `@font-face` rules in the document,
+buys nothing now anyway: `inlineStyleThreshold` puts the `@font-face` rules in the document,
 so there is no stylesheet round trip left to race, which was the whole premise.
 
 ### NO_LCP scores 0, and a fade is how you get one

@@ -146,80 +146,129 @@ appends to a `$state` array here has to do the same.
 
 ## How the game gets on the page
 
-The site is built by Astro, and the game is **not** an island. Three things pushed that decision, in
-descending order of how expensive they would have been to discover later.
+The site is one SvelteKit app (`@sveltejs/kit` 3, `adapter-static`). Every URL is a prerendered file
+in `client/build/`, served by nginx exactly as Astro's `dist/` was — there is no Node in production —
+and the router moves between them without a document load. That last part is the reason for the
+move: under Astro a content page and the game were two builds glued at the document, so reading the
+rules from the lobby threw away the socket, the music and the store, and the way back was a cold
+boot. Now it is a navigation inside one app.
 
-**The CSP forbids it.** `client/nginx.conf` sends `script-src 'self'` with no `'unsafe-inline'`. A
-`client:*` directive makes Astro emit its hydration runtime as two *inline* `<script>` blocks: not
-`is:inline`, not opt-in, not removable by configuration. In production those are refused, the island
-never hydrates, and the page is blank. Nothing in the normal loop would catch it either, because the
-dev server sends no CSP and the built HTML is only ever served by nginx. Astro's own `security.csp`
-generates hashes for exactly these scripts, but emits them in a `<meta>`, and a meta policy does not
-loosen a header policy: both are enforced, so the header still blocks them. `csp.test.ts` now fails
-on any `client:*` directive anywhere in `src/`.
+**The routes are the old pages, one for one** (`src/routes/`): `/` and `/fr/` render
+`layouts/GamePage.svelte`, every content page renders `layouts/ContentPage.svelte` around its
+article (`src/content/*Article.svelte`), `/i/` is the game page with the invitation's head, the 404
+is `routes/404/` (built to `404.html`, `trailingSlash = 'never'`, `csr = false`), and the two sitemaps
+are prerendered `+server.ts` routes built from `seo/meta.ts`. `routes/+layout.ts` sets `prerender =
+true` and `trailingSlash = 'always'` for everything else. `+error.svelte` is what the dev server
+answers a miss with; in production nginx serves the 404 file and the router never sees a miss (a
+link it cannot match is followed as a full navigation).
 
-**Server rendering buys nothing here.** `initTheme()` and `initSessionRestore()` read `localStorage`
-and `sessionStorage`, the language comes from `localStorage` then `navigator.language`, and the whole
-board is measured from the viewport (`boardSpace`, `elementSize`, `safeAreaInsets`). A server
-knows none of those. Rendering the app there would produce a hydration mismatch on every one of them
-in exchange for markup no crawler wants: the lobby is a nickname field.
+**`<html>` and `<body>` are not a component's**, so they are written twice from one function:
+`seo/document.ts: documentFor(path)` gives the `lang`, `data-served-lang`, `data-alt-title` and the
+body class (`doc` for a content page, `game` for the game, nothing for the 404). `hooks.server.ts`
+writes it into `src/app.html`'s placeholders when a page is prerendered; the page layouts call
+`applyDocument` with the same answer, synchronously in their script, when the router renders them in
+place of another page. `seo.test.ts` walks every registry path through it.
 
-**So `src/routes/+page.svelte` carries `<div id="root">` and an ordinary `<script>` importing
-`src/entry.ts`**, which Astro bundles to an external module. That is the same mechanism the app used
-under Vite, `#root` keeps the `html, body, #root` rule in `tokens.css` working unchanged, and the
-content pages around it mount no application at all.
+**The app is never server-rendered**, and that is still deliberate. `initSessionRestore()` reads
+`sessionStorage`, the language comes from `localStorage` then `navigator.language`, and the whole
+board is measured from the viewport (`boardSpace`, `elementSize`, `safeAreaInsets`). A server knows
+none of those. So the game page's prerendered HTML carries the served half of `/` — the `<h1>`, the
+footer bar, the sheet of prose, the drawer — and an **empty `#root`**, which `src/entry.ts` fills in
+the browser. This is a deliberate departure from the migration plan's "`ssr = false` on the game
+route": that would have shipped `/` as an empty shell, and the served half is what a crawler and a
+reader with no script read, and what `<details>` opens with scripts off.
 
-**The cost of that split is that `/` arrives twice, so the two halves are held together on purpose.**
-The footer row, the phone's burger and the prose behind the sheet are markup the server sent, and
-they paint on the first frame; the lobby paints whenever the bundle has loaded, parsed and mounted.
-On a reload that read as the background coming up with one lonely control on it — the links on a wide
-screen, the burger on a phone — and the game dropping in a few hundred milliseconds later. Nothing
-about it was broken, and it looked broken every time.
+**The game is mounted once per document and parked, never destroyed** (`entry.ts: attachGame`).
+`GamePage` hands its `#root` over on mount and calls what comes back when the router replaces it.
+The first call runs the boot sequence (below) and `mount()`s `Root.svelte` into a host element of its
+own (`.appHost`, which `GamePage.css` sizes to `#root`); every later call — a player coming back from
+the rules — moves that same host back in. In between it waits in an inert, invisible, viewport-sized
+holder on `<body>`. Unmounting would have closed the socket (`Root.svelte` opens it with the app), so
+a player who stepped into the rules from the lobby was a new connection on the way back, and one who
+pressed Back at a seat dropped out of the match. Parked, nothing stops: the socket, the bed, the
+store and a running match carry on behind the page.
 
-The app's mounted child, the footer's row of links and the phone's burger therefore all hold at
-`opacity: 0` until `entry.ts` writes `data-booted` on `<html>`, two `requestAnimationFrame`s after
-`render()` so the attribute lands on a commit that has actually painted rather than one still queued.
-Then a single 0.34s fade brings them up together.
+Two things the game does *to the document* must not survive the trip, and `hooks/gameShown.svelte.ts`
+is the flag that releases them: `data-seated` (which costs a page its pinch and its text selection —
+`App.svelte` writes it only while the game is shown, while `setTabSeated` keeps answering the other
+tab's question about the seat) and the TAB key the scoreboard holds (`heldKey` stands down while
+parked, so TAB walks the content page).
 
-**What fades is what arrives, never the surface it arrives onto.** The first version of this held
-`#root` and `.homeIntro`, which is the obvious reading and is wrong: `tokens.css` fills both with
-`--color-canvas`, and those two flat fills are the entire reason the body's candy gradient is never
-seen anywhere in the game — `#root` covers the viewport down to the footer and the footer covers the
-rest. Fading either of them let the gradient through for a third of a second, so the load flashed a
-backdrop that belongs to no screen. The selectors are `#root > *`, `.homeIntroMain` and `.homeBurger`
-instead; the canvas is painted on the first frame and does not move again. Photographed mid-hold, the
-page is one flat colour, pixel for pixel the colour it settles on.
+**The boot sequence keeps its order and runs once per document, on the game page only**: `initLang`,
+`initMotion`, `initI18n`, `initPinchGuard`, `initContextGuard`, `initTableInvite`, `initTabLock`,
+`initSessionRestore`, then the mount. Not in the root layout's `onMount`, which the plan suggested: a
+content page in a tab of its own would then be elected by `initTabLock()`, and the tab actually
+holding the game would draw the curtain. A document that starts on a content page boots the game the
+first time the router brings it to `/`. On every later return, `initLang()` and
+`i18n/store.ts: redetectLang()` decide the language again against the page now on screen — it may be
+the other language's, and the content pages' globe may have recorded a choice on the way.
 
-Four details are what make it safe rather than a way to lose the page:
+**The cost of the split is still that `/` arrives twice, so the two halves are held together on
+purpose.** The footer bar, the phone's burger and the prose behind the sheet are prerendered markup
+and paint on the first frame; the lobby paints whenever the app has mounted. On a reload that read as
+the background coming up with one lonely control on it and the game dropping in a few hundred
+milliseconds later.
+
+The app's mounted child and the served chrome therefore hold at `opacity: 0` until `entry.ts` writes
+`data-booted` on `<html>`, two `requestAnimationFrame`s after the mount so the attribute lands on a
+commit that has actually painted. Then a single 0.34s fade brings them up together.
+
+**What fades is what arrives, never the surface it arrives onto.** `tokens.css` fills `#root` and the
+bar with `--color-canvas`, and those flat fills are the reason the body's candy gradient is never
+seen in the game. Fading either let the gradient through for a third of a second. The selectors are
+`#root > *` and the chrome's contents instead (`layouts/GamePage.css`); the canvas is painted on the
+first frame and does not move again.
+
+Four details make it safe rather than a way to lose the page:
 
 - The hold is inside `@media (scripting: enabled)`. With no script there is no mount to wait for, and
-  the prose behind the sheet is the only thing on `/` a crawler reads: hiding it behind a reveal that
-  can never fire would take the indexable half of the home page off the page. `seo.spec.ts` browses
-  this page with JavaScript disabled, and it must keep seeing it immediately.
-- The same animation carries a 3s delay while the attribute is missing. A bundle that 404s, throws on
-  import or is blocked reveals the page anyway; the alternative is a blank screen with no way out.
-  The `[data-booted='in']` rule replaces it with the delay-free one the moment `entry.ts` reports in.
+  the prose behind the sheet is the only thing on `/` a crawler reads. `seo.spec.ts` browses this page
+  with JavaScript disabled, and it must keep seeing it immediately.
+- The same animation carries a 3s delay while the attribute is missing. A bundle that 404s, throws or
+  is blocked reveals the page anyway.
 - **The reveal is spent.** `entry.ts` blanks the value 600ms later, leaving the bare attribute that
-  lifts the hold and no rule that animates. Every screen in the game is a fresh child of `#root`, so
-  a live `#root > *` reveal would fade the board in again on every screen change for the rest of the
-  match — the waiting room, the deal, the score table.
-- It animates `opacity` and nothing else. A transform on any of these would make it the containing
+  lifts the hold and no rule that animates — a live `#root > *` reveal would fade the board in again
+  on every screen change.
+- It animates `opacity` and nothing else. A transform would make each held element the containing
   block for the fixed burger and for every panel the app renders, for as long as it ran.
 
-Reduced motion keeps the wait and loses the fade for free: the blanket rule in `tokens.css` cuts every
-animation's *duration* and leaves its *delay* alone, so the sync survives and the movement does not.
-`contentPages.test.ts` pins each of these, including the two selectors that must **not** be there.
+Reduced motion keeps the wait and loses the fade: the blanket rule in `tokens.css` cuts every
+animation's *duration* and leaves its *delay* alone. `contentPages.test.ts` pins each of these,
+including the selectors that must **not** be there.
+
+**The CSP stays closed, and the header is what allows the router.** A prerendered page starts the
+router with one inline `<script>`. SvelteKit hashes it (`csp: { mode: 'hash' }` in `vite.config.ts`)
+and writes the hash into a `<meta http-equiv>` — which is the same trap Astro's islands were: a meta
+policy does not loosen a header policy, both are enforced, and nginx sends `script-src 'self'` as a
+header. So the last step of `npm run build` is `scripts/csp-hashes.mjs`: it hashes every executable
+inline script in `build/`, fails if one is not in its own page's meta, and writes `csp-hashes.conf`,
+one `set $loco_script_hashes "…";` that `security-headers.conf` includes and splices into
+`script-src`. The Dockerfile copies it from the builder stage, never from the context. It is
+generated and git-ignored: a stale copy would refuse the bootstrap of every page it no longer
+matches. `csp.test.ts` pins the wiring and the reader; `make csp` (`tools/csp/check.mjs`) is what
+proves it, on the page nginx serves. The 404 carries no script at all.
+
+What the plan retired with Astro, and what replaced it:
+
+| Astro rule | Now |
+| --- | --- |
+| "the game is never an island" (a `client:*` directive inlines a runtime the CSP refuses) | there are no islands to have; the inline bootstrap is hashed into the header, and `csp.test.ts` refuses any *hand-written* inline script (structured data excepted) |
+| "a content page ships no JavaScript except `page-boot.ts`" | a content page loads the router and its own page chunk; `page-boot.ts` is now `bootContentPage()`, called on mount and undone on destroy. What survives is the reason: **a content page is readable with no script** — prerendered whole, its articles carry no effect, no `{@html}`, no inline script (`livePage.test.ts`, `legal.test.ts`) |
+| `inlineStylesheets: 'always'` | `inlineStyleThreshold: Infinity` |
+| `@astrojs/sitemap` walking the output | `src/seo/sitemap.ts` built from `PAGES` |
+| `<Image />` | `@sveltejs/enhanced-img` (`<enhanced:img>`, three widths) |
+| `envPrefix: ['PUBLIC_', 'VITE_']` restored by hand | Vite's own `VITE_`, written out in `vite.config.ts` for `wsEnv.test.ts` |
 
 ## The toolchain, and the one place it is deliberately not the newest
 
-Svelte 5, Astro 7, Valibot 1, ESLint 10, Vitest 4. Several of those cost something worth writing
-down.
+Svelte 5, SvelteKit 3 (on Vite 8), Valibot 1, ESLint 10, Vitest 4. Several of those cost something
+worth writing down.
 
 **The crossing from React 19 to Svelte 5 has landed, and the way back is closed on purpose.** No
 `react`, no `react-dom`, no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`;
 `vite.config.ts` configures one framework and the ESLint config knows one. `src/test/noReact.test.ts`
 is the guard, and it checks four different things because a return could come in through any of
-them: the manifest, the Astro and ESLint configs, every import in every source file, and every file
+them: the manifest, the Vite, Vitest and ESLint configs, every import in every source file, and every file
 extension under `src/`.
 
 What the crossing left behind is worth keeping, because it is what made it survivable:
@@ -239,10 +288,12 @@ What the crossing left behind is worth keeping, because it is what made it survi
   `.svelte` and `.svelte.ts` and nowhere else, so a `$state()` here is not a build error, it becomes
   a call to a global that does not exist and throws whenever the line first runs.
   `src/test/runeScope.test.ts` is what catches it instead.
-- **An Astro layout imports the `.svelte` directly.** It always did — a wrapper that mounted its
-  content in an effect answered Astro with nothing at all, and `ContentPage.svelte` rendered an empty
-  header that no test reading sources would have caught. There is no wrapper left to get this wrong,
-  but the rule is why `<LocoLogo />` and every `<Card />` on `/cards/` are static markup.
+- **Anything a prerendered page shows is rendered, never mounted in an effect.** An effect never runs
+  on the server, so markup put inside one is missing from the file a crawler and a reader with no
+  script receive. Under Astro a wrapper that did that rendered an empty header no test reading
+  sources would have caught; the rule outlived Astro, and it is why `<LocoLogo />` and every
+  `<Card />` on `/cards/` are in the served HTML and why `livePage.test.ts` and `legal.test.ts`
+  refuse an effect in an article.
 - Svelte applies a change on the microtask after it, not inside the click. Nothing on screen is
   slower for it, but a Vitest assertion reading the DOM on the line after `fireEvent` needs a flush
   first — which the suite does once, in `src/test/setup.ts`, rather than in three hundred tests.
@@ -254,9 +305,19 @@ this client — has to be bound in the markup with `class:` rather than added wi
 compiles away. `:global()` would also silence it, and silencing the compiler is the opposite of what
 this rule is for: **no `:global()` without a written justification.**
 
-**`astro check` does not type-check `.svelte`.** `npm run build` is `astro check && svelte-check &&
-astro build` for that reason; dropping the middle one leaves every Svelte component untyped while
-the build still reads green.
+**`vite build` type-checks nothing.** `npm run build` is `svelte-kit sync && svelte-check && vite
+build && node scripts/csp-hashes.mjs` (`npm run check` is the first two); dropping svelte-check leaves
+every component untyped while the build still reads green. **SvelteKit 3 enforces
+`verbatimModuleSyntax`**, and it is not a style setting there: a type imported as a value is a
+missing export at build time. That made "every type import is an `import type`" a compiler rule
+rather than a convention — the migration found 43 that were not.
+
+**There is no `svelte.config.js` since SvelteKit 3.** Everything the framework is told — the
+adapter, the CSP, the preprocessor, `runes: true`, `public/` as the assets directory, the hooks
+paths — is passed to `sveltekit({...})` in `vite.config.ts`, and svelte-check reads it from there.
+`vitest.config.ts` merges that config, so a test runs against the module graph the build sees. The
+universal-hooks path is pointed at a file that does not exist on purpose: SvelteKit's default,
+`src/hooks`, is our directory of the same name.
 
 **The store is ours** (`hooks/store/createStore.ts`, ~40 lines). It replaced Zustand, and not for
 weight: the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, which
@@ -289,13 +350,11 @@ whoever draws the wrapper.
 full account, the test that replaced the workaround's config pin, and the rest of the generated
 protocol are under "Protocol validation (client)" below.
 
-**TypeScript stays on 6.x, and that is a ceiling rather than a preference.** `astro check` drives
-`@astrojs/language-server`, which needs TypeScript's programmatic API. The 7.0 native compiler does
-not ship one yet and the check refuses to start with a message naming that directly. Raising it
-turns the client's type gate into an immediate failure, so the pin moves when the language server
-says it can. Two more tools now hold the same ceiling independently — `svelte-check@4` and
-`@astrojs/svelte@9` both declare `typescript: ^5 || ^6` — so this is three votes rather than one.
-The E2E package is held to the same major for one decision rather than two.
+**TypeScript stays on 6.x, and that is a ceiling rather than a preference.** `svelte-check@4`
+drives TypeScript's programmatic API, which the 7.0 native compiler does not ship, and declares
+`typescript: ^5 || ^6`; SvelteKit 3 declares `^6`. Raising it turns the client's type gate into an
+immediate failure. (Astro's language server was the third vote and left with Astro.) The E2E package
+is held to the same major for one decision rather than two.
 
 ## A snapshot is authoritative when it arrives, and never afterwards
 
