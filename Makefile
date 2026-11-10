@@ -14,11 +14,14 @@ DOCKER_LINT = docker run --rm -v $(SERVER_DIR):/app -w /app
 # than server-rs/. It also runs Node (tools/protocol/valibot.mjs turns the JSON
 # Schema into Valibot), which the Rust image does not carry.
 DOCKER_RUST_REPO = docker run --rm -v $(CURDIR):/repo -w /repo/server-rs
+# The Rust server's own targets mount server-rs/ alone, with the cargo registry
+# in a named volume so a second run does not download the graph again.
+DOCKER_RUST = docker run --rm -v $(CURDIR)/server-rs:/app -v loco-cargo-registry:/usr/local/cargo/registry -w /app
 
 PROTOCOLGEN = sh -c 'command -v node >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs >/dev/null; }; \
 	node --test ../tools/protocol/valibot.test.mjs >/dev/null && cargo run -q -p protocolgen -- "$$@"' protocolgen
 
-.PHONY: help dev down test test-server test-client test-e2e bench-server models models-check visual og rooms audio-verify csp lint lint-server lint-client build-server build-client protocol protocol-check
+.PHONY: help dev down test test-server test-client test-e2e bench-server models models-check visual og rooms audio-verify csp lint lint-server lint-client build-server build-client protocol protocol-check test-server-rs lint-server-rs bench-server-rs
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?##"}{printf "  %-16s %s\n", $$1, $$2}'
@@ -81,6 +84,17 @@ csp: ## Load the built client behind the real nginx and report CSP violations (n
 	node tools/csp/check.mjs $(ARGS)
 
 lint: lint-server lint-client ## Run all linters
+
+# The Rust server (server-rs/), alongside the Go one until the cutover. Not part
+# of `make test` / `make lint` yet: the Go server is still the one that ships.
+test-server-rs: ## Run the Rust server's tests in docker (cargo test --workspace)
+	$(DOCKER_RUST) $(RUST_IMAGE) cargo test --workspace --locked
+
+lint-server-rs: ## rustfmt --check, clippy -D warnings and cargo-deny on server-rs (in docker)
+	$(DOCKER_RUST) $(RUST_IMAGE) sh -c 'rustup component add rustfmt clippy >/dev/null 2>&1; 		cargo fmt --all -- --check && cargo clippy --workspace --all-targets --locked -- -D warnings && 		{ command -v cargo-deny >/dev/null || cargo install --locked cargo-deny; } && cargo deny check'
+
+bench-server-rs: ## Time the Rust hub's hot paths (not in CI) — compare with bench-server
+	$(DOCKER_RUST) $(RUST_IMAGE) cargo bench -p loco-hub $(ARGS)
 
 lint-server: ## golangci-lint on server (in docker)
 	$(DOCKER_LINT) $(GOLANGCI_IMAGE) golangci-lint run ./...

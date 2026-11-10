@@ -120,6 +120,61 @@ protocol_check_rs:
     - cargo test -p loco-protocol
     - cargo run -q -p protocolgen -- --check
 
+# The Rust server (server-rs/), tested and linted alongside the Go one until the
+# cutover (docs/migration.md, step 6). It does not build an image and nothing
+# deploys it yet; `build` still needs both jobs, so a red Rust suite cannot
+# ship either way.
+backend_test_rs:
+  stage: test
+  image: rust:1.97-bookworm
+  tags:
+    - devops
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+    CARGO_TARGET_DIR: $CI_PROJECT_DIR/server-rs/target
+  # Its own key: two jobs pushing one key race on the upload (backend_lint).
+  cache:
+    - key:
+        prefix: cargo-test
+        files:
+          - server-rs/Cargo.lock
+      paths:
+        - .cargo/registry/
+        - server-rs/target/
+  script:
+    # No -race to ask for: the table owns its state and nothing else can read
+    # it, which the compiler checks rather than a flag. Every crate, the domain
+    # and the protocol included.
+    - cd server-rs && cargo test --workspace --locked
+    # The domain must keep building for the browser (docs/migration.md, step 2).
+    - rustup target add wasm32-unknown-unknown && cargo build -p loco-game --target wasm32-unknown-unknown --locked
+
+backend_lint_rs:
+  stage: test
+  image: rust:1.97-bookworm
+  tags:
+    - devops
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+    CARGO_TARGET_DIR: $CI_PROJECT_DIR/server-rs/target
+  cache:
+    - key:
+        prefix: cargo-lint
+        files:
+          - server-rs/Cargo.lock
+      paths:
+        - .cargo/registry/
+        - .cargo/bin/
+        - server-rs/target/
+  script:
+    - rustup component add rustfmt clippy
+    - cd server-rs
+    - cargo fmt --all -- --check
+    - cargo clippy --workspace --all-targets --locked -- -D warnings
+    # Licences, advisories and sources (deny.toml). Installed once and cached.
+    - command -v cargo-deny >/dev/null || cargo install --locked cargo-deny
+    - cargo deny check
+
 backend_test:
   stage: test
   image: golang:1.26.5-alpine
@@ -482,6 +537,10 @@ build:
     - job: protocol_check
       artifacts: false
     - job: protocol_check_rs
+      artifacts: false
+    - job: backend_test_rs
+      artifacts: false
+    - job: backend_lint_rs
       artifacts: false
     - job: backend_test
       artifacts: false

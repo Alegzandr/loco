@@ -1,0 +1,22 @@
+[package]
+name = "loco-twitch"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Who is streaming the game, asked through Janus. Never imports loco-hub."
+
+[dependencies]
+loco-janus.workspace = true
+loco-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+axum.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true
