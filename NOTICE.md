@@ -66,7 +66,7 @@ Running on the server:
 | Component | Licence |
 | --- | --- |
 | gorilla/websocket | BSD-2-Clause |
-| [LDNOOBW word lists](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words) (`server/game/wordlists/`) | CC BY 4.0 |
+| [LDNOOBW word lists](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words) (`server/game/wordlists/`, copied to `server-rs/crates/loco-game/wordlists/`) | CC BY 4.0 |
 
 The word lists are Shutterstock's "List of Dirty, Naughty, Obscene and Otherwise
 Bad Words", 19 languages of it, vendored into the repository and compiled into
