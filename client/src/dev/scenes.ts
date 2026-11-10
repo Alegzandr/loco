@@ -909,6 +909,15 @@ export const SCENES: Scene[] = [
     deadlineIn: 21,
   },
   {
+    // The room's own hour under a clear sky: what its plate is painted from
+    // (`tools/plates/guide.mjs --scene=game-map-neon-clear`).
+    id: 'game-map-neon-clear',
+    title: 'Map · Neon · nuit claire',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'neon', mapTime: 'night', mapWeather: 'clear', discard: num('red', 5), activeColor: 'red' },
+    deadlineIn: 21,
+  },
+  {
     id: 'game-map-rune',
     title: 'Map · Rune · crépuscule',
     screen: 'game',

@@ -19,6 +19,13 @@ import { cssHex, mix, scale, type Hex } from '../sky'
 import { LOOK } from '../look'
 import type { V3 } from '../view'
 
+/**
+ * Dev only (`?bare=1`): the room without its table and without the floor's
+ * inlay, which is what a painted plate is made from (`tools/plates`). Both
+ * follow the felt, and the felt changes with the frame; a plate is one image.
+ */
+export const BARE = import.meta.env.DEV && typeof location !== 'undefined' && /[?&]bare=1/.test(location.search)
+
 /** Builds the room, and says what moves in it (`vistaLife.ts`), or nothing does. */
 export type Builder = (k: Kit) => Actor[] | void
 
@@ -95,7 +102,7 @@ function rimFinish(m: TableMaterials): Finish {
  */
 export function vistaTable(k: Kit, m: TableMaterials) {
   const view = k.view
-  if (!view) return
+  if (!view || BARE) return
   const top = view.tableTop
   const outline: [number, number][] = view.tableOutline(128).map(([x, , z]) => [x, z])
   let cx = 0
@@ -149,6 +156,11 @@ export function vistaTable(k: Kit, m: TableMaterials) {
   fz /= edge.length
   const toward = (s: number): V3[] => edge.map(([x, y, z]) => [fx + (x - fx) * s, y, fz + (z - fz) * s])
   k.loft([toward(0), toward(0.4), toward(0.75), edge], { kind: 'cloth', color: cssHex(m.felt) })
+  if (m.paint && k.painted(m.paint.rail) && k.painted(m.paint.side)) {
+    paintedTable(k, m, m.paint, outline, top, ring, railIn, feltIn, lip, rim, m.glow ? line : null)
+    pedestal(k, m, outline, cx, cz, top - LOOK.table.apron, rim, metal, base)
+    return
+  }
   // The metal filet at the cloth's edge, a step up to the racetrack.
   k.loft([edge, ring(feltIn, lip), ring(feltIn - look.filet, lip)], line)
   // The racetrack: the rail's material stained a shade darker, flush.
@@ -182,7 +194,67 @@ export function vistaTable(k: Kit, m: TableMaterials) {
   const skirt = LOOK.table.skirt
   k.sweep(outline, top, [[-0.5, -0.08], [-0.5, -0.08 - skirt], [-0.9, -0.08 - skirt]], rim)
 
-  const h = top - 0.08 - skirt
+  pedestal(k, m, outline, cx, cz, top - 0.08 - skirt, rim, metal, base)
+}
+
+/**
+ * The table dressed in its two painted strips (`TableMaterials.paint`): the
+ * top of the rim as one band from the outer edge over the rail's crown and
+ * across the racetrack to the cloth, and a straight apron under it. A strip
+ * is a moulding four times as long as it is tall, laid as many times round as
+ * keeps it near that shape (`LOOK.table.stretch` draws it out a little), an
+ * even number: it is mirrored end to end.
+ */
+function paintedTable(
+  k: Kit,
+  m: TableMaterials,
+  paint: { rail: string; side: string },
+  outline: [number, number][],
+  top: number,
+  ring: (inset: number, up: number) => V3[],
+  railIn: number,
+  feltIn: number,
+  lip: number,
+  rim: Finish,
+  line: Finish | null,
+) {
+  const look = LOOK.table.rail
+  let around = 0
+  for (let i = 0; i < outline.length; i++) {
+    const [ax, az] = outline[i]
+    const [bx, bz] = outline[(i + 1) % outline.length]
+    around += Math.hypot(bx - ax, bz - az)
+  }
+  const times = (tall: number, stretch: number) => Math.max(2, 2 * Math.round(around / (8 * tall * stretch)))
+  // The top: the crown from the outer edge inwards, then the racetrack, flush.
+  const rings: V3[][] = []
+  const at: number[] = []
+  for (let i = 12; i >= 0; i--) {
+    const a = (i / 12) * Math.PI
+    const w = (1 - Math.cos(a)) / 2
+    rings.push(ring(railIn * (1 - w), lip + (look.height - lip) * Math.pow(Math.sin(a), 0.55)))
+    at.push((railIn * (1 - w)) / feltIn)
+  }
+  rings.push(ring(feltIn, lip))
+  at.push(1)
+  // How wide the band is on the table, metres: the outer ring to the cloth's.
+  const wide = Math.hypot(rings[0][0][0] - rings[rings.length - 1][0][0], rings[0][0][2] - rings[rings.length - 1][0][2])
+  k.band(rings, at, times(wide, LOOK.table.stretch.rail), { kind: 'painted', color: rim.color, paint: paint.rail })
+  // A room with its own electricity keeps its two lines of light over the painting.
+  if (line) {
+    k.loft([ring(feltIn, lip + 0.001), ring(feltIn, lip + 0.003), ring(feltIn - look.filet, lip + 0.003)], line)
+    k.loft([ring(railIn + look.filet, lip + 0.001), ring(railIn + look.filet, lip + 0.003), ring(railIn, lip + 0.003)], line)
+  }
+  // The apron: straight down from the edge, its foot eased in.
+  const tall = LOOK.table.apron
+  const face = (out: number, up: number): V3[] => offsetOutline(outline, out).map(([x, z]) => [x, top + up, z])
+  k.band([face(0, lip), face(0, -tall * 0.5), face(-0.004, -tall * 0.94), face(-0.02, -tall)], [0, 0.5, 0.94, 1], times(tall, LOOK.table.stretch.side), { kind: 'painted', color: cssHex(m.rim), paint: paint.side })
+  // What is under it, turning in to the pedestal: plain, and in shade.
+  k.sweep(outline, top, [[-0.02, -tall], [-0.9, -tall]], rim)
+}
+
+/** What the table stands on, turned, one per room, under a top whose underside is at `h`. */
+function pedestal(k: Kit, m: TableMaterials, outline: [number, number][], cx: number, cz: number, h: number, rim: Finish, metal: Finish, base: Hex) {
   // Where a foot may stand: the table's size is solved to the felt on screen,
   // so a foot set a fixed distance out lands outside a shallow table and its
   // top shows, cut square, in front of the edge. A foot aimed along (dx, dz)
@@ -284,7 +356,7 @@ export interface InlayBand {
  */
 export function groundInlay(k: Kit, bands: readonly InlayBand[], y = 0) {
   const view = k.view
-  if (!view || k.rig.snow) return
+  if (!view || k.rig.snow || BARE) return
   const plan: [number, number][] = view.tableOutline(96).map(([x, , z]) => [x, z])
   const sorted = [...bands].sort((p, q) => q.out - p.out)
   sorted.forEach((b, i) => {

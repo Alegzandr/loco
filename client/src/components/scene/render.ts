@@ -33,7 +33,7 @@
  * (`hooks/graphicsPref.ts`, `quality.ts`). Every number any of this reads is
  * `look.ts`'s.
  */
-import { Box3, Color, Fog, FogExp2, Group, PerspectiveCamera, Scene, ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget, type Texture } from 'three'
+import { Box3, Color, Fog, FogExp2, Group, Mesh, PerspectiveCamera, Scene, ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget, type Texture } from 'three'
 import type { LightRig } from './sky'
 import type { SceneSpec } from '../cards/maps'
 import { sceneKey } from '../cards/maps'
@@ -55,6 +55,9 @@ import { lightingFor } from './shade'
 import { LOOK } from './look'
 import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
 import { nextPaint } from './nextPaint'
+import { PLATES, type PlateDef } from './plates'
+import { loadPlate, loadStrips, makePlate, makePlateShade } from './plate'
+import { BARE, vistaTable } from './maps/vista'
 
 /** Loads the kits `spec`'s room is built from. Fetched once per tab. */
 export function prepareModels(spec: SceneSpec, onProgress?: (p: number) => void): Promise<ModelLib> {
@@ -166,6 +169,10 @@ interface VistaJob {
   floatOk: boolean
   env: Texture | null
   builder: Builder
+  /** The painted strips the table is dressed in, by address; empty, and it is its plain materials. */
+  paints: ReadonlyMap<string, Texture>
+  /** The room is a painting (`plates.ts`): it stands in for the dome, and the builder builds the table alone. */
+  plate: { def: PlateDef; tex: Texture } | null
   report: (p: number) => Promise<void>
 }
 
@@ -176,7 +183,7 @@ interface VistaJob {
  * `vistaSprites`.
  */
 async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; reflection: WebGLRenderTarget | null; sprites: Sprite[] }> {
-  const { renderer, scene, rig, key, size, felt, models, q, ss, post, software, floatOk, env, builder, report } = job
+  const { renderer, scene, rig, key, size, felt, models, q, ss, post, software, floatOk, env, builder, plate, paints, report } = job
   const gw = Math.round(size.width * ss)
   const gh = Math.round(size.height * ss)
   const k = size.pixelRatio
@@ -192,7 +199,7 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
     return LOOK.outline.px * k * view.tileAt(depth) * fade
   }
   const t0 = performance.now()
-  const kit = new Kit({ rig, rng: seededRng(key), outline: inkAt(0, cam.tableTop, 0), outlineAt: inkAt, models, view, lightPools: true })
+  const kit = new Kit({ rig, rng: seededRng(key), outline: inkAt(0, cam.tableTop, 0), outlineAt: inkAt, models, view, lightPools: true, paints })
   const actors: Actor[] = builder(kit) ?? []
   await report(RENDER_STEPS.built)
   const mirror = makeMirror(rig)
@@ -201,8 +208,18 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
   const group = kit.build(env, mirror)
   scene.add(group)
   const eye = new Vector3(...view.eye)
-  const dome = makeDome(rig, eye, cam.far * 0.8, seededRng(`${key}:sky`).next() * 1000)
+  // Behind everything: the sky's dome, or the painting where the room is one.
+  const dome = plate ? makePlate(plate.tex, plate.def, view, view.w, view.h, lightingFor(rig).exposure, { color: rig.sky.horizon, amount: Math.min(1, Math.max(0, rig.haze - 1) / 3.5) * LOOK.plate.veil }) : makeDome(rig, eye, cam.far * 0.8, seededRng(`${key}:sky`).next() * 1000)
   scene.add(dome)
+  let shade: Mesh | null = null
+  if (plate) {
+    const plan = view.tableOutline(64)
+    const mx = plan.reduce((a, p) => a + p[0], 0) / plan.length
+    const mz = plan.reduce((a, p) => a + p[2], 0) / plan.length
+    const reach = LOOK.table.shade.reach
+    shade = makePlateShade(mx, mz, Math.max(...plan.map((p) => Math.abs(p[0] - mx))) * reach, Math.max(...plan.map((p) => Math.abs(p[2] - mz))) * reach)
+    scene.add(shade)
+  }
   if (!post) {
     // No finishing pass, so no air: three's own fog stands in for it.
     scene.fog = new Fog(new Color(rig.sky.horizon), LOOK.vista.haze.distance * 0.15, LOOK.vista.haze.distance * 5)
@@ -240,7 +257,10 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
         const c = new Color(hex)
         return new Vector3(c.r, c.g, c.b)
       }
-      canvasSize = renderWithPost(renderer, scene, camera, gw, gh, rig, post, seededRng(key).next() * 1000, {
+      // No mist over a painting: the mist is laid by the ground's depth, and
+      // a painted floor has none (it came out as spikes standing on the
+      // balustrade). The plate carries the weather's veil itself.
+      canvasSize = renderWithPost(renderer, scene, camera, gw, gh, rig, plate ? { ...post, mist: false } : post, seededRng(key).next() * 1000, {
         distance: haze.distance,
         max: haze.max * rig.haze,
         color: lin(rig.sky.horizon),
@@ -250,8 +270,9 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
         sunGlowPower: haze.sunGlowPower,
         desaturate: haze.desaturate,
         focus: Math.hypot(...view.eye),
-        dof: LOOK.vista.dof,
+        dof: plate ? 0 : LOOK.vista.dof,
         bloom: LOOK.vista.bloom,
+        bloomScale: plate ? LOOK.plate.bloom : 1,
         glow: Math.max(0, rig.haze - 1) * LOOK.post.bloomWeather,
       }, size)
       photographed = true
@@ -283,6 +304,8 @@ async function renderVista(job: VistaJob): Promise<{ frame: HTMLCanvasElement; r
   dispose(group)
   dome.geometry.dispose()
   ;(dome.material as ShaderMaterial).dispose()
+  shade?.geometry.dispose()
+  ;(shade?.material as ShaderMaterial | undefined)?.dispose()
   lights.dispose()
   lamp.dispose()
   await report(RENDER_STEPS.placed)
@@ -463,6 +486,8 @@ export async function renderScene(
   // supersampling does not already cover the edges: on the light tier.
   const renderer = new WebGLRenderer({ canvas: gl, antialias: q.msaa, alpha: true, stencil: false, powerPreference: 'high-performance' })
   let env: Texture | null = null
+  let plate: Texture | null = null
+  let paints = new Map<string, Texture>()
   let reflection: WebGLRenderTarget | null = null
   try {
     renderer.setPixelRatio(1)
@@ -492,11 +517,26 @@ export async function renderScene(
     renderer.setClearColor(new Color(rig.sky.horizon), 1)
     const scene = new Scene()
     env = floatOk ? skyEnvironment(renderer, rig) : null
-    const out = await renderVista({ renderer, scene, rig, key, size, felt, models, q, ss, post, software, floatOk, env, builder: BUILDERS[spec.map.id], report })
+    // A painted room: its plate, or the block room when the painting cannot
+    // be had. The guide a plate is painted from is the block room itself.
+    const def = BARE ? undefined : PLATES[spec.map.id]
+    if (def) {
+      try {
+        plate = await loadPlate(def)
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('plate failed, block room', err)
+      }
+    }
+    const table = spec.map.table
+    if (table.paint && !BARE) paints = await loadStrips([table.paint.rail, table.paint.side], Math.min(q.anisotropy, renderer.capabilities.getMaxAnisotropy()))
+    const builder: Builder = plate ? (k) => vistaTable(k, table) : BUILDERS[spec.map.id]
+    const out = await renderVista({ renderer, scene, rig, key, size, felt, models, q, ss, post, software, floatOk, env, builder, plate: def && plate ? { def, tex: plate } : null, paints, report })
     reflection = out.reflection
     return { frame: out.frame, sprites: out.sprites }
   } finally {
     env?.dispose()
+    plate?.dispose()
+    for (const t of paints.values()) t.dispose()
     reflection?.dispose()
     renderer.dispose()
     renderer.forceContextLoss()

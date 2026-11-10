@@ -278,6 +278,16 @@ export interface Look {
    * polished stone.
    */
   table: TableLook
+  /**
+   * A painted room (`plates.ts`, `plate.ts`): a trim on the painting before
+   * it goes out through the tone curve backwards (`gain` on its linear
+   * colour, `lift` as a power on it, under 1 opens the shade), how much of
+   * the look's bloom its lamps take (a painted lamp already has its halo),
+   * how dark the table's shade lies on its floor, and how much of the sky's
+   * low colour a fog lays over it (`veil`, at the weather's thickest). No
+   * lens blur at all: a painting put out of focus is a painting thrown away.
+   */
+  plate: { gain: number; lift: number; bloom: number; shade: number; veil: number }
   /** Each room's own light (`RoomLook`), by map id. */
   rooms: Record<string, RoomLook>
   /** Dev only: the composite shows one pass alone. Always `off` in a build. */
@@ -335,6 +345,20 @@ export interface TableLook {
   marble: FinishLook
   /** The felt: a cloth, matte, with a sheen and nothing drawn on it. */
   cloth: FinishLook
+  /**
+   * A painted strip (`Finish.paint`): its light is in the painting, so it
+   * shows most of its own colour whatever falls on it, and takes little
+   * highlight on top of the one painted along it.
+   */
+  painted: FinishLook
+  /** A painted table's apron, metres: the face the `side` strip is laid on. */
+  apron: number
+  /**
+   * How far each strip is drawn out along the table, over its own 4:1: the
+   * rail is some forty pixels across on a monitor, and at its true shape its
+   * ornaments were a row of teeth.
+   */
+  stretch: { rail: number; side: number }
   /**
    * The rail round the felt and the racetrack inside it, as the render builds
    * them (`vista.ts: vistaTable`). Widths are board pixels taken in on both
@@ -591,7 +615,10 @@ export const LOOK: Look = {
     metal: { roughness: 0.55, metalness: 1, clearcoat: 0, clearcoatRoughness: 0, glow: 0.08 },
     brushed: { roughness: 0.62, metalness: 0.4, clearcoat: 0, clearcoatRoughness: 0, glow: 0.22 },
     marble: { roughness: 0.4, metalness: 0, clearcoat: 0.2, clearcoatRoughness: 0.25, specular: 0.5, glow: 0.25 },
-    cloth: { roughness: 0.95, metalness: 0, clearcoat: 0, clearcoatRoughness: 0, sheen: 0.45, sheenRoughness: 0.6, sheenLift: 0.3, specular: 0.2, glow: 0.3 },
+    cloth: { roughness: 0.95, metalness: 0, clearcoat: 0, clearcoatRoughness: 0, sheen: 0.45, sheenRoughness: 0.6, sheenLift: 0.3, specular: 0.2, glow: 0.42 },
+    painted: { roughness: 0.5, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.3, specular: 0.3, glow: 0.72 },
+    apron: 0.22,
+    stretch: { rail: 1.7, side: 1.2 },
     rail: { width: 19, height: 0.075, track: 22, filet: 2, marks: 16, lit: 2.0 },
     shade: { reach: 1.22, dark: 0.45 },
     skirt: 0.14,
@@ -599,6 +626,7 @@ export const LOOK: Look = {
     envIntensity: 0.3,
     grainSpan: [1.6, 0.3],
   },
+  plate: { gain: 1.06, lift: 0.9, bloom: 0.3, shade: 0.55, veil: 0.5 },
   rooms: {
     // The city under its signs: a violet sky light, the highlights pushed
     // towards pink and the shade towards indigo.

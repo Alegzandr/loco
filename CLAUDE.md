@@ -131,7 +131,8 @@ needs jsdom and the `browser` resolve condition.
   `RulesArticle.astro`, `FaqArticle.astro`, `FriendsArticle.astro`, `LegalArticle.astro`, `deck.ts`
   (the deck as the content pages read it), `contrasts.ts`, `ui.ts` (the pages' own chrome strings),
   `liveList.ts`, `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
-  the rooms page shows, shot by `make rooms` and committed
+  the rooms page shows, shot by `make rooms` and committed · `src/assets/plates/` the painted rooms'
+  plates and their tables' two strips, three WebPs a room, made by `tools/plates` and committed
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, CardFall, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
@@ -164,7 +165,9 @@ needs jsdom and the `browser` resolve condition.
   what every room shares) + `maps/vistaLife.ts` (what moves in them), `render.ts` (one frame, then
   the context is released), `nextPaint.ts` (the yield between render phases),
   `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame), `quality.ts`
-  (what each graphics tier buys) + `post.ts` (the finishing passes), `SceneBackdrop.svelte` +
+  (what each graphics tier buys) + `post.ts` (the finishing passes), `plates.ts` (the painted rooms:
+  each plate's file, its lens and its hour, and where a frame reads it — pure) + `plate.ts` (the
+  painting behind the render and the table's shade on it), `SceneBackdrop.svelte` +
   `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of)
 - `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, `harmony.ts` (keys, and whether two
   loops may be overlapped — pure), and `gameSounds.ts`, which **decides** the sounds and plays none of
@@ -220,7 +223,7 @@ needs jsdom and the `browser` resolve condition.
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
 `playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`, `rooms/shoot.mjs`,
-`cover/shoot.mjs`, `audio/verify.mjs`, `csp/check.mjs`) ·
+`plates/guide.mjs` + `plates/paint.py` + `plates/trim.py` + `plates/prompts/`, `cover/shoot.mjs`, `audio/verify.mjs`, `csp/check.mjs`) ·
 **`brand/`** the 600×800 game covers, uploaded to IGDB and drawn by Twitch as the category's box art —
 **committed and deliberately not under `client/public/`**: they are an upload · `docs/` spec +
 `docs/notes/` · `LICENSE` (MIT) · `NOTICE.md` · `.gitlab-ci.yml` the only CI definition · root
@@ -1081,9 +1084,11 @@ stated at the top of `styles/tokens.css`:
   opening of every round and a spectator reads it at 720p. `actionBar.test.ts` measures both.
 
 **The room**
-- **A map is a scene, a table and an accent, and none of it is a picture** (`components/scene/`,
-  `maps.ts`): a room of coloured blocks and a few drawn models rendered in the browser from the
-  three ids the server deals. **In a room the render is the table** (cloth, racetrack, rail, edge,
+- **A map is a scene, a table and an accent** (`components/scene/`, `maps.ts`): a room rendered in
+  the browser from the three ids the server deals. **It is painted** (`scene/plates.ts`, "A painted
+  room" below), **and built in blocks and a few drawn models underneath**: the block room is what
+  the painting is made from and what is shown when it cannot be had, so every rule below about the
+  block rooms still holds. The table is rendered either way. **In a room the render is the table** (cloth, racetrack, rail, edge,
   pedestal, lit by the room and by a lamp over it), built under exactly `tableRect()`; the CSS table
   on `tableRect()` is the fallback and stands in whenever the frame on screen does not lie under the
   felt as it is now (`sceneCache.tableFits`, `SceneBackdrop`'s `tableDrawn`, `.tableOval.rendered`).
@@ -1140,6 +1145,29 @@ stated at the top of `styles/tokens.css`:
     (`ARROW_SWEEP`, `layout.test.ts`): the circle passes behind them above and below, and a head
     that ends there is the heading hidden. Lit at the head and nothing at the tail; it runs a few
     degrees with the play and never makes a full turn.
+  - **A painted room is one painting, laid by its lens and never by its edges** (`scene/plates.ts`,
+    `scene/plate.ts`; all six rooms are, each at the hour the rooms page shows it). The painting stands where the sky's dome does, the
+    table is the only thing rendered over it, and each frame reads it by `plateUv`: **the two
+    horizons laid on each other, the plate scaled by the ratio of the focal lengths**. So a plate
+    carries the lens it was painted through, and **those numbers are `solveView`'s for the frame
+    its guide was shot at**. **The guide is the block room itself** (`?bare=1`: no table, no
+    inlay, both follow the felt) shot at 16:9, the camera's widest lens; **the painting is made in
+    two passes, the strip above the floor and then the floor under it** (`tools/plates/paint.py`:
+    asked for the whole frame at once the model moves the camera). **A painted room has one hour,
+    its painting's** (`plateHour`, `resolveScene`); the weather dealt still falls over it. **The
+    painting leaves through the tone curve backwards** (`plate.ts: untone`), takes no lens blur, no
+    mist pass (the weather's air is a veil the plate carries) and a share of the bloom
+    (`LOOK.plate`), and **a plate that will not load is the block room**,
+    which is why the builder stays. `scenePlates.test.ts`.
+  - **The table cannot be a painting, and what it is made of is** (`TableMaterials.paint`,
+    `Kit.band`, `vista.ts: paintedTable`, `tools/plates/trim.py`): its shape is solved to the felt,
+    so the render dresses it in two painted strips, each a moulding seen square on: `rail`, the top
+    of the rim from its outer edge in to the cloth, and `side`, a straight apron under it
+    (`LOOK.table.apron`). **A strip is laid an even number of times round**: it is mirrored end to
+    end and need not tile. **Both strips or neither**: one that will not load leaves the table its
+    plain materials, lozenges and all. **The cloth is never painted**, and a room's lines of light
+    stay over the painting. **A strip's ornaments are large and few**
+    (`LOOK.table.stretch`): the rail is forty pixels across. `sceneTableTrim.test.ts`.
   - **A room is seen from the table** (`scene/view.ts`, visual.md "The view"): a perspective camera
     at eye height, a tile a metre, the horizon in the frame (13% from the top). **The felt is fixed
     and the camera is solved to it** (`solveView`): the horizon and the table's shape on the ground

@@ -1368,6 +1368,129 @@ flat material from edge to edge, boxes with a bush on top, a table with no shade
 
 `sceneGround.test.ts` pins the shade, the inlay (and its absence under snow), where a floor may be
 polished, the lozenges and the lines of light.
+### A painted room (`scene/plates.ts`, `scene/plate.ts`, `tools/plates`; velvet, 2026-11-10)
+
+Three passes on the block rooms in one day were each judged an improvement and none of them what
+was asked for. The player's words: "next gen", "là tu m'as juste fait évoluer les miens". Asked to
+choose, they chose a painted illustration in the manner of a card game's board, one mood a room,
+and one room first. Velvet is that room. Its block builder stays: it is what the painting is made
+from, and what is shown when the painting cannot be had.
+
+**How the painting is made.** The block room is rendered without its table and without the inlay
+round its foot (`?bare=1`: both follow the felt, and the felt is another shape in every frame) and
+the render is given to an image-edit model run locally (FLUX.2 Klein 4B in ComfyUI) to repaint.
+What was tried, in order:
+
+- *The whole frame, repainted in one go.* The result was the jump in quality that was wanted, and a
+  different camera: a frame that is three quarters empty floor is not a picture the model believes
+  in, so it raised the horizon from 13% of the frame to 25-40% and painted a handsome boulevard.
+  Laid under the game's horizon, all of that boulevard is above the top of the screen. Telling it
+  where the balustrade is changed nothing.
+- *Starting from the render's own latent, partly noised.* Bimodal: under about 0.95 of the noise
+  the block room comes back untouched, above it the camera moves as before.
+- *Two passes*, which is what `tools/plates/paint.py` does. The strip above the floor, cut off the
+  guide, is a panorama on its own terms, and painted alone it keeps every object where the guide
+  has it. That strip is pasted back over the guide, and the whole is given back with the top
+  declared finished: the floor is then the only thing left to paint, and it comes out under the
+  strip, in the guide's perspective, mirroring it.
+
+Marble veins needed asking down ("almost without veins"): the first floors were cracked glass, and
+fine pattern under the table's edge is what this game does not want.
+
+**How it is shown.** One painting, made through one lens, under frames that each solve their own.
+Fitting it to the frame's edges would be right at one size. A floor is a plane, and a plane seen
+from the same height through another focal length is the same picture scaled about the horizon, so
+the plate is laid by **its horizon on the frame's, scaled by the ratio of the two focal lengths**
+(`plateUv`), and its entry carries its lens. The first cut took the lens by scaling 1920x1080's
+numbers by 1.2, which is close and not right (the felt has parts in fixed pixels): the horizon was
+14 pixels out, and the test now compares the entry with `solveView` at the plate's own size. The
+guide is 16:9 because that is where the camera's lens is widest (84 degrees): a 4:3 guide, tried
+first for its extra floor, was 76 degrees and left every monitor asking for 150 columns a side
+that the painting did not have. Past the painting: sky stretches up, the sides and the foot are
+mirrored, and the floor under the foot goes down into its own darkest note. A phone's frame looks
+far further down than a monitor's, and that floor is under its hand and its buttons.
+
+**In the render.** The painting is a sheet on the far plane, drawn first, writing no depth: the
+finishing passes take it for sky, so no air and no occlusion are laid on it. Three things went
+wrong on the way:
+
+- *The tone curve.* The composite runs everything through ACES, and a painting is finished colour,
+  not light: its black marble came out black and its lamps white. A gain and a gamma chased it for
+  two tries and then the shader sent the painting through three's own ACES fit **backwards**
+  (`untone`: the two matrices and the rational curve, each inverted), so what the frame's curve
+  gives back is the painting.
+- *The lens blur.* The composite puts the sky out of focus with the far. A painting put out of
+  focus is a painting thrown away: none for a painted room.
+- *The bloom.* A painted lamp already has its halo, and the look's two blooms on top of it turned
+  the marquee into a smear: a painted room takes 0.3 of both (`AirOptions.bloomScale`).
+- *The mist.* Under a fog the mist is laid by where the ground is, and a painted floor has no
+  depth: it came out as white spikes standing on the balustrade. A painted room gets no mist pass,
+  and the plate carries the weather's air itself, as a veil in the sky's low colour, thickest
+  along the horizon (`LOOK.plate.veil`, scaled by the weather's own thickness).
+
+The table's shade is a sheet of its own on the ground (`makePlateShade`), since there is no floor
+material left to carry `pools.ts`'s. What moves in the block room (the airship, the gull) does not
+move here: they are low-poly sprites, and over a painting they are stickers.
+
+**What a painted room gives up.** Its hour: velvet is dusk whatever is dealt (`plateHour`), which
+the player chose over painting four of each. And the weather's marks on the room itself: rain
+still falls and fog still veils it, over a floor that is not wet and roofs that carry no snow.
+#### The five other rooms
+
+Velvet was shown first and the answer was "magnifique"; the five others were painted the same day,
+each from its block room at the hour the rooms page already showed it (neon at night, rune at
+dusk, orbit at night, sakura by day, marina at dawn), three strips and two floors a room, one of
+each kept (`plates.ts` records the seeds). What differed:
+
+- **Neon's guide needed its own scene** (`game-map-neon-clear`): the room's showcase scene is a
+  rainy night, and a guide is shot under a clear sky.
+- **Neon's floor would not go dark.** The block room's oiled deck mirrors the sky as a pink sheet,
+  and a floor given to the model that bright comes back that bright, twice. `paint.py floor --dim
+  0.3` takes the guide's floor down before it is given back, and the prompt asks for wet boards
+  that are almost black.
+- **A floor's prompt names what stands on it.** "The floor stays empty" is right for five rooms
+  and would have swept sakura's cushion and tea table off the veranda; its prompt keeps them where
+  they are.
+- **Lettering.** Velvet's marquee was asked for by name and came out right one time in two. The
+  others ask for no lettering at all, and still get a few marks on a crate or a far sign: small
+  enough to leave, and the reason a strip is chosen by eye among three.
+
+The table's lines of light on neon and orbit, its lozenges and its shade are the render's, over
+the painting, as they were over the blocks.
+#### The table beside a painting (`TableMaterials.paint`, `Kit.band`, `tools/plates/trim.py`)
+
+With the six rooms painted, the table was the one rendered thing left in the frame, and its plain
+varnish read as a computer's. It cannot be painted the way a room is: the table is the felt cast
+back onto its plane, a wide oval on a monitor and nearly a circle on a phone, and one picture of
+it fits one frame. What it is made of has no such problem. The render dresses it in two strips,
+each a moulding painted square on, four times as long as it is tall:
+
+- `rail`: the top of the rim, one band from the outer edge over the rail's crown and across the
+  racetrack to the cloth. Its upper half is the rail, its lower half the racetrack.
+- `side`: an apron under the edge, 22 cm, straight. The swept edges (knife, ogee, bullnose) are
+  the plain table's; a moulding painted flat wants a flat face, and a taller one than they had.
+
+`Kit.band` lays a strip `repeats` times round with its `v` given ring by ring, and the strip is
+mirrored end to end, so `repeats` is even and the strip never has to tile: asked for a seamless
+texture the model draws a moulding with two turned ends, on white, with a margin; `trim.py --ship`
+finds the rows that are the moulding and leaves a tenth at each end.
+
+What went wrong on the way:
+
+- *Teeth.* The first rails were dense with ornament (two rows of fans, lozenges, burl eyes), and
+  the rail is forty pixels across on a monitor: laid at its true shape it was a row of teeth
+  round the cloth, which is the fine pattern this game refuses. The prompts now ask for one row
+  of large ornaments, about eight a strip, and smooth wood with no eyes or knots; and the strips
+  are drawn out along the table (`LOOK.table.stretch`, 1.7 for the rail).
+- *Runes that were letters.* Asked for carved runes, the model wrote capitals. Rune's rail is a
+  braid of knotwork with an iron boss; no strip asks for anything that could be read.
+- *A painting in the dark.* A painted strip carries its own light, and lit only by the room it
+  was a dark band on the near side, where every face is in shade: the `painted` finish shows 0.72
+  of its own colour whatever falls on it. The cloth went from 0.3 to 0.42 on the same pass: beside
+  a painting it was the darkest thing on screen.
+
+The cloth itself is not painted and must not be: it is what the cards are read against, and it
+keeps its inlay (`FeltInlay`). Neon's and orbit's lines of light stay, drawn over the painting.
 ### The band at the top: a landmark has to be large enough to be one
 
 The far ground is a strip some 270 pixels tall at 1080p, half of it sky. Three rooms had a

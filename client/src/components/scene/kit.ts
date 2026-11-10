@@ -101,6 +101,8 @@ export interface KitOptions {
   outlineAt?: (x: number, y: number, z: number) => number
   /** The camera, when the room is seen from the table (`view.ts`); absent for the isometric rooms and the sprites. */
   view?: View
+  /** The painted strips this room's table is dressed in, by address (`Finish.paint`). None, and a painted finish is its colour. */
+  paints?: ReadonlyMap<string, Texture>
   /** Lay shadows on the ground. Off for a sprite of something in the air. */
   shadows?: boolean
   /** The loaded models this room may place (`k.model`). None for a sprite kit that needs none. */
@@ -166,7 +168,7 @@ export interface BlockOptions {
  * physically based material (`LOOK.table[kind]`) with, where the material has
  * one, its grain as a texture (`grain.ts`).
  */
-export type FinishKind = 'wood' | 'lacquer' | 'metal' | 'brushed' | 'marble' | 'cloth'
+export type FinishKind = 'wood' | 'lacquer' | 'metal' | 'brushed' | 'marble' | 'cloth' | 'painted'
 
 export interface Finish {
   kind: FinishKind
@@ -183,6 +185,12 @@ export interface Finish {
    * falls on it, and the bloom takes it up. A strip let into a rail, a tube.
    */
   lit?: number
+  /**
+   * A painted strip is its colour (`KitOptions.paints`, keyed by its address):
+   * a moulding seen square on, laid along a band (`Kit.band`). Without the
+   * strip in hand the piece is its `color`.
+   */
+  paint?: string
 }
 
 export const INK = 0x120b24
@@ -248,6 +256,7 @@ export class Kit {
   /** Whether what is built here stands on the ground and throws a shadow on it: off for a sprite of something in the air. */
   readonly shadows: boolean
   private readonly models: ModelLib | null
+  private readonly paints: ReadonlyMap<string, Texture> | null
   private readonly lightPools: boolean
   /** The light lying on the ground tonight (`pools.ts`). */
   readonly pools: Pool[] = []
@@ -278,6 +287,7 @@ export class Kit {
     this.view = o.view ?? null
     this.shadows = o.shadows ?? true
     this.models = o.models ?? null
+    this.paints = o.paints ?? null
     this.lightPools = (o.lightPools ?? false) && LOOK.pools.strength > 0
   }
 
@@ -627,6 +637,22 @@ export class Kit {
    */
   loft(rings: readonly (readonly V3[])[], finish: Finish) {
     this.pushFinish(loftGeometry(rings), finish)
+  }
+
+  /** True when the painted strip at this address is in hand: the table can be dressed in it. */
+  painted(address: string | undefined): boolean {
+    return address !== undefined && (this.paints?.has(address) ?? false)
+  }
+
+  /**
+   * A band round the table carrying a painted strip (`Finish.paint`): rings
+   * as `loft`'s, from the strip's top row to its bottom row, each ring's
+   * place down the strip given in `at` (0 its top, 1 its foot). The strip is
+   * laid `repeats` times round, mirrored end to end, so an even count closes
+   * on itself and the strip need not tile.
+   */
+  band(rings: readonly (readonly V3[])[], at: readonly number[], repeats: number, finish: Finish) {
+    this.pushFinish(bandGeometry(rings, at, repeats), finish)
   }
 
   /**
@@ -1484,7 +1510,7 @@ export class Kit {
     for (const { finish, geoms } of this.finishes.values()) {
       const merged = merge(geoms)
       if (!merged) continue
-      const m = new Mesh(merged, finishMaterial(finish, env))
+      const m = new Mesh(merged, finishMaterial(finish, env, this.paints))
       m.castShadow = this.shadows
       m.receiveShadow = true
       g.add(m)
@@ -1593,9 +1619,9 @@ function grainTexture(f: Finish): DataTexture | null {
  * swept or turned piece is only ever seen from outside, and this spares the
  * winding of every profile a builder writes.
  */
-function finishMaterial(f: Finish, env: Texture | null): MeshPhysicalMaterial {
+function finishMaterial(f: Finish, env: Texture | null, paints: ReadonlyMap<string, Texture> | null = null): MeshPhysicalMaterial {
   const look = LOOK.table[f.kind]
-  const map = grainTexture(f)
+  const map = (f.paint ? paints?.get(f.paint) : undefined) ?? grainTexture(f)
   const m = new MeshPhysicalMaterial({
     color: map ? 0xffffff : f.color,
     map,
@@ -1626,6 +1652,40 @@ function finishMaterial(f: Finish, env: Texture | null): MeshPhysicalMaterial {
     m.envMapIntensity = LOOK.table.envIntensity
   }
   return m
+}
+
+/**
+ * A band through rings of points (`Kit.band`): one column of vertices per
+ * point and one more to close the seam, `u` running `repeats` times round and
+ * `v` down the strip as `at` says. Normals are the surface's own.
+ */
+export function bandGeometry(rings: readonly (readonly V3[])[], at: readonly number[], repeats: number): BufferGeometry {
+  const m = rings.length
+  const n = Math.min(...rings.map((r) => r.length))
+  const pos: number[] = []
+  const uv: number[] = []
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j < m; j++) {
+      const p = rings[j][i % n]
+      pos.push(p[0], p[1], p[2])
+      // The strip's top row is the image's top, which is `v` 1.
+      uv.push((i / n) * repeats, 1 - at[j])
+    }
+  }
+  const idx: number[] = []
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m - 1; j++) {
+      const a = i * m + j
+      const b = (i + 1) * m + j
+      idx.push(a, b, a + 1, b, b + 1, a + 1)
+    }
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
 }
 
 /**
