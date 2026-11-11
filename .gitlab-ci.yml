@@ -447,19 +447,27 @@ e2e_test:
       # top level stays the old owner's until the other environment has moved
       # too, so an old server still running there can still write its snapshot.
       rollout() {
-        local snaps="${DATA_DIR}/snapshots/${DEPLOY_ENV}"
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml stop server
         # What the drain did, in the job log: the old container's last lines
         # ("snapshot written", "no match in flight", or why it could not write)
         # are lost the moment `up` recreates it. Addresses are truncated and
         # tokens are never logged, so these lines are safe to print here.
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml logs --no-log-prefix --tail 25 server || true
-        mkdir -p "${snaps}"
-        if [ -f "${DATA_DIR}/snapshots/snapshot.json" ] && [ ! -e "${snaps}/snapshot.json" ]; then
-          mv "${DATA_DIR}/snapshots/snapshot.json" "${snaps}/snapshot.json"
-        fi
-        chown -R 65532:65532 "${snaps}"
-        chmod 700 "${snaps}"
+        # Through the Docker daemon, never this job's own filesystem: the bind
+        # mount is resolved on the host, and a chown run here lands on the job
+        # container's copy of the path. The server then found a root-owned
+        # directory dockerd had made for the mount and every snapshot failed
+        # with EACCES (seen on loco-d). The job's own image is already on the
+        # host and carries a shell.
+        docker run --rm -e ENV="${DEPLOY_ENV}" -v "${DATA_DIR}/snapshots:/s" docker:29 sh -ec '
+          mkdir -p "/s/$ENV"
+          if [ -f /s/snapshot.json ] && [ ! -e "/s/$ENV/snapshot.json" ]; then
+            mv /s/snapshot.json "/s/$ENV/snapshot.json"
+          fi
+          chown -R 65532:65532 "/s/$ENV"
+          chmod 700 "/s/$ENV"
+          ls -ldn "/s/$ENV"
+        '
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait server
         # And what the new one made of it ("snapshot restored", or why not).
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml logs --no-log-prefix server | grep -i snapshot || true

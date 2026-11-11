@@ -382,7 +382,13 @@ package manager, no `wget`. Three things follow from it:
 
 **Ownership is the deploy's job, and it is done in `rollout()`, between the two halves of the
 swap**: `docker compose stop server`, then `chown -R 65532:65532 ${DATA_DIR}/snapshots/${DEPLOY_ENV}`
-and `chmod 700`, then `up -d --wait server`.
+and `chmod 700`, then `up -d --wait server`. **The chown runs in a throwaway container
+(`docker run -v ${DATA_DIR}/snapshots:/s docker:29 …`), never in the job's own shell**: the bind
+mount is resolved on the host, and a chown run in the job lands on the job container's copy of the
+path. That is how the first Rust deploys to loco-d found a root-owned directory dockerd had made for
+the mount and logged `snapshot write failed … Permission denied`. The deploy log prints the old
+server's last lines after the stop and the new one's `snapshot` lines after the start, so the
+outcome of every drain is on the job.
 
 **Each environment has its own snapshot directory** (`${DATA_DIR}/snapshots/dev`, `…/prod`). Dev and
 prod share `DATA_DIR`, and with one directory they shared one file: a dev deploy could restore
@@ -396,8 +402,8 @@ directory, and a chown that is not recursive leaves the file it wrote unreadable
 process. Either way the matches in flight are lost, and the deploy that replaced the old image was
 exactly the one where they would have been. `.defaults` only creates the directory now.
 
-**No manual action is needed on the host** as long as the deploy job can chown under `DATA_DIR`,
-which it already did for the old server's uid. If a host is ever brought up by hand instead, the one-time
+**No manual action is needed on the host** as long as the deploy job can reach the Docker
+daemon, which it needs anyway to deploy. If a host is ever brought up by hand instead, the one-time
 equivalent is:
 
 ```sh
