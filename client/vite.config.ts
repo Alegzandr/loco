@@ -61,7 +61,7 @@ export default defineConfig({
       // router on a prerendered page — is hashed rather than refused. SvelteKit
       // puts that hash in a `<meta http-equiv>` per page, which on its own would
       // not loosen the header policy nginx sends (both are enforced), so
-      // `tools/csp/hashes.mjs` reads the same hashes out of the built HTML into
+      // `scripts/csp-hashes.mjs` reads the same hashes out of the built HTML into
       // `client/csp-hashes.conf`, which security-headers.conf includes. The
       // header and the meta therefore allow exactly the same scripts.
       csp: {

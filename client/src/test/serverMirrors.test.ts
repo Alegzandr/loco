@@ -16,112 +16,131 @@
  * So each test below pins the copy to the source, the same way
  * `contentPages.test.ts` pins the deck table to `server/crates/loco-game/src/deck.rs`.
  */
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-import { describe, it, expect } from 'vitest'
-import { TABLE_CODE_CHARS, TABLE_CODE_LENGTH, isTableCodeValid } from '../game/tableCodeRules'
-import { NICKNAME_MAX_CHARS, isNicknameShapeValid } from '../game/nicknameRules'
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, it, expect } from "vitest";
+import {
+  TABLE_CODE_CHARS,
+  TABLE_CODE_LENGTH,
+  isTableCodeValid,
+} from "../game/tableCodeRules";
+import {
+  NICKNAME_MAX_CHARS,
+  isNicknameShapeValid,
+} from "../game/nicknameRules";
 import {
   CATCH_LATE_GRACE_MS,
   CATCH_LIVE_MAX_HAND,
   CATCH_NEAR_GRACE_MS,
-} from '../game/catchAvailability'
+} from "../game/catchAvailability";
 
 import {
   REPO,
   readServer,
-  serverCodeAlphabet,
+  serverGeneratorUsesRule,
   serverDurationMs,
   serverInt,
   serverLabel,
   serverRoomCodeRule,
-} from './serverSource'
+} from "./serverSource";
 
-describe('the table code, against the server', () => {
-  // hub.roomCodeRe is what join_room is validated against.
-  it('is refused by the same regex the server holds', () => {
-    const rule = serverRoomCodeRule()
-    expect(rule, `the room code rule not found in ${serverLabel('hub', 'rooms')}`).toBeTruthy()
-    expect(rule!.chars).toBe(TABLE_CODE_CHARS)
-    expect(rule!.length).toBe(TABLE_CODE_LENGTH)
-  })
+describe("the table code, against the server", () => {
+  // `join_room` validates against this rule and `generate_code` draws from it:
+  // one spelling server-side, so the mirror is pinned to one place.
+  it("is the rule the server validates and draws codes from", () => {
+    const rule = serverRoomCodeRule();
+    expect(
+      rule,
+      `the room code rule not found in ${serverLabel("hub", "tokens")}`,
+    ).toBeTruthy();
+    expect(rule!.chars).toBe(TABLE_CODE_CHARS);
+    expect(rule!.length).toBe(TABLE_CODE_LENGTH);
+  });
 
-  // hub.generateCode is what a code is actually drawn from. It is a second copy
-  // of the same alphabet server-side, so it is pinned here too: a code the
-  // server can produce and its own regex would refuse is a table nobody joins.
-  it('is drawn from that same alphabet', () => {
-    // Scoped to generateCode's own body (see serverCodeAlphabet): the session
-    // token in the same file draws its own bytes.
-    const drawn = serverCodeAlphabet()
-    expect(drawn, `the code alphabet was not found in ${serverLabel('hub', 'tokens')}`).toBeTruthy()
-    expect(drawn!.chars).toBe(TABLE_CODE_CHARS)
-    expect(drawn!.length).toBe(TABLE_CODE_LENGTH)
-  })
+  // A generator with its own copy of the alphabet could draw a code the
+  // validator refuses: a table nobody can join.
+  it("is the alphabet the generator draws from, not a copy", () => {
+    expect(
+      serverGeneratorUsesRule(),
+      "generate_code must draw from ROOM_CODE_CHARS / ROOM_CODE_LEN",
+    ).toBe(true);
+  });
 
   // The four characters are dropped because a code is read out loud off a
   // stream. Asserted as behaviour and not only as a string, so a well-meant
   // "completion" of the alphabet fails here rather than on air.
-  it('drops the four characters a listener cannot tell apart', () => {
-    for (const ch of ['I', 'O', '0', '1']) {
-      expect(TABLE_CODE_CHARS.includes(ch), `${ch} must stay out of the alphabet`).toBe(false)
+  it("drops the four characters a listener cannot tell apart", () => {
+    for (const ch of ["I", "O", "0", "1"]) {
+      expect(
+        TABLE_CODE_CHARS.includes(ch),
+        `${ch} must stay out of the alphabet`,
+      ).toBe(false);
     }
-    expect(isTableCodeValid('ABCDE0')).toBe(false)
-    expect(isTableCodeValid('ABCDEF')).toBe(true)
-  })
-})
+    expect(isTableCodeValid("ABCDE0")).toBe(false);
+    expect(isTableCodeValid("ABCDEF")).toBe(true);
+  });
+});
 
-describe('the nickname, against the server', () => {
-  const nickname = readServer('game', 'nickname')
+describe("the nickname, against the server", () => {
+  const nickname = readServer("game", "nickname");
 
-  it('is capped at the same number of characters', () => {
-    const max = serverInt(nickname, 'NICKNAME_MAX_RUNES')
-    expect(Number.isInteger(max), `NICKNAME_MAX_RUNES not found in ${serverLabel('game', 'nickname')}`).toBe(true)
-    expect(max).toBe(NICKNAME_MAX_CHARS)
-  })
+  it("is capped at the same number of characters", () => {
+    const max = serverInt(nickname, "NICKNAME_MAX_RUNES");
+    expect(
+      Number.isInteger(max),
+      `NICKNAME_MAX_RUNES not found in ${serverLabel("game", "nickname")}`,
+    ).toBe(true);
+    expect(max).toBe(NICKNAME_MAX_CHARS);
+  });
 
   // The client is allowed to be looser than the server (the word list is not
   // shipped, and a blocked term comes back as an ordinary refusal). It is never
   // allowed to be stricter: these are the names the server seats, and a lobby
   // that greys out "Take a seat" for one of them is a wall with no message on
   // it. Scunthorpe cases belong here the day the server gains a rule for them.
-  it('lets through every name the server would seat', () => {
+  it("lets through every name the server would seat", () => {
     const seated = [
-      'Alexandre',
-      'Constance',
-      'Dominique',
+      "Alexandre",
+      "Constance",
+      "Dominique",
       "O'Brien",
-      'Anne-Marie',
-      'Mr. Bean',
-      'Étienne',
-      'Ζωή',
-      'Иван',
-      'P1',
-      'a',
-      'A'.repeat(NICKNAME_MAX_CHARS),
-    ]
+      "Anne-Marie",
+      "Mr. Bean",
+      "Étienne",
+      "Ζωή",
+      "Иван",
+      "P1",
+      "a",
+      "A".repeat(NICKNAME_MAX_CHARS),
+    ];
     for (const name of seated) {
-      expect(isNicknameShapeValid(name), `${name} must keep playing`).toBe(true)
+      expect(isNicknameShapeValid(name), `${name} must keep playing`).toBe(
+        true,
+      );
     }
-  })
+  });
 
-  it('refuses the shapes the server refuses', () => {
+  it("refuses the shapes the server refuses", () => {
     const refused = [
-      '',
-      ' ',
-      'A'.repeat(NICKNAME_MAX_CHARS + 1),
-      '---',
-      'a​b', // zero width space
-      'a‮b', // bidi override
-      'é́́', // a stack of combining marks
-      '́a', // a mark with nothing to modify
-      '🎉',
-      '<b>',
-    ]
+      "",
+      " ",
+      "A".repeat(NICKNAME_MAX_CHARS + 1),
+      "---",
+      "a​b", // zero width space
+      "a‮b", // bidi override
+      "é́́", // a stack of combining marks
+      "́a", // a mark with nothing to modify
+      "🎉",
+      "<b>",
+    ];
     for (const name of refused) {
-      expect(isNicknameShapeValid(name), `${JSON.stringify(name)} must be refused`).toBe(false)
+      expect(
+        isNicknameShapeValid(name),
+        `${JSON.stringify(name)} must be refused`,
+      ).toBe(false);
     }
-  })
-})
+  });
+});
 
 /**
  * The third mirror, and the one that costs a card when it drifts.
@@ -135,57 +154,76 @@ describe('the nickname, against the server', () => {
  * Both drift silently. Neither is visible in a screenshot, and neither fails
  * anything else in this suite.
  */
-describe('the catch offer, against the server', () => {
-  const room = readServer('game', 'room')
+describe("the catch offer, against the server", () => {
+  const room = readServer("game", "room");
 
-  it('opens on the same hand size the server does', () => {
-    const near = serverInt(room, 'CATCH_NEAR_HAND')
-    expect(Number.isInteger(near), `CATCH_NEAR_HAND not found in ${serverLabel('game', 'room')}`).toBe(true)
-    expect(near).toBe(CATCH_LIVE_MAX_HAND)
-  })
+  it("opens on the same hand size the server does", () => {
+    const near = serverInt(room, "CATCH_NEAR_HAND");
+    expect(
+      Number.isInteger(near),
+      `CATCH_NEAR_HAND not found in ${serverLabel("game", "room")}`,
+    ).toBe(true);
+    expect(near).toBe(CATCH_LIVE_MAX_HAND);
+  });
 
   // The late half of the wager, and the one relationship that matters: the
   // button may not be live where the server charges nothing (a press that does
   // nothing at all), and the room it leaves under that ceiling is the round trip
   // the last late press still has to make. Equal would put a press made on the
   // final live frame outside the server's window by exactly one network hop.
-  it('offers the late press inside the window the server still charges for', () => {
-    const ms = serverDurationMs(room, 'CATCH_GRACE_MS')
-    expect(Number.isInteger(ms), `CATCH_GRACE_MS not found in ${serverLabel('game', 'room')}`).toBe(true)
-    expect(CATCH_LATE_GRACE_MS).toBeGreaterThan(0)
-    expect(CATCH_LATE_GRACE_MS).toBeLessThan(ms)
-  })
+  it("offers the late press inside the window the server still charges for", () => {
+    const ms = serverDurationMs(room, "CATCH_GRACE_MS");
+    expect(
+      Number.isInteger(ms),
+      `CATCH_GRACE_MS not found in ${serverLabel("game", "room")}`,
+    ).toBe(true);
+    expect(CATCH_LATE_GRACE_MS).toBeGreaterThan(0);
+    expect(CATCH_LATE_GRACE_MS).toBeLessThan(ms);
+  });
 
   // Same relationship for the two-card picture's late half: the button's near
   // grace sits under the server's by a round trip.
-  it('offers the spasm after a draw out of two inside the window the server charges for', () => {
-    const ms = serverDurationMs(room, 'CATCH_NEAR_GRACE_MS')
-    expect(Number.isInteger(ms), `CATCH_NEAR_GRACE_MS not found in ${serverLabel('game', 'room')}`).toBe(true)
-    expect(CATCH_NEAR_GRACE_MS).toBeGreaterThan(0)
-    expect(CATCH_NEAR_GRACE_MS).toBeLessThan(ms)
-  })
-})
+  it("offers the spasm after a draw out of two inside the window the server charges for", () => {
+    const ms = serverDurationMs(room, "CATCH_NEAR_GRACE_MS");
+    expect(
+      Number.isInteger(ms),
+      `CATCH_NEAR_GRACE_MS not found in ${serverLabel("game", "room")}`,
+    ).toBe(true);
+    expect(CATCH_NEAR_GRACE_MS).toBeGreaterThan(0);
+    expect(CATCH_NEAR_GRACE_MS).toBeLessThan(ms);
+  });
+});
 
 // WaitingRoom.svelte's seat field refuses anything outside MIN_PLAYERS..MAX_PLAYERS
 // without asking. Read off the component's source, because the constants live
 // in a `<script>` block nothing can import.
-describe('the seat count, against the server', () => {
-  const room = readServer('game', 'room')
-  const waiting = readFileSync(path.join(REPO, 'client', 'src', 'components', 'WaitingRoom.svelte'), 'utf8').replace(/\r\n/g, '\n')
-  const serverConst = (name: string) => serverInt(room, name)
-  const svelteConst = (name: string) => Number(waiting.match(new RegExp(`const ${name} = (\\d+)`))?.[1])
+describe("the seat count, against the server", () => {
+  const room = readServer("game", "room");
+  const waiting = readFileSync(
+    path.join(REPO, "client", "src", "components", "WaitingRoom.svelte"),
+    "utf8",
+  ).replace(/\r\n/g, "\n");
+  const serverConst = (name: string) => serverInt(room, name);
+  const svelteConst = (name: string) =>
+    Number(waiting.match(new RegExp(`const ${name} = (\\d+)`))?.[1]);
 
-  it('offers exactly the range the server accepts', () => {
+  it("offers exactly the range the server accepts", () => {
     // NaN equals NaN under toBe, so a constant that moved is caught here first.
-    for (const n of [serverConst('SERVER_MIN_PLAYERS'), serverConst('SERVER_MAX_PLAYERS')]) {
-      expect(Number.isInteger(n), `constant not found in ${serverLabel('game', 'room')}`).toBe(true)
+    for (const n of [
+      serverConst("SERVER_MIN_PLAYERS"),
+      serverConst("SERVER_MAX_PLAYERS"),
+    ]) {
+      expect(
+        Number.isInteger(n),
+        `constant not found in ${serverLabel("game", "room")}`,
+      ).toBe(true);
     }
-    expect(svelteConst('MIN_PLAYERS')).toBe(serverConst('SERVER_MIN_PLAYERS'))
-    expect(svelteConst('MAX_PLAYERS')).toBe(serverConst('SERVER_MAX_PLAYERS'))
-  })
+    expect(svelteConst("MIN_PLAYERS")).toBe(serverConst("SERVER_MIN_PLAYERS"));
+    expect(svelteConst("MAX_PLAYERS")).toBe(serverConst("SERVER_MAX_PLAYERS"));
+  });
 
-  it('is seven at most, and a new table opens at the cap', () => {
-    expect(serverConst('SERVER_MAX_PLAYERS')).toBe(7)
-    expect(serverConst('DEFAULT_MAX_PLAYERS')).toBe(7)
-  })
-})
+  it("is seven at most, and a new table opens at the cap", () => {
+    expect(serverConst("SERVER_MAX_PLAYERS")).toBe(7);
+    expect(serverConst("DEFAULT_MAX_PLAYERS")).toBe(7);
+  });
+});

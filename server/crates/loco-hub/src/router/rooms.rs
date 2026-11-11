@@ -19,14 +19,9 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::time::Instant;
 
-/// The alphabet a table code is validated against on `join_room`. Read by
-/// `client/src/test/serverSource.ts`, which pins the client's mirror
-/// (`tableCodeRules.ts`) to it. The same 32 characters `tokens.rs` draws from.
-pub const ROOM_CODE_CHARS: &str = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-/// How many characters a table code has. Both are checked by
-/// [`RoomCode::parse`], the one door a typed code goes through.
-pub const ROOM_CODE_LEN: usize = 6;
+/// The table code's alphabet and length, checked by [`RoomCode::parse`], the
+/// one door a typed code goes through. Defined once, beside the generator.
+pub use crate::tokens::{ROOM_CODE_CHARS, ROOM_CODE_LEN};
 
 /// One network's recent tally of table codes that led nowhere.
 #[derive(Clone, Copy, Debug)]
@@ -559,8 +554,6 @@ mod tests {
 
     #[test]
     fn the_code_rule_is_the_generator_s() {
-        assert_eq!(ROOM_CODE_CHARS.as_bytes(), crate::tokens::ROOM_CODE_CHARS);
-        assert_eq!(ROOM_CODE_LEN, crate::tokens::ROOM_CODE_LEN);
         let valid = |s: &str| RoomCode::parse(s).is_ok();
         assert!(valid("abcdef"));
         assert!(valid("AB23CD"));

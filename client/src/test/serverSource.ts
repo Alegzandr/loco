@@ -13,28 +13,33 @@
  *
  * Framework-free and test-only: nothing outside `src/test/` imports it.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import path from 'node:path'
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 
-export const REPO = path.resolve(__dirname, '..', '..', '..')
+export const REPO = path.resolve(__dirname, "..", "..", "..");
 
 /** The two halves of the server a client copy is pinned to. */
-export type ServerPackage = 'game' | 'hub'
+export type ServerPackage = "game" | "hub";
 
-const CRATE: Record<ServerPackage, string> = { game: 'loco-game', hub: 'loco-hub' }
+const CRATE: Record<ServerPackage, string> = {
+  game: "loco-game",
+  hub: "loco-hub",
+};
 
 /** Every `.rs` file under `dir`, at any depth. */
 function rustFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
-    const abs = path.join(dir, name)
-    if (statSync(abs).isDirectory()) return rustFiles(abs)
-    return name.endsWith('.rs') ? [abs] : []
-  })
+    const abs = path.join(dir, name);
+    if (statSync(abs).isDirectory()) return rustFiles(abs);
+    return name.endsWith(".rs") ? [abs] : [];
+  });
 }
 
 /** A file's stem as a module path names it: `table/mod.rs` is `table`. */
 const stemOf = (file: string) =>
-  path.basename(file) === 'mod.rs' ? path.basename(path.dirname(file)) : path.basename(file, '.rs')
+  path.basename(file) === "mod.rs"
+    ? path.basename(path.dirname(file))
+    : path.basename(file, ".rs");
 
 /**
  * One file of the server, named by its package and its stem (`room`, `deck`).
@@ -43,44 +48,52 @@ const stemOf = (file: string) =>
  * that names no file, or two, fails here rather than reading the wrong one.
  */
 export function serverPath(pkg: ServerPackage, stem: string): string {
-  const src = path.join(REPO, 'server', 'crates', CRATE[pkg], 'src')
-  const found = rustFiles(src).filter((f) => stemOf(f) === stem)
+  const src = path.join(REPO, "server", "crates", CRATE[pkg], "src");
+  const found = rustFiles(src).filter((f) => stemOf(f) === stem);
   if (found.length !== 1) {
-    const where = found.map((f) => path.relative(REPO, f)).join(', ')
-    throw new Error(`${CRATE[pkg]} has ${found.length} files for the stem "${stem}"${where ? `: ${where}` : ''}`)
+    const where = found.map((f) => path.relative(REPO, f)).join(", ");
+    throw new Error(
+      `${CRATE[pkg]} has ${found.length} files for the stem "${stem}"${where ? `: ${where}` : ""}`,
+    );
   }
-  return found[0]
+  return found[0];
 }
 
 /** Repo-relative, for a failure message that says where to look. */
 export function serverLabel(pkg: ServerPackage, stem: string): string {
-  return path.relative(REPO, serverPath(pkg, stem)).replace(/\\/g, '/')
+  return path.relative(REPO, serverPath(pkg, stem)).replace(/\\/g, "/");
 }
 
 // A Windows checkout with core.autocrlf hands these files over in CRLF, and the
 // patterns below are written against LF, which is what CI checks out.
 export function readServer(pkg: ServerPackage, stem: string): string {
-  return readFileSync(serverPath(pkg, stem), 'utf8').replace(/\r\n/g, '\n')
+  return readFileSync(serverPath(pkg, stem), "utf8").replace(/\r\n/g, "\n");
 }
 
 const RUST_CONST = (name: string) =>
-  new RegExp(`const ${name}\\s*:\\s*[^=]+=\\s*([^;]+);`)
+  new RegExp(`const ${name}\\s*:\\s*[^=]+=\\s*([^;]+);`);
 
-const rustInt = (expr: string) => Number(expr.trim().replace(/_/g, '').replace(/(u|i)(8|16|32|64|size)$/, ''))
+const rustInt = (expr: string) =>
+  Number(
+    expr
+      .trim()
+      .replace(/_/g, "")
+      .replace(/(u|i)(8|16|32|64|size)$/, ""),
+  );
 
 /** An integer constant, or NaN when the source does not declare it. */
 export function serverInt(src: string, name: string): number {
-  const m = src.match(RUST_CONST(name))
-  return m ? rustInt(m[1]) : NaN
+  const m = src.match(RUST_CONST(name));
+  return m ? rustInt(m[1]) : NaN;
 }
 
 /** A duration constant in milliseconds, or NaN when the source does not declare it. */
 export function serverDurationMs(src: string, name: string): number {
-  const m = src.match(RUST_CONST(name))
-  if (!m) return NaN
-  const d = m[1].match(/Duration::from_(secs|millis)\((\d[\d_]*)\)/)
+  const m = src.match(RUST_CONST(name));
+  if (!m) return NaN;
+  const d = m[1].match(/Duration::from_(secs|millis)\((\d[\d_]*)\)/);
   // A bare integer is a count of milliseconds, the domain's own unit.
-  return d ? rustInt(d[2]) * (d[1] === 'secs' ? 1000 : 1) : rustInt(m[1])
+  return d ? rustInt(d[2]) * (d[1] === "secs" ? 1000 : 1) : rustInt(m[1]);
 }
 
 /**
@@ -88,62 +101,63 @@ export function serverDurationMs(src: string, name: string): number {
  * (a method sits one level into its `impl`).
  */
 export function serverFn(src: string, name: string): string | undefined {
-  return new RegExp(`fn ${name}\\b[^]*?\\n(?: {4})?}`).exec(src)?.[0]
+  return new RegExp(`fn ${name}\\b[^]*?\\n(?: {4})?}`).exec(src)?.[0];
 }
 
-/** The table code's alphabet and length, as `join_room` validates it. */
-export function serverRoomCodeRule(): { chars: string; length: number } | undefined {
-  const src = readServer('hub', 'rooms')
-  const chars = src.match(/const ROOM_CODE_CHARS\s*:[^=]+=\s*b?"([^"]+)"/)?.[1]
-  const length = serverInt(src, 'ROOM_CODE_LEN')
-  return chars && Number.isInteger(length) ? { chars, length } : undefined
+/**
+ * The table code's alphabet and length: the one spelling in `tokens.rs`, which
+ * the generator draws from and `join_room` validates against.
+ */
+export function serverRoomCodeRule():
+  { chars: string; length: number } | undefined {
+  const src = readServer("hub", "tokens");
+  const chars = src.match(/const ROOM_CODE_CHARS\s*:[^=]+=\s*b?"([^"]+)"/)?.[1];
+  const length = serverInt(src, "ROOM_CODE_LEN");
+  return chars && Number.isInteger(length) ? { chars, length } : undefined;
 }
 
-/** The alphabet and length a table code is drawn from. */
-export function serverCodeAlphabet(): { chars: string; length: number } | undefined {
-  const src = readServer('hub', 'tokens')
-  // Scoped to the generator's own body: the session token in the same file
-  // draws its own bytes, and matching that one would pin the code's length to
-  // a number that has nothing to do with it.
-  const body = serverFn(src, 'generate_code')
-  if (!body) return undefined
-  const chars = body.match(/CHARS\s*:[^=]+=\s*b?"([^"]+)"/)?.[1]
-  const length = Number(body.match(/(?:0\.\.|take\()(\d+)/)?.[1])
-  return chars && Number.isInteger(length) ? { chars, length } : undefined
+/** Whether the generator draws from that rule rather than a copy of its own. */
+export function serverGeneratorUsesRule(): boolean {
+  const body = serverFn(readServer("hub", "tokens"), "generate_code") ?? "";
+  return body.includes("ROOM_CODE_CHARS") && body.includes("ROOM_CODE_LEN");
 }
 
 /** The deck builder's body. */
 export function serverDeckBody(): string | undefined {
-  return serverFn(readServer('game', 'deck'), 'standard')
+  return serverFn(readServer("game", "deck"), "standard");
 }
 
 /** The number cards' range, off the deck builder's loop. */
-export function serverNumberRange(body: string): { low: number; high: number } | undefined {
+export function serverNumberRange(
+  body: string,
+): { low: number; high: number } | undefined {
   // `for v in NUMBER_LOW..=NUMBER_HIGH`, the bounds declared beside the deck.
-  if (!/for v in NUMBER_LOW\.\.=NUMBER_HIGH/.test(body)) return undefined
-  const src = readServer('game', 'deck')
-  const low = serverInt(src, 'NUMBER_LOW')
-  const high = serverInt(src, 'NUMBER_HIGH')
-  return Number.isInteger(low) && Number.isInteger(high) ? { low, high } : undefined
+  if (!/for v in NUMBER_LOW\.\.=NUMBER_HIGH/.test(body)) return undefined;
+  const src = readServer("game", "deck");
+  const low = serverInt(src, "NUMBER_LOW");
+  const high = serverInt(src, "NUMBER_HIGH");
+  return Number.isInteger(low) && Number.isInteger(high)
+    ? { low, high }
+    : undefined;
 }
 
 /** How many times the deck builder appends a card of this domain kind. */
 export function serverKindAppends(body: string, kind: string): number {
-  return (body.match(new RegExp(`kind: Kind::${kind}\\b`, 'g')) ?? []).length
+  return (body.match(new RegExp(`kind: Kind::${kind}\\b`, "g")) ?? []).length;
 }
 
 /** The points `card_value` gives a domain kind, or undefined when it has no case. */
 export function serverCardValue(kind: string): number | undefined {
-  const fn = serverFn(readServer('game', 'card'), 'card_value')
-  if (!fn) return undefined
-  const m = new RegExp(`Kind::${kind}\\b[^=\\n]*=>\\s*(\\d+)`).exec(fn)
-  return m ? Number(m[1]) : undefined
+  const fn = serverFn(readServer("game", "card"), "card_value");
+  if (!fn) return undefined;
+  const m = new RegExp(`Kind::${kind}\\b[^=\\n]*=>\\s*(\\d+)`).exec(fn);
+  return m ? Number(m[1]) : undefined;
 }
 
 /** Whether `card_value` scores a number card at its face value. */
 export function serverNumberScoresFace(): boolean {
-  const fn = serverFn(readServer('game', 'card'), 'card_value') ?? ''
-  return /Kind::Number => c\.value/.test(fn)
+  const fn = serverFn(readServer("game", "card"), "card_value") ?? "";
+  return /Kind::Number => c\.value/.test(fn);
 }
 
 /**
@@ -151,35 +165,45 @@ export function serverNumberScoresFace(): boolean {
  * names them: `const MAP_IDS: [MapId; 6] = [MapId::Neon, ...]` + the `as_str`
  * match arm `MapId::Neon => "neon",`.
  */
-export function serverMapList(src: string, listName: string): string[] | undefined {
-  const list = src.match(new RegExp(`const ${listName}\\s*:[^=]+=\\s*\\[([^\\]]+)\\]`))
-  if (!list) return undefined
+export function serverMapList(
+  src: string,
+  listName: string,
+): string[] | undefined {
+  const list = src.match(
+    new RegExp(`const ${listName}\\s*:[^=]+=\\s*\\[([^\\]]+)\\]`),
+  );
+  if (!list) return undefined;
   return list[1]
-    .split(',')
+    .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((v) => rustWire(src, v))
+    .map((v) => rustWire(src, v));
 }
 
 /** `MapId::Neon` -> `"neon"`, off the `as_str` match arm that spells it. */
 function rustWire(src: string, path: string): string {
-  const variant = path.trim().replace(/^\w+::/, '')
-  return src.match(new RegExp(`\\b${variant}\\s*(?:=>|=)\\s*"([a-z_]+)"`))?.[1] ?? `<${variant} has no value>`
+  const variant = path.trim().replace(/^\w+::/, "");
+  return (
+    src.match(new RegExp(`\\b${variant}\\s*(?:=>|=)\\s*"([a-z_]+)"`))?.[1] ??
+    `<${variant} has no value>`
+  );
 }
 
 /** Every map's allowed weathers, id -> weathers. */
-export function serverMapWeathers(src: string): Record<string, string[]> | undefined {
-  const out: Record<string, string[]> = {}
+export function serverMapWeathers(
+  src: string,
+): Record<string, string[]> | undefined {
+  const out: Record<string, string[]> = {};
   // `const MAP_WEATHERS: [(MapId, &[Weather]); 6] = [(MapId::Neon, &[Weather::Clear, ...]), ...];`
-  const block = src.match(/const MAP_WEATHERS\s*:[^=]+=\s*\[([\s\S]+?)\n\];/)
-  if (!block) return undefined
+  const block = src.match(/const MAP_WEATHERS\s*:[^=]+=\s*\[([\s\S]+?)\n\];/);
+  if (!block) return undefined;
   for (const m of block[1].matchAll(/\(\s*(\w+::\w+),\s*&\[([^\]]+)\]/g)) {
     out[rustWire(src, m[1])] = m[2]
-      .split(',')
+      .split(",")
       .filter((w) => w.trim())
-      .map((w) => rustWire(src, w))
+      .map((w) => rustWire(src, w));
   }
-  return out
+  return out;
 }
 
 /**
@@ -187,15 +211,22 @@ export function serverMapWeathers(src: string): Record<string, string[]> | undef
  * read a peer's address (the truncation itself).
  */
 export function serverHubSources(): { file: string; src: string }[] {
-  const dir = path.join(REPO, 'server', 'crates', 'loco-hub', 'src')
+  const dir = path.join(REPO, "server", "crates", "loco-hub", "src");
   const files = rustFiles(dir)
-    .map((abs) => path.relative(dir, abs).replace(/\\/g, '/'))
-    .filter((f) => !f.startsWith('internal_tests/') && path.basename(f) !== 'privacy.rs')
+    .map((abs) => path.relative(dir, abs).replace(/\\/g, "/"))
+    .filter(
+      (f) =>
+        !f.startsWith("internal_tests/") && path.basename(f) !== "privacy.rs",
+    );
   // An empty list would let every scan over it pass, so the walk has to reach
   // at least one module inside a group directory.
-  if (!files.includes('table/mod.rs')) throw new Error(`the hub's sources were not found under ${dir}`)
-  return files.map((f) => ({ file: f, src: readFileSync(path.join(dir, f), 'utf8') }))
+  if (!files.includes("table/mod.rs"))
+    throw new Error(`the hub's sources were not found under ${dir}`);
+  return files.map((f) => ({
+    file: f,
+    src: readFileSync(path.join(dir, f), "utf8"),
+  }));
 }
 
 /** A read of the peer's full address: `remote_addr` / `peer_addr()`. */
-export const FULL_ADDRESS_READ: RegExp = /\bremote_addr\b|\bpeer_addr\(\)/
+export const FULL_ADDRESS_READ: RegExp = /\bremote_addr\b|\bpeer_addr\(\)/;

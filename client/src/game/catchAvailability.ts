@@ -23,7 +23,7 @@ import type { PlayerDTO } from '../types/protocol'
  * deciding to do. Offering the wager only while it is one card from paying off
  * is what keeps it a spasm and not a plan.
  *
- * Mirrored by the server's `catchNearHand`, which refuses to charge a press
+ * Mirrored by the server's `CATCH_NEAR_HAND`, which refuses to charge a press
  * against a table where nothing is offered — so this is the shape of the
  * offer, not a client-side courtesy.
  */
@@ -49,14 +49,14 @@ export const CATCH_LIVE_MAX_HAND = 2
  * a beat you can miss by, short enough that it is still the same gesture and not
  * a second chance.
  *
- * **It is deliberately shorter than the server's own `catchGrace` (3s), and the
+ * **It is deliberately shorter than the server's own `CATCH_GRACE_MS` (3s), and the
  * difference is the wire.** The server charges any call that arrives inside
  * three seconds of a window; the button offers one for two. A press made on the
  * last frame it is live therefore has a whole second to cross the network and
  * still be charged — which is the point, because a press the player made and the
  * server dropped in silence is the same failure as a button that greys out
  * under their thumb: they were allowed to be late, and nothing happened. Longer
- * than `catchGrace` would be the other failure, a live button over a wager the
+ * than `CATCH_GRACE_MS` would be the other failure, a live button over a wager the
  * server answers with nothing. `serverMirrors.test.ts` pins the inequality.
  */
 export const CATCH_LATE_GRACE_MS = 2000
@@ -71,7 +71,7 @@ export const CATCH_LATE_GRACE_MS = 2000
  * failure as the window's, so the same answer, much shorter: a spasm's worth
  * of lateness, not a second chance at a picture that has gone.
  *
- * **Shorter than the server's `catchNearGrace` (2.5s), and the difference is
+ * **Shorter than the server's `CATCH_NEAR_GRACE_MS` (2.5s), and the difference is
  * the wire**, exactly as with CATCH_LATE_GRACE_MS. `serverMirrors.test.ts`
  * pins the inequality.
  */

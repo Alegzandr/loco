@@ -66,34 +66,12 @@ const OUTSIDE_THE_REPO = new Set([
   // Named in order to say the build deliberately has none of them.
   'index.html',
   'vite.config.ts',
-  'main.tsx',
   '.visual', // where `make visual` writes its contact sheets
-  // Astro's dev lock, inside a directory `SKIP` walks past. It exists only while
-  // a dev server does, and the note that names it names it in order to say the
-  // client command deletes it on every boot.
-  '.astro/dev.json',
   'xx.ts', // the placeholder in "add a language: create xx.ts"
   // The CC0 kits `make models` packs from. Git ignores the whole directory: it
   // is an input the maintainer unpacks by hand, and the docs name it in order
   // to say where to put them.
   '.assets-in/unpacked',
-  // Retired by the move to SvelteKit and named by the notes in order to say what
-  // replaced them — the history of a rule is half its reasoning. A file listed
-  // here that comes back into the tree is fine; one the docs name that is in
-  // neither place is still a failure.
-  'src/entry.ts',
-  'entry.ts',
-  'src/langSwap.ts',
-  'langSwap.ts',
-  'src/homeSheet.ts',
-  'homeSheet.ts',
-  'content/page-boot.ts',
-  'page-boot.ts',
-  'content/navMenu.ts',
-  'navMenu.ts',
-  'homeLangSwap.test.ts',
-  'GamePage.svelte',
-  'ContentPage.svelte',
   // Named in order to say the boot is deliberately not there.
   'hooks.client.ts',
 ])

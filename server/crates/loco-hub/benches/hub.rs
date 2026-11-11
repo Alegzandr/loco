@@ -23,7 +23,7 @@ fn benches(c: &mut Criterion) {
     c.bench_function("log line through the async sink", |b| {
         b.iter(|| {
             log.write_line(black_box(
-                b"2026/11/10 12:00:00 card played code=ABCDEF seat=1\n",
+                b"2026-11-10T12:00:00Z card played code=ABCDEF seat=1\n",
             ))
         })
     });
