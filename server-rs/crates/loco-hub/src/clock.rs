@@ -7,6 +7,11 @@
 //! a test advances one and not the other: a catch window that has expired by
 //! the domain's reckoning would still be open by the deadline's. So the unix
 //! time is derived from the tokio clock, anchored once per process.
+//!
+//! The anchor keeps the wall clock to the nanosecond. Rounding it down to the
+//! millisecond put every derived reading up to a millisecond behind the wall
+//! clock for the life of the process, so a `server_now` could be stamped
+//! *earlier* than the moment its request was sent.
 
 use loco_game::Millis;
 use std::sync::OnceLock;
@@ -15,7 +20,32 @@ use tokio::time::Instant;
 
 struct Anchor {
     at: std::time::Instant,
-    unix_ms: i64,
+    /// The wall clock at `at`, since the unix epoch, unrounded.
+    wall: Duration,
+}
+
+impl Anchor {
+    /// The wall clock at `i`, since the unix epoch.
+    fn wall_at(&self, i: std::time::Instant) -> Duration {
+        if i >= self.at {
+            self.wall + i.duration_since(self.at)
+        } else {
+            self.wall.saturating_sub(self.at.duration_since(i))
+        }
+    }
+
+    fn ms_of(&self, i: std::time::Instant) -> Millis {
+        self.wall_at(i).as_millis() as Millis
+    }
+
+    fn instant_of(&self, ms: Millis) -> std::time::Instant {
+        let target = Duration::from_millis(ms.max(0) as u64);
+        if target >= self.wall {
+            self.at + (target - self.wall)
+        } else {
+            self.at.checked_sub(self.wall - target).unwrap_or(self.at)
+        }
+    }
 }
 
 static ANCHOR: OnceLock<Anchor> = OnceLock::new();
@@ -23,22 +53,15 @@ static ANCHOR: OnceLock<Anchor> = OnceLock::new();
 fn anchor() -> &'static Anchor {
     ANCHOR.get_or_init(|| Anchor {
         at: std::time::Instant::now(),
-        unix_ms: SystemTime::now()
+        wall: SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0),
+            .unwrap_or_default(),
     })
 }
 
 /// The unix milliseconds of a tokio instant.
 pub fn ms_of(i: Instant) -> Millis {
-    let a = anchor();
-    let i = i.into_std();
-    if i >= a.at {
-        a.unix_ms + i.duration_since(a.at).as_millis() as i64
-    } else {
-        a.unix_ms - a.at.duration_since(i).as_millis() as i64
-    }
+    anchor().ms_of(i.into_std())
 }
 
 /// Now, in unix milliseconds, on the tokio clock.
@@ -48,15 +71,7 @@ pub fn now_ms() -> Millis {
 
 /// The tokio instant a unix millisecond falls on.
 pub fn instant_of(ms: Millis) -> Instant {
-    let a = anchor();
-    let at = Instant::from_std(a.at);
-    let delta = ms - a.unix_ms;
-    if delta >= 0 {
-        at + Duration::from_millis(delta as u64)
-    } else {
-        at.checked_sub(Duration::from_millis(delta.unsigned_abs()))
-            .unwrap_or(at)
-    }
+    Instant::from_std(anchor().instant_of(ms))
 }
 
 /// Now as a wall-clock value, for what travels in the snapshot.
@@ -65,14 +80,7 @@ pub fn instant_of(ms: Millis) -> Instant {
 /// of two of these, and a played match must never measure zero (zero is
 /// "cannot say" on the wire).
 pub fn system_now() -> SystemTime {
-    let a = anchor();
-    let now = Instant::now().into_std();
-    let base = UNIX_EPOCH + Duration::from_millis(a.unix_ms.max(0) as u64);
-    if now >= a.at {
-        base + now.duration_since(a.at)
-    } else {
-        base.checked_sub(a.at.duration_since(now)).unwrap_or(base)
-    }
+    UNIX_EPOCH + anchor().wall_at(Instant::now().into_std())
 }
 
 /// A wall-clock value as unix milliseconds.
@@ -94,5 +102,23 @@ mod tests {
         assert!((4999..=5001).contains(&moved), "{moved}");
         let at = instant_of(before + 2500);
         assert_eq!(ms_of(at), before + 2500);
+    }
+
+    // The anchor is taken at 1000.9 ms past the epoch and read 0.5 ms later:
+    // the wall clock then says 1001.4 ms, so the millisecond is 1001. Rounding
+    // the anchor down first read 1000 — a server_now earlier than the request
+    // it answered, about one message in three under load.
+    #[test]
+    fn a_reading_is_never_behind_the_wall_clock_it_was_anchored_on() {
+        let a = Anchor {
+            at: std::time::Instant::now(),
+            wall: Duration::from_micros(1_000_900),
+        };
+        assert_eq!(a.ms_of(a.at + Duration::from_micros(500)), 1001);
+        assert_eq!(a.ms_of(a.at), 1000);
+        // And a deadline on the wire lands back on the millisecond it named.
+        for ms in [999, 1000, 1001, 5000] {
+            assert_eq!(a.ms_of(a.instant_of(ms)), ms, "{ms}");
+        }
     }
 }
