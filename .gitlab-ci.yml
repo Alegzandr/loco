@@ -434,10 +434,24 @@ e2e_test:
       # 0700 because the file carries session tokens and every hand in every
       # match a deploy interrupted, and it lives on a host path an operator can
       # list.
+      #
+      # Each environment has its own directory under ${DATA_DIR}/snapshots
+      # (deploy/compose.yml says why). The Go server wrote straight into
+      # ${DATA_DIR}/snapshots, so the first deploy of an environment after the
+      # split finds the file its old server just wrote at the top level and
+      # moves it into that environment's own directory before the new server
+      # starts. Only the environment's own directory is handed to 65532: the
+      # top level stays the old owner's until the other environment has moved
+      # too, so a Go server still running there can still write its snapshot.
       rollout() {
+        local snaps="${DATA_DIR}/snapshots/${DEPLOY_ENV}"
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml stop server
-        chown -R 65532:65532 "${DATA_DIR}/snapshots"
-        chmod 700 "${DATA_DIR}/snapshots"
+        mkdir -p "${snaps}"
+        if [ -f "${DATA_DIR}/snapshots/snapshot.json" ] && [ ! -e "${snaps}/snapshot.json" ]; then
+          mv "${DATA_DIR}/snapshots/snapshot.json" "${snaps}/snapshot.json"
+        fi
+        chown -R 65532:65532 "${snaps}"
+        chmod 700 "${snaps}"
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait server
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait client
       }

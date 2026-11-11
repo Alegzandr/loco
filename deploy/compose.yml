@@ -37,7 +37,12 @@ services:
       # rather than a volume so an operator can see, and delete, exactly one
       # file. See server/crates/loco-hub/src/snapshot.rs. Owned by uid 65532,
       # which the deploy's rollout sets (.gitlab-ci.yml).
-      - ${DATA_DIR}/snapshots:/data
+      #
+      # One directory per environment. Dev and prod share DATA_DIR, and with
+      # one directory they shared one file: a dev deploy could restore prod's
+      # matches into the dev server, deleting the file as it did, and prod's
+      # next start would find nothing.
+      - ${DATA_DIR}/snapshots/${DEPLOY_ENV}:/data
     # The image is distroless (no shell, no wget), so the binary checks
     # itself: `loco-server healthcheck` asks /health on loopback, exit 0 or 1.
     healthcheck:

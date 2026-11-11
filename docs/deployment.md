@@ -349,7 +349,7 @@ Three deliberate limits:
 | Piece | Why it matters |
 |---|---|
 | `stop_grace_period` on the `server` service | The single most important line. Docker's default is SIGTERM, wait 10 s, SIGKILL, and a SIGKILL lands in the middle of all of the above. Left at the default, none of this exists. Kept above `LOCO_DRAIN_TIMEOUT` so the snapshot write always fits inside it. |
-| `${DATA_DIR}/snapshots:/data` bind mount | Where the snapshot survives the container. A path rather than a named volume so an operator can see, and delete, exactly one file. |
+| `${DATA_DIR}/snapshots/${DEPLOY_ENV}:/data` bind mount | Where the snapshot survives the container. A path rather than a named volume so an operator can see, and delete, exactly one file; one directory per environment, because dev and prod share `DATA_DIR`. |
 | `rollout()` does **server first, client second** | Recreating the server is the slow half, and for as long as it drains the players in a match are talking to the *old* process. Serving them the new bundle during that window would pair a fresh client with a server one version behind for the whole drain. Doing the client afterwards narrows the mismatch to the seconds between the two commands. |
 | One drain policy, in `deploy/app.env` | `90s` / `150s` in both environments, no per-job switch. The wait a deploy can incur is now a constant, not a question about the tables that happen to be up, so `deploy_dev`, `deploy_prod` and `stop_dev` all carry `timeout: 10m` with the ceiling far clear of the wait it bounds. |
 
@@ -376,8 +376,16 @@ package manager, no `wget`. It replaced the Go image, and three things changed w
   E2E helpers read either format.
 
 **Ownership is the deploy's job, and it is done in `rollout()`, between the two halves of the
-swap**: `docker compose stop server`, then `chown -R 65532:65532 ${DATA_DIR}/snapshots` and
-`chmod 700`, then `up -d --wait server`. The order is the point. The process being replaced writes
+swap**: `docker compose stop server`, then `chown -R 65532:65532 ${DATA_DIR}/snapshots/${DEPLOY_ENV}`
+and `chmod 700`, then `up -d --wait server`.
+
+**Each environment has its own snapshot directory** (`${DATA_DIR}/snapshots/dev`, `…/prod`). Dev and
+prod share `DATA_DIR`, and with one directory they shared one file: a dev deploy could restore
+prod's matches into the dev server and delete the file doing it. The Go server wrote at the top
+level, so the first deploy of each environment after the split moves the `snapshot.json` its old
+server just wrote into that environment's directory before the new server starts, and only that
+directory changes owner — the top level stays writable by a Go server still running in the other
+environment. The order is the point. The process being replaced writes
 its snapshot while it stops, as *its* user: a chown before the stop locks it out of a 0700
 directory, and a chown that is not recursive leaves the file it wrote unreadable to the next
 process. Either way the matches in flight are lost, and the deploy that replaced the Go image was
@@ -388,7 +396,8 @@ which it already did for 10001. If a host is ever brought up by hand instead, th
 equivalent is:
 
 ```sh
-sudo chown -R 65532:65532 /home/kisuke/data-loco/snapshots && sudo chmod 700 /home/kisuke/data-loco/snapshots
+sudo mkdir -p /home/kisuke/data-loco/snapshots/prod
+sudo chown -R 65532:65532 /home/kisuke/data-loco/snapshots/prod && sudo chmod 700 /home/kisuke/data-loco/snapshots/prod
 ```
 
 `read_only`, `cap_drop: ALL`, `no-new-privileges`, the tmpfs `/tmp` and the `/data` bind mount are
