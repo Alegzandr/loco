@@ -811,12 +811,19 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
         () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'global_switch',
         undefined, { timeout: 10_000 })
 
-      const after = await getState(alice)
+      // Each seat's swapped hand arrives in its own personalised game_state,
+      // after the card_played Bob's discard reflects: wait for each, never
+      // read one client on the strength of the other's.
       // Alice played her GlobalSwitch (3 → 2 cards), then receives Bob's full 4
-      expect(after?.myHand.length).toBe(bobHand.length)
-      // Bob's view of Alice = bobHand.length, and Bob's own hand = 2 (Alice's leftover)
-      const bobAfter = await getState(bob)
-      expect(bobAfter?.myHand.length).toBe(aliceHand.length - 1) // minus the played GS
+      await alice.waitForFunction(
+        (n) => window.__LOCO_E2E__?.getState?.()?.myHand.length === n,
+        bobHand.length, { timeout: 10_000 })
+      // Bob's own hand = 2 (Alice's leftover, minus the played GS)
+      await bob.waitForFunction(
+        (n) => window.__LOCO_E2E__?.getState?.()?.myHand.length === n,
+        aliceHand.length - 1, { timeout: 10_000 })
+      expect((await getState(alice))?.myHand.length).toBe(bobHand.length)
+      expect((await getState(bob))?.myHand.length).toBe(aliceHand.length - 1)
     } finally {
       await ctx1.close()
       await ctx2.close()
