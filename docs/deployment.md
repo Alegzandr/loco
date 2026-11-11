@@ -8,7 +8,7 @@ Defined in `.gitlab-ci.yml`, three stages:
 |----------|----------------------------------------------------------------------|------------------------------------|
 | `test`   | `backend_lint`, `backend_test`, `frontend_test`, `e2e_test`          | Every push (all branches)          |
 | `build`  | `build` (Docker images)                                              | `develop` branch or `v*` tag only  |
-| `deploy` | `deploy_dev` (auto on `develop`, manual if `DEPLOY_DEV != "true"`), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build`                      |
+| `deploy` | `deploy_dev` (auto on `develop`, manual if `DEPLOY_DEV != "true"`), `deploy_prod` (auto on tag), `stop_dev` (manual, `develop` only) | After `build`                      |
 
 ### `DEPLOY_DEV`
 
@@ -28,16 +28,16 @@ Production ignores it entirely: `deploy_prod` keys on `$CI_COMMIT_TAG =~ /^v.*/`
 
 ### Test jobs
 
-- `backend_test` (`rust:1.97-bookworm`): `cd server && cargo test --workspace --locked`, the
+- `backend_test` (`rust:1.99-bookworm`): `cd server && cargo test --workspace --locked`, the
   `wasm32-unknown-unknown` build of `loco-game` (the domain must keep building for the browser), and
   the static musl `loco-server` that `e2e_test` runs (`server-bin`).
 - `frontend_test` (`node:24-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
 - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs the server binary, runs
   Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
-- `backend_lint` (`rust:1.97-bookworm`): `cargo fmt --all -- --check`, `cargo clippy --workspace
+- `backend_lint` (`rust:1.99-bookworm`): `cargo fmt --all -- --check`, `cargo clippy --workspace
   --all-targets -- -D warnings` and `cargo deny check` (`server/deny.toml`: permissive licences only,
   no open advisory, crates.io only).
-- `protocol_check` (`rust:1.97-bookworm` plus the distribution's `nodejs`): the converter's refusal
+- `protocol_check` (`rust:1.99-bookworm` plus the distribution's `nodejs`): the converter's refusal
   tests, `cargo test -p loco-protocol` (the wire fixtures among them) and `protocolgen --check`,
   which fails if `client/src/types/` has drifted from `server/crates/loco-protocol/`.
 

@@ -276,7 +276,7 @@ takes the wait at its word.
 Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`. Pipeline and deploy details are in
 [`deployment.md`](../deployment.md).
 
-- `test` (every push). Rust jobs run on `rust:1.97-bookworm` with `--locked`, so a `server/Cargo.lock`
+- `test` (every push). Rust jobs run on `rust:1.99-bookworm` with `--locked`, so a `server/Cargo.lock`
   out of step with the manifests fails rather than being re-resolved:
   - `backend_test`: `cargo test --workspace --locked`; `cargo build -p loco-game --target
     wasm32-unknown-unknown` (a dependency reaching for the OS fails here); then the release
@@ -311,7 +311,7 @@ Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`. Pipeline and dep
   `fullyParallel: true` makes the split even (sharded by spec file, the suite split 27/39/0/21). It
   needs a runner with `concurrent > 1`; at 1 the shards queue and pay four setups for one suite.
 - **`server-bin` is built once** by `backend_test`. A shard that finds no binary for its commit
-  installs Rust 1.97 with the musl target and builds it, as the exception.
+  installs Rust 1.99 with the musl target and builds it, as the exception.
 - **No `playwright install`.** The image ships only the browsers its own Playwright needs, so the
   image tag and `e2e/package-lock.json` are one decision: the dependency is pinned **exactly**, and
   `PLAYWRIGHT_VERSION` is declared once in `e2e_test`, interpolated into the image tag and asserted
@@ -426,7 +426,7 @@ person to touch it.
 - **`client/Dockerfile` copies `package-lock.json` and runs `npm ci`**, so two builds of one commit
   are the same image and a dependency compromised between them cannot ship without a diff.
 - **`server/Dockerfile` ships one static binary on distroless, as uid 65532.** Built on
-  `rust:1.97-alpine` with `--locked` against musl; the image is `gcr.io/distroless/static:nonroot` (no
+  `rust:1.99-alpine` with `--locked` against musl; the image is `gcr.io/distroless/static:nonroot` (no
   shell, no package manager, no `wget`), with `/data` created and owned by that user. The process binds
   a port above 1024, reads no system path and writes one file (the shutdown snapshot), so the
   healthcheck is the binary's own `loco-server healthcheck`. `deploy/compose.yml` and
@@ -442,8 +442,9 @@ person to touch it.
 
 - `docker-compose.dev.yml`: hot reload, no host Rust/Node needed. `docker compose -f
   docker-compose.dev.yml up --build`.
-- Backend: `rust:1.97-bookworm`, bind `./server:/app`, `cargo watch -x 'run -p loco-server'`, `:8080`,
-  `LOCO_E2E=1`. The crate registry and target directory are named volumes outside the bind mount, so a
+- Backend: `rust:1.99-bookworm`, bind `./server:/app`, `cargo watch -x 'run -p loco-server'`, `:8080`
+  **on loopback only** (`127.0.0.1:8080:8080`: with `LOCO_E2E=1`, `debug_set_state` rewrites any hand,
+  and a port on every interface hands that to the LAN). The crate registry and target directory are named volumes outside the bind mount, so a
   restart neither downloads nor rebuilds and the host's `server/target` is not overwritten by Linux
   artefacts. The first build takes minutes, which the healthcheck's 60 retries
   (`target/debug/loco-server healthcheck`) wait for; the client waits on it.

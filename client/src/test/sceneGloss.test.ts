@@ -86,7 +86,7 @@ describe('the lit material', () => {
     // radiance by the gloss by editing three's own chunk. A three that renames
     // either line would leave the sky filling every matte block in silence.
     expect(ShaderChunk.lights_fragment_maps).toContain('iblIrradiance += getIBLIrradiance( geometryNormal );')
-    expect(ShaderChunk.lights_fragment_maps).toContain('radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );')
+    expect(ShaderChunk.lights_fragment_maps).toContain('radiance += iblRadiance;')
   })
 
   it('mirrors the hour it is lit by', () => {

@@ -38,4 +38,13 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
+  {
+    // The one rule of the set turned off, wherever it looks (markup and the
+    // `goto` in langRoute.ts). It asks every href and goto to go through
+    // `resolve()` so a `paths.base` can be prepended; this site has none (every
+    // path is declared once in `src/seo/meta.ts`, served at the origin's root),
+    // and a page's links must stay real `<a href>`s that read the same with no
+    // script.
+    rules: { 'svelte/no-navigation-without-resolve': 'off' },
+  },
 )

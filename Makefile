@@ -1,7 +1,7 @@
 # Common dev tasks. Targets are docker-first because Rust is not assumed to be
 # installed on the host (Node is). Override RUST_IMAGE if you bump versions.
 
-RUST_IMAGE      ?= rust:1.97-bookworm
+RUST_IMAGE      ?= rust:1.99-bookworm
 SERVER_DIR      := $(CURDIR)/server
 CLIENT_DIR      := $(CURDIR)/client
 E2E_DIR         := $(CURDIR)/e2e

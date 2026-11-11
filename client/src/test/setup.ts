@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { flushSync } from 'svelte'
 import { beforeEach, vi } from 'vitest'
 
