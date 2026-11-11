@@ -32,11 +32,11 @@ variables:
     description: "Deploy develop to loco-d automatically. false leaves deploy_dev as a manual job."
   DOCKER_HOST: unix:///var/run/docker.sock
   # GitLab can only cache paths inside the project directory, so both toolchains
-  # are pointed at one. Without this every job re-downloads the Go module graph
-  # and every npm dependency from the network on each push.
-  GOPATH: $CI_PROJECT_DIR/.gocache/path
-  GOMODCACHE: $CI_PROJECT_DIR/.gocache/mod
-  GOCACHE: $CI_PROJECT_DIR/.gocache/build
+  # are pointed at one. Without this every job re-downloads the crate registry
+  # and every npm dependency from the network on each push, and rebuilds the
+  # whole dependency graph.
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  CARGO_TARGET_DIR: $CI_PROJECT_DIR/server/target
   npm_config_cache: $CI_PROJECT_DIR/.npm
   # npm's own progress rendering and audit/funding round trips are pure latency
   # in a non-interactive job.
@@ -48,145 +48,76 @@ variables:
 
 backend_lint:
   stage: test
-  image: golangci/golangci-lint:v2.12-alpine
+  image: rust:1.97-bookworm
   tags:
     - devops
-  variables:
-    GOLANGCI_LINT_CACHE: $CI_PROJECT_DIR/.golangci-cache
-  # Its own cache key rather than backend_test's: the two run concurrently, and
+  # Its own cache key rather than backend_test's: the jobs run concurrently, and
   # two jobs pushing one key race on the upload — the loser's entry is what the
-  # next pipeline restores. The analysis cache is also most of what this job
-  # spends its time rebuilding.
+  # next pipeline restores.
   cache:
     - key:
-        prefix: golangci
+        prefix: cargo-lint
         files:
-          - server/go.sum
+          - server/Cargo.lock
       paths:
-        - .gocache/
-        - .golangci-cache/
+        - .cargo/registry/
+        - .cargo/bin/
+        - server/target/
   script:
-    - cd server && golangci-lint run ./...
+    - rustup component add rustfmt clippy
+    - cd server
+    - cargo fmt --all -- --check
+    - cargo clippy --workspace --all-targets --locked -- -D warnings
+    # Licences, advisories and sources (deny.toml). Installed once into the
+    # cached CARGO_HOME, whose bin/ the image does not put on PATH.
+    - export PATH="$CARGO_HOME/bin:$PATH"
+    - command -v cargo-deny >/dev/null || cargo install --locked cargo-deny
+    - cargo deny check
 
 protocol_check:
-  stage: test
-  image: golang:1.26.5-alpine
-  tags:
-    - devops
-  # Until the Rust server takes over, server/protocol still describes what the
-  # running server writes, but the client's two generated files are no longer
-  # its to write: protocol_check_rs owns them, and the parity fixtures there are
-  # what holds the Go wire and the Rust types together. This job keeps the Go
-  # generator honest about its own source (it still refuses a const block that
-  # disagrees with its All* slice) by generating into a scratch directory.
-  # Deleted with server/ at the cutover.
-  #
-  # No cache on purpose. The generator is stdlib-only and compiles in about a
-  # second, and a third job pushing a Go cache key would race the two that
-  # already do (see backend_lint's note).
-  script:
-    - cd server && go run ./cmd/protocolgen -src protocol -out "$(mktemp -d)"
-
-protocol_check_rs:
   stage: test
   image: rust:1.97-bookworm
   tags:
     - devops
   # The client's protocol types and validation schemas are generated from
-  # server-rs/crates/loco-protocol. This regenerates them and fails if the
-  # result differs from what is committed, which is the whole reason the
-  # generator is worth having: without it, generation is a suggestion and the
-  # two files drift back into being hand-maintained copies the moment somebody
-  # edits one directly. It also runs the crate's tests, the parity fixtures
-  # captured from the Go server among them, and the converter's refusals.
+  # server/crates/loco-protocol. This regenerates them and fails if the result
+  # differs from what is committed, which is the whole reason the generator is
+  # worth having: without it, generation is a suggestion and the two files drift
+  # back into being hand-maintained copies the moment somebody edits one
+  # directly. It also runs the crate's tests, the wire fixtures among them, and
+  # the converter's refusals.
   #
   # Node comes from the distribution: the converter is dependency-free and
   # needs nothing newer.
-  variables:
-    CARGO_HOME: $CI_PROJECT_DIR/.cargo
-    CARGO_TARGET_DIR: $CI_PROJECT_DIR/server-rs/target
   cache:
     - key:
         prefix: cargo-protocol
         files:
-          - server-rs/Cargo.lock
+          - server/Cargo.lock
       paths:
         - .cargo/registry/
-        - server-rs/target/
+        - server/target/
   script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs >/dev/null
     - node --test tools/protocol/valibot.test.mjs
-    - cd server-rs
-    - cargo test -p loco-protocol
+    - cd server
+    - cargo test -p loco-protocol --locked
     - cargo run -q -p protocolgen -- --check
-
-# The Rust server (server-rs/), tested and linted alongside the Go one until the
-# cutover (docs/migration.md, step 6). It does not build an image and nothing
-# deploys it yet; `build` still needs both jobs, so a red Rust suite cannot
-# ship either way.
-backend_test_rs:
-  stage: test
-  image: rust:1.97-bookworm
-  tags:
-    - devops
-  variables:
-    CARGO_HOME: $CI_PROJECT_DIR/.cargo
-    CARGO_TARGET_DIR: $CI_PROJECT_DIR/server-rs/target
-  # Its own key: two jobs pushing one key race on the upload (backend_lint).
-  cache:
-    - key:
-        prefix: cargo-test
-        files:
-          - server-rs/Cargo.lock
-      paths:
-        - .cargo/registry/
-        - server-rs/target/
-  script:
-    # No -race to ask for: the table owns its state and nothing else can read
-    # it, which the compiler checks rather than a flag. Every crate, the domain
-    # and the protocol included.
-    - cd server-rs && cargo test --workspace --locked
-    # The domain must keep building for the browser (docs/migration.md, step 2).
-    - rustup target add wasm32-unknown-unknown && cargo build -p loco-game --target wasm32-unknown-unknown --locked
-
-backend_lint_rs:
-  stage: test
-  image: rust:1.97-bookworm
-  tags:
-    - devops
-  variables:
-    CARGO_HOME: $CI_PROJECT_DIR/.cargo
-    CARGO_TARGET_DIR: $CI_PROJECT_DIR/server-rs/target
-  cache:
-    - key:
-        prefix: cargo-lint
-        files:
-          - server-rs/Cargo.lock
-      paths:
-        - .cargo/registry/
-        - .cargo/bin/
-        - server-rs/target/
-  script:
-    - rustup component add rustfmt clippy
-    - cd server-rs
-    - cargo fmt --all -- --check
-    - cargo clippy --workspace --all-targets --locked -- -D warnings
-    # Licences, advisories and sources (deny.toml). Installed once and cached.
-    - command -v cargo-deny >/dev/null || cargo install --locked cargo-deny
-    - cargo deny check
 
 backend_test:
   stage: test
-  image: golang:1.26.5-alpine
+  image: rust:1.97-bookworm
   tags:
     - devops
   cache:
+    # Its own key: two jobs pushing one key race on the upload (backend_lint).
     - key:
-        prefix: go
+        prefix: cargo-test
         files:
-          - server/go.sum
+          - server/Cargo.lock
       paths:
-        - .gocache/
+        - .cargo/registry/
+        - server/target/
     # The binary reaches e2e_test through the cache, not through `artifacts:`.
     # This runner cannot upload artifacts at all: its helper container resolves
     # the API host (`http://gitlab`) against the LAN DNS, which does not know
@@ -194,36 +125,31 @@ backend_test:
     # it. The cache has no such problem: it is a tarball on the runner's own
     # disk ("cache will not be downloaded from shared cache server").
     #
-    # Keyed per branch, not per commit: a per-SHA key would leave one ~15 MB
-    # cache volume behind on the runner for every push, and nothing ever
-    # collects those. Correctness comes from server-bin.sha instead: e2e_test
-    # rebuilds unless the cached binary was built from the commit it is testing,
-    # which also covers two pipelines racing on the same branch.
-    # `policy: push` because there is nothing here worth restoring.
+    # Keyed per branch, not per commit: a per-SHA key would leave one cache
+    # volume behind on the runner for every push, and nothing ever collects
+    # those. Correctness comes from server-bin.sha instead: e2e_test rebuilds
+    # unless the cached binary was built from the commit it is testing, which
+    # also covers two pipelines racing on the same branch. `policy: push`
+    # because there is nothing here worth restoring.
     - key: server-bin-$CI_COMMIT_REF_SLUG
       policy: push
       paths:
         - server-bin
         - server-bin.sha
   script:
-    # -race, which is why gcc is installed: this server is one event loop plus a
-    # goroutine per socket, so a data race here is not a lint finding, it is the
-    # hidden-state guarantee coming apart under load. The suite passed for months
-    # with a real one in it — Hub.Stop closed a channel and returned, leaving
-    # every caller running alongside a loop that was still dispatching — and it
-    # was invisible for exactly one reason: nothing ever passed the flag.
-    #
-    # One run rather than two. The instrumented binary is not the one that ships,
-    # but this suite is dominated by real sleeps and reaction windows rather than
-    # by CPU, so -race costs it about two seconds; paying that twice to keep an
-    # uninstrumented gate would buy nothing this job can actually observe.
-    - apk add --no-cache gcc musl-dev
-    - cd server && go test -race ./...
+    # No -race to ask for: a table owns its state and nothing else can read it,
+    # which the compiler checks rather than a flag. Every crate, the domain and
+    # the protocol included.
+    - cd server && cargo test --workspace --locked
+    # The domain must keep building for the browser (docs/migration.md, step 2).
+    - rustup target add wasm32-unknown-unknown && cargo build -p loco-game --target wasm32-unknown-unknown --locked
     # Built here, not in e2e_test: that job runs on the Playwright image, which
-    # has no Go, and used to download a 70 MB toolchain tarball on every push to
-    # produce this same binary. Static so it runs on the Playwright image as-is:
-    # CGO_ENABLED=0 explicitly, because the -race run above turned cgo on.
-    - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
+    # has no Rust. Static (musl) so it runs on that image's older glibc as-is,
+    # exactly as server/Dockerfile builds the one that ships.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends musl-tools >/dev/null
+    - rustup target add x86_64-unknown-linux-musl
+    - cargo build --release --locked -p loco-server --target x86_64-unknown-linux-musl
+    - cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/loco-server" ../server-bin
     - echo "$CI_COMMIT_SHA" > ../server-bin.sha
 
 frontend_test:
@@ -296,7 +222,7 @@ e2e_test:
   script:
     # LOCO_E2E=1 enables debug_set_state. The bot think delay is shortened from
     # 1.2–2.2 s to 0.25–0.45 s: it is dead time no test races (see
-    # hub.ApplyBotTimingEnv). Reaction windows — catch, declaration, interrupt —
+    # BotTimings::apply_env in loco-hub). Reaction windows — catch, declaration, interrupt —
     # keep their shipped timing, because tests are meant to be able to win them.
     #
     # The cache normally carries backend_test's binary. A restore is best-effort
@@ -306,11 +232,17 @@ e2e_test:
     # different commit is the one failure this must not have: it would report on
     # code nobody pushed. This is the path the whole job took before, on every
     # push; it is now the exception.
+    #
+    # The rebuild installs a minimal Rust toolchain (rustup's own default home,
+    # not cached: this is the exception) and builds the same static binary
+    # backend_test does.
     - |
       if [ ! -s server-bin ] || [ "$(cat server-bin.sha 2>/dev/null)" != "$CI_COMMIT_SHA" ]; then
         echo "no server-bin for $CI_COMMIT_SHA in the cache, rebuilding it"
-        curl -fsSL https://go.dev/dl/go1.26.5.linux-amd64.tar.gz | tar -C /usr/local -xz
-        (cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 /usr/local/go/bin/go build -o ../server-bin .)
+        apt-get update -qq && apt-get install -y -qq --no-install-recommends musl-tools >/dev/null
+        curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97 --target x86_64-unknown-linux-musl
+        (cd server && "$CARGO_HOME/bin/cargo" build --release --locked -p loco-server --target x86_64-unknown-linux-musl)
+        cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/loco-server" server-bin
       fi
     - chmod +x server-bin
     #
@@ -475,7 +407,7 @@ e2e_test:
       # written to LOCO_SNAPSHOT_PATH and picked up by the next process, so
       # the players get the "Reconnexion" overlay a dropped wifi frame
       # already produces instead of losing the match. See
-      # server/hub/snapshot.go.
+      # server/crates/loco-hub/src/snapshot.rs.
       #
       # The server first, the client second, and never one `up -d` over both.
       #
@@ -485,7 +417,27 @@ e2e_test:
       # bundle against a server one version behind, for the whole length of
       # the drain. Doing the client afterwards narrows that mismatch to the
       # seconds between the two commands.
+      #
+      # The server is stopped first, and its snapshot directory handed to the
+      # new image's user only then. The container runs as uid 65532
+      # (server/Dockerfile, distroless's nonroot), and the bind mount has to be
+      # writable by it: a mount overrides whatever the image chowned. The order
+      # is the point. The process being replaced writes its snapshot while it
+      # stops, as its own user, so a chown before the stop would lock it out of
+      # the directory (0700), and a chown that was not recursive would leave
+      # the file it wrote unreadable to the next process. Both cost exactly the
+      # matches the snapshot exists to keep, and the deploy that replaced the Go
+      # image (uid 10001) is the one where they would have. Stopping first
+      # costs nothing: `up -d` recreating the container stops it the same way,
+      # SIGTERM and stop_grace_period, before it starts the new one.
+      #
+      # 0700 because the file carries session tokens and every hand in every
+      # match a deploy interrupted, and it lives on a host path an operator can
+      # list.
       rollout() {
+        docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml stop server
+        chown -R 65532:65532 "${DATA_DIR}/snapshots"
+        chmod 700 "${DATA_DIR}/snapshots"
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait server
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait client
       }
@@ -503,15 +455,9 @@ e2e_test:
     - source deploy/app.env
     - set +a
     - validate_paths
+    # Its ownership is rollout's to set, between the old server stopping and
+    # the new one starting (see rollout above).
     - mkdir -p "${DEPLOY_DIR}/dev" "${DEPLOY_DIR}/prod" "${DATA_DIR}" "${DATA_DIR}/snapshots"
-    # The server container runs as uid 10001 (server/Dockerfile), so the bind
-    # mount has to be writable by it: a mount overrides whatever the image
-    # chowned. 0700 because this file carries session tokens and every hand in
-    # every match that a deploy interrupted, and it lives on a host path an
-    # operator can list. Failing to write it silently loses those matches, which
-    # is exactly the failure the snapshot exists to prevent.
-    - chown 10001:10001 "${DATA_DIR}/snapshots"
-    - chmod 700 "${DATA_DIR}/snapshots"
     - echo "${CI_REGISTRY_PASSWORD:-${CI_JOB_TOKEN}}" | docker login --username "${CI_REGISTRY_USER:-gitlab-ci-token}" --password-stdin "${CI_REGISTRY}"
 
 # ──────────────────────────────────────────────────────────────────
@@ -535,12 +481,6 @@ build:
     - job: backend_lint
       artifacts: false
     - job: protocol_check
-      artifacts: false
-    - job: protocol_check_rs
-      artifacts: false
-    - job: backend_test_rs
-      artifacts: false
-    - job: backend_lint_rs
       artifacts: false
     - job: backend_test
       artifacts: false

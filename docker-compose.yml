@@ -16,8 +16,9 @@ services:
         # Not published, exactly like deploy/compose.yml: the browser reaches
         # this server through nginx (/ws, /live.json, /live-thumb/; never /health
         # or /metrics) and never directly, so a host port would only put /metrics
-        # and /health on the LAN. Read it from inside instead:
-        #   docker compose exec server wget -qO- http://localhost:8080/metrics
+        # and /health on the LAN. The image has no shell to read it from, so
+        # publish a port by hand (`ports: ["127.0.0.1:8080:8080"]`) when you
+        # need /metrics locally.
         expose:
             - "8080"
         restart: unless-stopped
@@ -30,8 +31,9 @@ services:
         read_only: true
         tmpfs:
             - /tmp
+        # Distroless: no wget, so the binary checks itself (`loco-server healthcheck`).
         healthcheck:
-            test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+            test: ["CMD", "/loco-server", "healthcheck"]
             interval: 10s
             timeout: 5s
             retries: 3
