@@ -1,4 +1,4 @@
-import type { ServerMsg } from '../types/protocol'
+import type { CatchSeatDTO, GameStateDTO, ServerMsg } from '../types/protocol'
 
 /**
  * The server's clock, as seen from here.
@@ -71,21 +71,22 @@ export function localizeDeadlines(msg: ServerMsg): ServerMsg {
   const offset = serverOffset()
   if (offset === 0) return msg
   const shift = (ms: number | undefined) => (ms ? ms - offset : ms)
-  const out: ServerMsg = { ...msg }
-  if (msg.turn_deadline) out.turn_deadline = shift(msg.turn_deadline)
-  if (msg.forfeit_deadline) out.forfeit_deadline = shift(msg.forfeit_deadline)
-  if (msg.catch_locked_until) out.catch_locked_until = shift(msg.catch_locked_until)
-  if (msg.catch_seats) {
-    out.catch_seats = msg.catch_seats.map((c) => ({ ...c, ends_at: c.ends_at - offset }))
-  }
-  if (msg.state) {
-    out.state = { ...msg.state }
-    if (msg.state.turn_deadline) out.state.turn_deadline = shift(msg.state.turn_deadline)
-    if (msg.state.catch_locked_until)
-      out.state.catch_locked_until = shift(msg.state.catch_locked_until)
-    if (msg.state.catch_seats) {
-      out.state.catch_seats = msg.state.catch_seats.map((c) => ({ ...c, ends_at: c.ends_at - offset }))
-    }
+  const seats = (list: CatchSeatDTO[]) => list.map((c) => ({ ...c, ends_at: c.ends_at - offset }))
+  // Each field lives on the messages that carry it, so each is looked for by
+  // name: `in` narrows the union to those messages.
+  const out = { ...msg }
+  if ('turn_deadline' in out && out.turn_deadline) out.turn_deadline = shift(out.turn_deadline)
+  if ('forfeit_deadline' in out && out.forfeit_deadline)
+    out.forfeit_deadline = shift(out.forfeit_deadline)
+  if ('catch_locked_until' in out && out.catch_locked_until)
+    out.catch_locked_until = shift(out.catch_locked_until)
+  if ('catch_seats' in out && out.catch_seats) out.catch_seats = seats(out.catch_seats)
+  if ('state' in out && out.state) {
+    const state: GameStateDTO = { ...out.state }
+    if (state.turn_deadline) state.turn_deadline = shift(state.turn_deadline)
+    if (state.catch_locked_until) state.catch_locked_until = shift(state.catch_locked_until)
+    if (state.catch_seats) state.catch_seats = seats(state.catch_seats)
+    out.state = state
   }
   return out
 }

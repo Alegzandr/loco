@@ -11,7 +11,7 @@ export const RESTORE_TIMEOUT_MS = 12_000
 
 /**
  * Seeds the store from the persisted session, before the first render and before
- * the socket exists. Called once from `entry.ts`.
+ * the socket exists. Called once from `boot.ts`.
  */
 export function initSessionRestore(): void {
   const session = readSession()

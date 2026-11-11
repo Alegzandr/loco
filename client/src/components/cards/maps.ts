@@ -2,7 +2,7 @@
  * Map registry: the room a match is played in.
  *
  * A map is a scene, a table and an accent colour. It touches no rule and no
- * card. The *choice* is the server's (see server/game/maps.go), so every seat at
+ * card. The *choice* is the server's (see server/crates/loco-game/src/maps.rs), so every seat at
  * one table plays in one room; this file only says what each id looks like.
  *
  * Nothing here is a picture. The scene is rendered in the browser by the

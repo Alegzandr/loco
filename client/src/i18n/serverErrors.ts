@@ -34,7 +34,7 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // One rule for every way a nickname can be refused (length, charset, blocked
   // term): the server sends one string for all three, deliberately, so that a
   // player cannot read the rule off the refusal and step around it. See
-  // server/game/nickname.go.
+  // server/crates/loco-game/src/nickname.rs.
   [/nickname not allowed/i, 'nicknameRejected'],
   [/room not found|invalid room code/i, 'roomNotFound'],
   [/room is full/i, 'roomFull'],
@@ -43,7 +43,7 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // made uniform (a rolling deploy is exactly that window). Current servers
   // answer a stale token with `game already in progress` instead, on purpose:
   // the old pair of strings told anyone with a table code which nicknames were
-  // seated at it. See server/hub/hub.go, handleJoinRoom.
+  // seated at it. See server/crates/loco-hub/src/rooms.rs (join_room).
   [/invalid session token/i, 'sessionInvalid'],
   // Before `not in a room`: the two differ by one word and the broader rule
   // would otherwise have to be trusted not to drift into matching both.
@@ -121,7 +121,7 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // The admission ceilings and the recovered-panic answer. All three are
   // refusals a player can be handed without having done anything, so the copy
   // says what to do (wait, retry) rather than what happened. See the caps in
-  // server/hub/hub.go.
+  // server/crates/loco-hub/src/config.rs.
   [/server is full/i, 'serverFull'],
   [/too many attempts/i, 'tooManyAttempts'],
   [/^server error$/i, 'serverError'],
@@ -133,7 +133,7 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // A deploy in progress. Above nothing in particular, but it must never fall
   // through to the generic: the whole point of the string is that the player
   // learns their table code was fine and the wait is short. See
-  // server/hub/drain.go.
+  // server/crates/loco-hub/src/drain.rs.
   [/server updating/i, 'serverUpdating'],
   // The one entry here the server never sends: a seat reclaim that timed out is
   // decided client-side (useRestoreTimeout), and it lands in the same errorMsg

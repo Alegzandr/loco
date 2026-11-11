@@ -17,6 +17,7 @@
  */
 import { test, expect } from '@playwright/test'
 import { T, getState, waitForTableOpen, gameBoard } from '../helpers/game'
+import { METRICS_URL, parseMetric } from '../helpers/metrics'
 
 /** Home screen → the bot form → a dealt hand. */
 async function playBot(page: import('@playwright/test').Page, nickname: string) {
@@ -82,13 +83,13 @@ test.describe('1v1 against the server', () => {
 
 /** The queue's size, from /metrics — the one place it is readable. */
 async function queueSize(page: import('@playwright/test').Page): Promise<number> {
-  const res = await page.request.get('http://localhost:8080/metrics')
-  return (await res.json()).matchmaking_queue as number
+  const res = await page.request.get(METRICS_URL)
+  return parseMetric(await res.text(), 'matchmaking_queue') as number
 }
 
 async function soloMatches(page: import('@playwright/test').Page): Promise<number> {
-  const res = await page.request.get('http://localhost:8080/metrics')
-  return (await res.json()).matches_solo as number
+  const res = await page.request.get(METRICS_URL)
+  return parseMetric(await res.text(), 'matches_solo') as number
 }
 
 /** Drives the human seat to a win so the table reaches game over. */

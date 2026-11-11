@@ -1,7 +1,7 @@
-﻿import { StateCreator } from './createStore'
+﻿import { type StateCreator } from './createStore'
 import { stamp } from './helpers'
 import { clearSession } from '../sessionPersistence'
-import { AppScreen, GameStore, SessionActions } from './types'
+import { type AppScreen, type GameStore, type SessionActions } from './types'
 
 export const createSessionActions: StateCreator<GameStore, SessionActions> = (set) => ({
   // Leaving 'restoring' is what "the reclaim landed" means, and every landing

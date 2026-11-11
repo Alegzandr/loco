@@ -11,8 +11,9 @@ services:
     # This process needs no privilege it is not being given here. It listens on
     # a high port, reads no system path and writes one file. Dropping the rest
     # is what keeps a bug in a message handler from being anything more than a
-    # bug in a message handler. The image already runs as uid 10001
-    # (server/Dockerfile); these are the parts a Dockerfile cannot set.
+    # bug in a message handler. The image already runs as uid 65532
+    # (server/Dockerfile, distroless's nonroot); these are the parts a
+    # Dockerfile cannot set.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -22,7 +23,8 @@ services:
       - /tmp
     # The single most important line in this file for anybody mid-match.
     # Docker's default is SIGTERM, wait 10s, SIGKILL, and the graceful
-    # shutdown in server/main.go needs minutes, not ten seconds. Left at the
+    # shutdown in server/crates/loco-server/src/main.rs needs minutes, not ten
+    # seconds. Left at the
     # default, every match in flight is killed exactly the way it was before
     # any of the drain existed, and nothing would say so. Kept a minute above
     # LOCO_DRAIN_TIMEOUT so the snapshot write always fits inside it, and it
@@ -33,10 +35,18 @@ services:
       # Where the shutdown parks the matches the drain could not finish, and
       # where the next container picks them up. A named path under DATA_DIR
       # rather than a volume so an operator can see, and delete, exactly one
-      # file. See server/hub/snapshot.go.
-      - ${DATA_DIR}/snapshots:/data
+      # file. See server/crates/loco-hub/src/snapshot.rs. Owned by uid 65532,
+      # which the deploy's rollout sets (.gitlab-ci.yml).
+      #
+      # One directory per environment. Dev and prod share DATA_DIR, and with
+      # one directory they shared one file: a dev deploy could restore prod's
+      # matches into the dev server, deleting the file as it did, and prod's
+      # next start would find nothing.
+      - ${DATA_DIR}/snapshots/${DEPLOY_ENV}:/data
+    # The image is distroless (no shell, no wget), so the binary checks
+    # itself: `loco-server healthcheck` asks /health on loopback, exit 0 or 1.
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      test: ["CMD", "/loco-server", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 3

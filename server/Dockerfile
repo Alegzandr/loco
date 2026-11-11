@@ -1,31 +1,32 @@
-FROM golang:1.26.5-alpine AS builder
+# The game server.
+#
+# A static musl binary on distroless: no shell, no package manager, no wget.
+# The healthcheck is therefore the binary itself (`loco-server healthcheck`),
+# and the image runs as distroless's nonroot user, uid 65532, which is why
+# the deploy chowns ${DATA_DIR}/snapshots/${DEPLOY_ENV} to it
+# (docs/deployment.md).
+
+FROM rust:1.97-alpine AS builder
+
+# ring (rustls's crypto) compiles a little C; musl-dev is what makes the
+# result static.
+RUN apk add --no-cache musl-dev gcc
 
 WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o loco-server .
+RUN cargo build --release --locked -p loco-server \
+    && cp target/release/loco-server /loco-server \
+    && mkdir -p /rootfs/data
 
-FROM alpine:3.23
+FROM gcr.io/distroless/static:nonroot
 
-RUN apk add --no-cache ca-certificates
+COPY --from=builder /loco-server /loco-server
+# /data is created here and owned by the runtime uid, because a container that
+# cannot write its snapshot loses every match in flight on the next deploy. A
+# bind mount overrides it, which is why the deploy chowns the host path too.
+COPY --from=builder --chown=65532:65532 /rootfs/data /data
 
-# The server ran as root. It needs no privilege at all: it binds :8080 (above
-# 1024), reads no system path, and writes exactly one file, the shutdown
-# snapshot under /data. So it drops to an unprivileged account, and /data is
-# chowned here rather than at runtime because a container that cannot write its
-# snapshot loses every match in flight on the next deploy.
-RUN addgroup -g 10001 -S loco \
-    && adduser -u 10001 -S -G loco loco \
-    && mkdir -p /data \
-    && chown loco:loco /data
-
-WORKDIR /app
-COPY --from=builder /app/loco-server .
-
-USER loco:loco
-
+USER 65532:65532
 EXPOSE 8080
-
-CMD ["./loco-server"]
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 CMD ["/loco-server", "healthcheck"]
+ENTRYPOINT ["/loco-server"]

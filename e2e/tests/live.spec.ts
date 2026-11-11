@@ -11,7 +11,7 @@ import { LIVE } from '../../client/src/seo/meta'
  * right now is wrong tomorrow — so everything asserted here is served in the
  * markup, and none of it depends on the list ever arriving.
  *
- * Needs no Go server: nothing here opens a socket, and the list's own fetch is
+ * Needs no game server: nothing here opens a socket, and the list's own fetch is
  * allowed to fail. Self-contained, and it takes no shared resource — the
  * matchmaking queue least of all.
  */

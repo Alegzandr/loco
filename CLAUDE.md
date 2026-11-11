@@ -25,8 +25,8 @@ shaped the way it is and what breaks if you reshape it. Update both in the same 
 
 | Note | Covers |
 | --- | --- |
-| [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md) | `server/game/`: deck, scoring, draw stacks, LOCO!/catch windows, interrupts, rematch, lobby |
-| [`docs/notes/server.md`](docs/notes/server.md) | `server/hub/`: anti-cheat, bots, sessions, rate limiting, map-loading gate, metrics, logging |
+| [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md) | `server/crates/loco-game/`: deck, scoring, draw stacks, LOCO!/catch windows, interrupts, rematch, lobby |
+| [`docs/notes/server.md`](docs/notes/server.md) | `server/crates/loco-hub/` and the binary: anti-cheat, bots, sessions, rate limiting, map-loading gate, drain, metrics, logging |
 | [`docs/notes/client.md`](docs/notes/client.md) | realtime path, transport, session restore, protocol validation, i18n, the voice |
 | [`docs/notes/visual.md`](docs/notes/visual.md) | art direction, board geometry, seats, maps, card face, motion, streamable moments |
 | [`docs/notes/audio.md`](docs/notes/audio.md) | synthesis engine, track format, arrangement ladder |
@@ -45,22 +45,24 @@ another file goes stale on its own schedule and then contradicts it, which is ho
 list ended up written twice with a link between the two copies. Write it once and link.
 
 ## Commands
-`make help` lists every target. They are docker-first so a host Go install is not required; the
-client and E2E targets do need Node.
+`make help` lists every target. They are docker-first so a host Rust install is not required; the
+client and E2E targets do need Node. With cargo on the host, the `cd server && cargo …` forms below
+are the same thing without the container.
 
 | Task | Command |
 | --- | --- |
-| Dev stack, hot reload | `make dev` (client :5173, server :8080) then `make down` |
+| Dev stack, hot reload | `make dev` (client :5173, server :8080, `cargo watch`) then `make down` |
 | All unit tests | `make test` (server + client) |
-| Go tests | `make test-server`, or `cd server && go test ./...` (CI runs `-race`) |
-| One Go test | `cd server && go test ./game/ -run TestRoom_ResetForRematch -v` |
+| Server tests | `make test-server`, or `cd server && cargo test --workspace` |
+| One crate / one test | `cd server && cargo test -p loco-game reset_for_rematch`, `cargo test -p loco-hub --test rematch` |
+| Run the server | `cd server && cargo run -p loco-server` (`LOCO_E2E=1` for the debug fixture, as E2E does) |
 | Client tests | `make test-client`, watch mode `cd client && npm run test:watch` |
 | One client file / case | `cd client && npx vitest run src/test/matchmaking.test.ts -t "<title substring>"` |
-| Full E2E | `make test-e2e` (needs the Go server on :8080; Playwright boots its own Vite on :4173) |
+| Full E2E | `make test-e2e` (needs the server on :8080; Playwright boots its own Vite on :4173) |
 | One E2E file / case | `cd e2e && npx playwright test tests/matchmaking.spec.ts -g "<title substring>"` |
-| Lint | `make lint` (golangci-lint in docker + ESLint) |
-| Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
-| Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
+| Lint | `make lint` (rustfmt, clippy `-D warnings` and cargo-deny in docker + ESLint) |
+| Regenerate the protocol | `make protocol` after any change to `server/crates/loco-protocol/`; `make protocol-check` is what CI runs |
+| Type-check | `make build-client` (`svelte-kit sync && svelte-check && vite build`, then the CSP hashes); `cd client && npm run check` alone |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch,landscape"` |
 | Pack the rooms' models | `make models` after editing `scene/models/manifest.json` (needs the kits unpacked under `.assets-in/unpacked/`); `make models-check` says what is missing |
 | Re-shoot the rooms page's stills | `make rooms` after touching a builder, the kit, the light rig or the finishing passes — commit the result |
@@ -83,8 +85,8 @@ intents. Client visuals may be optimistic; the server is final, timestamps recei
 the window, and applies documented tie-breaks.
 
 - **A refusal that can only mean the client's state has drifted carries the correction with it**:
-  `hub.refuseAction` + `game.IsStateMismatch` answer with a fresh personalised snapshot, never with
-  "no" alone. Lost races are excluded on purpose.
+  `refuse_action` (`loco-hub/src/broadcast.rs`) answers an `ErrorKind::StaleState` refusal with a
+  fresh personalised snapshot, never with "no" alone. Lost races are excluded on purpose.
 - **Reconnect**: 60s slot hold; rejoin via nickname + room code + session token restores the slot
   with a full snapshot. The identity is mirrored into `sessionStorage`, so a **page reload** reclaims
   the seat too, not only a dropped socket. **A reclaim spends its token and is answered with a fresh
@@ -105,32 +107,48 @@ Detail, and the full required-coverage list: [`docs/notes/testing-ci.md`](docs/n
   mean a table or a match — is one of the six it claims; the wrapper puts everything under `props`.
   Same door for `src/test/renderHook.ts`, which is how a module that is nothing but `$effect` gets a
   component to live in.
-- **The Go suite runs under `-race` in CI** (`backend_test`): here a race is the hidden-state
-  guarantee coming apart, not a style problem. **Anything new that reads package state off the event
-  loop has to be safe under it.**
+- **A table task owns its state, and nothing reads it off the loop**: no lock and no shared
+  reference, so the compiler refuses the second reader that would be the hidden-state guarantee
+  coming apart. **Anything new that has to be seen from outside a table is posted to it or published
+  by it** (`Phase`), never read across. A handler's panic is caught (`catch_unwind`) and counted;
+  `handler_panics` above zero is a bug.
+- **Timing logic is tested on a paused clock** (`tokio::time::pause`, `loco-hub/src/testkit.rs`):
+  the domain's `Millis` and the tasks' deadlines are one clock (`clock.rs`), so a test advances catch
+  windows and timers together instead of sleeping. The domain's invariants are `proptest`s and one
+  round is an `insta` snapshot.
 - Review layout/colour/motion changes with `make visual`. Assertions own behaviour; screenshots own
   appearance. Cover game rules over UI details.
 
 ## Repository structure
-**`client/`** Astro site + Svelte game. `astro.config.mjs` holds integrations, the dev server, the dev
-toolbar (off) and the `VITE_` env prefix. **At the root: no `vite.config.ts` and no `index.html`** —
-Astro owns the pages; `vitest.config.ts` is the only Vite config, and it exists because the test run
-needs jsdom and the `browser` resolve condition.
-- `src/pages/` one `.astro` per URL · `src/layouts/` `Base.astro`, `GamePage.astro`, `ContentPage.astro`
-- `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
-  the curtain saying another tab holds the game · `src/entry.ts` mounts *that* into `#root` via a
-  bundled module script, never an island
-- `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/lang.ts` (storage key, the two
-  home paths, `chooseLang`) — framework-free, so a content page can use it · `src/langSwap.ts`
-  translates the served half of `/` in place and moves the address bar, app-only · `src/pinchGuard.ts`
+**`client/`** SvelteKit site + Svelte game, one app. `vite.config.ts` is **the** config: the
+`sveltekit({...})` plugin (adapter-static, the CSP hashes, `runes`, `public/` as assets — there is no
+`svelte.config.js` since SvelteKit 3), the dev server and the `VITE_` env prefix; `vitest.config.ts`
+merges it and adds jsdom and the `browser` resolve condition. `src/app.html` the one template,
+`src/hooks.server.ts` its `<html>`/`<body>` attributes at prerender, `scripts/csp-hashes.mjs` the
+header's script hashes out of the build.
+- `src/routes/`: `+layout.svelte` (fonts, reset, the document's attributes, the cross-fade, **and
+  the game in `#root`**), `+layout.ts` (`prerender`, `trailingSlash`), `+error.svelte`, two groups —
+  `(game)/` (`+layout.svelte` the frame: head, `<h1>`, the bar with the sheet, the drawer; a page each
+  for `/`, `/fr/`, `/i/`) and `(content)/` (`+layout.svelte` the shell; `[slug=pageEn]` and
+  `fr/[slug=pageFr]`, one route per language with `entries` from the registry) — `404/` and the two
+  `sitemap-*.xml/+server.ts` · `src/params.ts` the slug matchers (`defineParams`) ·
+  `src/seo/document.ts` `routeFor(pathname)`: every URL's page, language and `<html>`/`<body>`
+- `src/layouts/` `Head.svelte`, `GamePage.css` (the game frame's document rules), `NotFound.svelte`,
+  `ToTop.svelte`, and the site's one chrome: `SiteFooter.svelte` (the bar), `SiteDrawer.svelte` (the
+  burger and the drawer)
+- `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which renders the app or
+  the curtain saying another tab holds the game · `src/boot.ts` the ordered boot sequence
+  (`bootGame`) and the reveal (`markBooted`)
+- `src/lang.ts` (storage key, the two home paths, `chooseLang`) — framework-free · `src/langRoute.ts`
+  acts on it: `initLang`, `moveTo` (a `goto` in place of the history entry) · `src/pinchGuard.ts`
   the seated half of "no accidental zoom" and `src/contextGuard.ts` the same gate over the browser's
-  own menu, both installed by `entry.ts`
+  own menu, both installed by `boot.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
-  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `TablesArticle.astro`,
-  `RulesArticle.astro`, `FaqArticle.astro`, `FriendsArticle.astro`, `LegalArticle.astro`, `deck.ts`
+  `HomeProse.svelte`, `CardsArticle.svelte`, `LiveArticle.svelte`, `TablesArticle.svelte`,
+  `RulesArticle.svelte`, `FaqArticle.svelte`, `FriendsArticle.svelte`, `LegalArticle.svelte`, `deck.ts`
   (the deck as the content pages read it), `contrasts.ts`, `ui.ts` (the pages' own chrome strings),
-  `liveList.ts`, `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
+  `Article.svelte` (which article is which page), `liveList.ts` (`fetchLiveRows`). **Never imported by the app** · `src/assets/rooms/` the six stills
   the rooms page shows, shot by `make rooms` and committed · `src/assets/plates/` the painted rooms'
   plates and their tables' two strips, three WebPs a room, made by `tools/plates` and committed
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
@@ -198,29 +216,43 @@ needs jsdom and the `browser` resolve condition.
 - `src/styles/tokens.css` design tokens · `src/i18n/` (`en.ts`, `fr.ts`, `store.ts` the framework-free
   language, `i18n.svelte.ts` Svelte's window onto it, `serverErrors.ts`) · `src/test/` (its three seams are in
   [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md)) · `public/`
-- `src/types/` **generated from `server/protocol/` by `make protocol`**: `protocol.ts` (the types),
-  `protocolSchemas.ts` (the Valibot schemas). Do not edit either by hand.
+- `src/types/` **generated from `server/crates/loco-protocol/` by `make protocol`**: `protocol.ts`
+  (the types), `protocolSchemas.ts` (the Valibot schemas). Do not edit either by hand.
 
-**`server/`** authoritative game server.
-- `game/` pure domain: room (its event log included), card, deck, hand, rules, bot, maps, `nickname.go` + `wordlists/`
-  + `screen.go` (the nickname matcher, exported for the one name this game did not write)
-- `hub/` **one file per thing a message leads to**: `table.go` (**the** table, and the seat
-  bookkeeping nothing else may do), `actor.go` (the table's goroutine, and the two ways work crosses
-  between it and the hub), `hub.go` (the Hub, its tunables and ceilings, the loop),
-  `serve.go`, `tokens.go`, `dispatch.go`, `rooms.go`, `rematch.go`, `gameplay.go`, `presence.go`,
-  `bots.go`, `turntimer.go`, `broadcast.go`, `statedto.go`, `converter.go`, `metrics.go`, `debug.go`,
-  `client.go`, `maploading.go`, `matchmaking.go`, `drain.go` + `snapshot.go`, `privacy.go`,
-  `logsink.go` (the asynchronous log writer `main` installs), `live.go` (the live-streams strip's
-  one crossing into the loop), `solo.go` (`play_bot`, the 1v1 against the server), `emotes.go` (the
-  three fixed emotes), `online.go` (`players_online`)
-- `janus/` the gateway every third-party call leaves through, and **nothing the gateway already
-  does**: no cache, no retry, no token store (`JANUS.md`)
-- `twitch/` who is streaming the game: `config.go`, `helix.go`, `thumbs.go`, `poller.go`. Imports
-  `janus` and `protocol`, **never `hub`**
-- `protocol/` wire types, and **the single source the client's are generated from**: `messages.go`
-  (the envelopes and DTOs) and `enums.go` (the wire enums, pinned to the domain by `enums_test.go`)
-- `cmd/protocolgen/` the generator: reads `protocol/`, writes the client's two type files, and
-  refuses anything it cannot spell honestly rather than guessing
+**`server/`** authoritative game server: a Cargo workspace (edition 2024, `members =
+["crates/*"]`, every version in `[workspace.dependencies]`, `unsafe_code` forbidden), `deny.toml`
+(cargo-deny: licences, advisories, sources), `Dockerfile`.
+- `crates/loco-game/` the pure domain: `room.rs` (the `Room` and every command, the constants),
+  `state.rs` (`GameState`, one `SeatState` per seat, the catch windows), `rules.rs`, `deck.rs`,
+  `card.rs`, `hand.rs`, `bot.rs`, `maps.rs`, `event.rs`, `error.rs` (`GameError`, `ErrorKind`),
+  `rng.rs`, `gojson.rs` (the snapshot's JSON, Go's field for field), `nickname.rs` + `wordlists/` +
+  `screen.rs` (the nickname matcher, exported for the one name this game did not write); `API.md`
+  the map of every entry point; tests under `src/tests/` (proptests and one `insta` round included)
+- `crates/loco-hub/` the hub, **one module per thing a message leads to**: `table.rs` (**the**
+  table, one `Seat` per chair, and the seat bookkeeping nothing else may do), `actor.rs` (the table's
+  task, its mailbox, its `Deadlines`, and the two ways work crosses between it and the hub),
+  `hub.rs` (the `Hub` handle and the loop), `config.rs` (`HubConfig`, every tunable), `clock.rs`
+  (one timeline), `refusal.rs` (every refusal string), `ids.rs` (`RoomCode`, `SessionToken`),
+  `wire.rs`, `serve.rs`, `tokens.rs`, `dispatch.rs`, `rooms.rs`, `room.rs`, `rematch.rs`,
+  `gameplay.rs`, `presence.rs`, `bots.rs`, `turntimer.rs`, `broadcast.rs`, `statedto.rs`,
+  `convert.rs`, `metrics.rs`, `debug.rs`, `client.rs`, `maploading.rs`, `matchmaking.rs`, `drain.rs`
+  + `snapshot.rs` + `gotime.rs`, `privacy.rs` (the only module that sees a peer's address),
+  `logsink.rs` (the asynchronous log writer `main` installs), `live.rs` (the live-streams strip's one
+  crossing into the loop), `solo.rs` (`play_bot`), `emotes.rs`, `online.rs` (`players_online`),
+  `testkit.rs`; integration tests in `tests/`, internal ones in `src/internal_tests/`, the bench in
+  `benches/hub.rs`
+- `crates/loco-server/` the binary: `main.rs` (configuration, the drain on `SIGTERM`, the
+  `healthcheck` subcommand) and `http.rs` (the listener)
+- `crates/loco-janus/` the gateway every third-party call leaves through, and **nothing the gateway
+  already does**: no cache, no retry, no token store (`JANUS.md`)
+- `crates/loco-twitch/` who is streaming the game: `config.rs`, `helix.rs`, `thumbs.rs`,
+  `poller.rs`. Depends on `loco-janus` and `loco-protocol`, **never `loco-hub`**
+- `crates/loco-protocol/` wire types, and **the single source the client's are generated from**:
+  `client.rs`, `server.rs` (tagged unions on `type`), `dto.rs`, `enums.rs` (the wire enums, pinned to
+  the domain by `tests/enums.rs`), `generate.rs`; `tests/parity.rs` holds the wire to frames the Go
+  server wrote
+- `crates/protocolgen/` the generator: `ts-rs` for the types, `schemars` + `tools/protocol/valibot.mjs`
+  for the validators, which refuses anything it cannot spell honestly rather than guessing
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
 `playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`, `rooms/shoot.mjs`,
@@ -238,103 +270,127 @@ Each rule below is the short form. The note named at the head of the section is 
 is, and it is not optional reading before a change.
 
 ## Game domain
-Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/rules.md`.
+Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/rules.md`. The map of
+every entry point: `server/crates/loco-game/API.md`.
+
+**The crate's shape**
+- **`loco-game` is pure**: no clock, no I/O, no OS randomness. Every command that stamps or compares
+  an instant takes `now: Millis` last — the instant the hub received the message. It builds for
+  `wasm32-unknown-unknown` (CI checks it).
+- **One way in.** A `Room` belongs to one table task, and every command is a `&mut self` method that
+  **validates before it mutates**: a refusal leaves the room exactly as it was (the proptests hold
+  every command to that). There is no functional twin to keep in step.
+- **A seat is `usize`, and nobody is `None`** (`Seat`, `Option<Seat>`). A signed seat exists only on
+  the wire (`loco-protocol`) and in the Go-shaped JSON (`gojson.rs`); the hub converts at those two
+  borders and nowhere else.
+- **What a seat owes is one record** (`GameState.seats: Vec<SeatState>`: `retired`, `declared`,
+  `last_card_at`, `catch_paid_for`, `catch_locked_until`, `near_left_at`). **The hands stay apart**:
+  a Swap or a GlobalSwitch moves the hand and leaves the obligation with the chair.
+- **Refusals are `GameError`, one string each, byte for byte what `serverErrors.ts` matches**, and
+  their class is `GameError::kind()`: `StaleState` answers with a snapshot, `ErrorKind::is_honest()`
+  (`LostRace`, `MissedCatch`) keeps a refusal off `suspected_cheats`.
 
 **LOCO deviations from SOLO** (`docs/rules.md` §14):
 1. **GlobalSwitch is wild**: 4 copies, no colour, plays on anything, names the new active colour.
-2. **The starting card is always a Number**: `dealRound` skips action and wild cards.
+2. **The starting card is always a Number**: `Room::deal_round` skips action and wild cards.
 3. **Best-of-N match format** (BO1/3/5/7), not a 600-point threshold, and **rounds won take the
    match, not points**. It stops the moment the lead cannot be caught — one expression,
-   `Room.decisiveLeader`, covers the early stop and the end of the format alike.
+   `Room::decisive_leader`, covers the early stop and the end of the format alike.
 4. **Voluntary draw is allowed**, still one draw per turn.
-5. **A forced draw does not cost the turn**; `hub.handleDrawCard` re-arms the turn timer on every
-   draw. **The auto-action fires `TurnTimeoutGrace` (400 ms) after the deadline the client is
-   shown**, which stays `TurnTimeout`. **The grace is the server's patience and never on the wire.**
-6. **Nobody forgets LOCO! and wins** (`requireLocoToFinish`, `ErrMustDeclareLoco`): every play that
-   empties a hand is refused without the call. A seat already on one card must have declared
-   **before** this message — a late call is always accepted, so forgetting costs a press and the
-   catch risk, never the round. **A turn batch that empties two or more carries the call**
+5. **A forced draw does not cost the turn**; `handle_draw_card` (`loco-hub/src/gameplay.rs`)
+   re-arms the turn timer on every draw. **The auto-action fires `Timings::turn_timeout_grace`
+   (400 ms) after the deadline the client is shown**, which stays `turn_timeout`. **The grace is the
+   server's patience and never on the wire.**
+6. **Nobody forgets LOCO! and wins** (`require_loco_to_finish`, `GameError::MustDeclareLoco`): every
+   play that empties a hand is refused without the call. A seat already on one card must have
+   declared **before** this message — a late call is always accepted, so forgetting costs a press and
+   the catch risk, never the round. **A turn batch that empties two or more carries the call**
    (`declare_loco`), and the table hears `uno_declared` before `card_played`. **An interject cannot
    reach that branch: it is one card**, so a finish out of turn comes off a hand that sat catchable.
 7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per offer, and only
-   while one is on the table** (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, `CatchOffered`,
-   rationed by `catchOfferKey` + `CatchPaidFor`). The offer is a seat on **exactly two** cards or a
-   seat with a **window still running** (5s plus `catchGrace`, 3s), so the press is a **read of the
-   table** and not an answer to a cue. **The offer is the window, not the hand** — a seat can leave
-   the near-finish picture with no card played. **A seat that grows out of two keeps the offer for
-   `catchNearGrace` (2.5s)** (`GameState.NearLeftAt`, `noteHandGrew`), keyed on the two-card picture
-   it left, so the spasm a beat after a draw is charged and a press either side of it pays once. **Two, not three**, because a window a player can
-   miss on purpose is a Swap away from being ammunition. **The ration is the offer, never the card
-   played.** **A press against a table where nothing is offered is answered by nobody and charged to
-   nobody**; a catch that *lands* spends no offer; a seat number the table does not have is refused
-   rather than charged. **The card follows the picture**, so a thumb held down pays one every time
-   the picture moves — and every card it pays makes the hand it is emptying bigger.
-   **And a call that finds nobody also locks the caller out for 2s** (`catchLockout`,
-   `GameState.CatchLockedUntil`, `Room.LockCatch` / `CatchLocked`, `ErrCatchLocked`). **The card is
-   rationed per offer; the lockout is rationed per press**, and that asymmetry is the whole of it —
-   the card bounded what mashing *cost* and not what it *bought*. Every fruitless press arms the
-   lock, **charged or not**, and **every press made while it runs re-arms it**. While it runs the
-   press **wins nothing and costs nothing**: no catch, no card, no broadcast — only `catch_locked`,
-   to its own sender. A press where nothing is offered arms nothing. **Two seconds is the
-   declaration it protects**, and it dies with the deal.
+   while one is on the table** (`FAILED_CATCH_PENALTY`, `Room::penalize_failed_catch` →
+   `CatchCharge`, `Room::catch_offered`, rationed by `catch_offer_key` + `SeatState.catch_paid_for`).
+   The offer is a seat on **exactly two** cards (`CATCH_NEAR_HAND`) or a seat with a **window still
+   running** (`CATCH_WINDOW_MS` 5s plus `CATCH_GRACE_MS` 3s), so the press is a **read of the table**
+   and not an answer to a cue. **The offer is the window, not the hand** — a seat can leave the
+   near-finish picture with no card played. **A seat that grows out of two keeps the offer for
+   `CATCH_NEAR_GRACE_MS` (2.5s)** (`SeatState.near_left_at`, `note_hand_grew`), keyed on the
+   two-card picture it left, so the spasm a beat after a draw is charged and a press either side of
+   it pays once. **Two, not three**, because a window a player can miss on purpose is a Swap away
+   from being ammunition. **The ration is the offer, never the card played.** **A press against a
+   table where nothing is offered is answered by nobody and charged to nobody**; a catch that *lands*
+   spends no offer; a seat number the table does not have is refused rather than charged. **The card
+   follows the picture**, so a thumb held down pays one every time the picture moves — and every card
+   it pays makes the hand it is emptying bigger.
+   **And a call that finds nobody also locks the caller out for 2s** (`CATCH_LOCKOUT_MS`,
+   `SeatState.catch_locked_until`, `Room::lock_catch` / `catch_locked`, `GameError::CatchLocked`).
+   **The card is rationed per offer; the lockout is rationed per press**, and that asymmetry is the
+   whole of it — the card bounded what mashing *cost* and not what it *bought*. Every fruitless press
+   arms the lock, **charged or not**, and **every press made while it runs re-arms it**. While it runs
+   the press **wins nothing and costs nothing**: no catch, no card, no broadcast — only
+   `catch_locked`, to its own sender. A press where nothing is offered arms nothing. **Two seconds is
+   the declaration it protects**, and it dies with the deal.
 8. **A press is answered on the instant it arrives, and it can be lost in both directions.** Nothing
    holds a Contre-LOCO! back: the faster of the two presses wins, because a reaction the server
-   delays is not a reaction it measures. `CatchHeadStart` is retired; **the two rations above
-   replaced it**. **The other direction has to stay losable too**: a press made a beat after the
-   window shut, or after the seat's hand grew out of reach, costs the same card as one that came too
-   early. **A control that goes dark the frame the offer vanishes makes the read for the player, and
-   makes it in their favour** — the same failure as announcing the call.
+   delays is not a reaction it measures. The head start is retired; **the two rations above replaced
+   it**. **The other direction has to stay losable too**: a press made a beat after the window shut,
+   or after the seat's hand grew out of reach, costs the same card as one that came too early. **A
+   control that goes dark the frame the offer vanishes makes the read for the player, and makes it in
+   their favour** — the same failure as announcing the call.
 
 **The deck and the draw**
-- **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **`Deck.Replenish`
-  appends the pile to what is left of the deck, never in place of it.** **Swap is coloured** and
-  follows ordinary matching; the three wilds are Wild, WildDrawFour, GlobalSwitch.
+- **Deck**: 112 cards (`Deck::standard`, `DECK_SIZE`), 8-card opening hands (`INITIAL_HAND_SIZE`),
+  opening discard must be a Number. **`Deck::replenish` appends the pile to what is left of the deck,
+  never in place of it.** **Swap is coloured** and follows ordinary matching; the three wilds are
+  Wild, WildDrawFour, GlobalSwitch.
 - **Every wild must name a real colour**, GlobalSwitch included, and every entry point rejects a
-  colourless one. `Wild` must never reach `State.ActiveColor`.
-- **A draw never fails.** `DrawCard` validates first, draws through `DrawUpTo`, and only *then*
-  clears `PendingDraw` and sets `HasDrawn` — nothing above that line touches state, nothing below it
-  can fail. Against exhausted piles the draw shrinks rather than erroring and the seat keeps its
-  turn. `Deck.DrawN` survives for dealing only.
-- **Answering a draw stack is `counter_draw`, never `play_card`.** `PlayCard` refuses every card
-  while `PendingDraw > 0`. A counter is the **same kind and the same colour**.
+  colourless one. `Color::Wild` must never reach `GameState.active_color`.
+- **A draw never fails.** `Room::draw_card` validates first, draws through `Deck::draw_up_to`, and
+  only *then* clears `pending_draw` and sets `has_drawn` — nothing above that line touches state,
+  nothing below it can fail. Against exhausted piles the draw shrinks rather than erroring and the
+  seat keeps its turn. `Deck::draw_n` survives for dealing only.
+- **Answering a draw stack is `counter_draw`, never `play_card`.** `Room::play_card` refuses every
+  card while `pending_draw > 0`. A counter is the **same kind and the same colour**.
 
 **LOCO! and the catch**
-- **LOCO! tracking is per seat** (`LastCardDeclared []bool` + `LastCardAt []time.Time`). Receiving
-  your last card owes a declaration exactly like playing down to it, so a Swap or GlobalSwitch opens
-  catch windows on every seat left at one card. A declaration is a one-shot.
-- **The four ways to empty a hand all go through the same gate**: `PlayCard`, `PlayCards`,
-  `InterruptPlayCards` and `CounterDraw` each ask `requireLocoToFinish` before they mutate anything.
+- **LOCO! tracking is per seat** (`SeatState.declared` + `last_card_at`). Receiving your last card
+  owes a declaration exactly like playing down to it, so a Swap or GlobalSwitch opens catch windows
+  on every seat left at one card. A declaration is a one-shot.
+- **The four ways to empty a hand all go through the same gate**: `play_card`, `play_cards`,
+  `interrupt_play` and `counter_draw` each ask `require_loco_to_finish` before they mutate anything.
   **Add a fifth win path and it asks too** — a finish that skips the gate is a round taken in silence.
 - **Who is on the hook is the server's to say and it rides `card_played`** (`catch_seats`, from
-  `CatchableTargets` + `CatchWindowEnd`): the client renders that list and never re-derives it.
+  `GameState::catchable_targets` + `catch_window_end`): the client renders that list and never
+  re-derives it.
 
 **Interrupts**
 - **Interrupts have no deadline and exclude nobody.** Anyone may play a card matching the top
   discard, wilds included; the player who just played and the current player may both take the lead
   back. **Removing those freedoms is what would make the mechanic turn-based: do not reinstate
   them.**
-- **An interject is one card** (`game.ErrInterruptBatch`, `docs/rules.md` §6.8). Holding a copy is a
-  second press into a window the table can win first, and the server refuses a multi-card interject
-  rather than trusting the tap. **Batch play is the turn's** (`Room.PlayCards`), where nothing is
-  being raced.
+- **An interject is one card** (`GameError::InterruptBatch`, `docs/rules.md` §6.8). Holding a copy is
+  a second press into a window the table can win first, and the server refuses a multi-card
+  interject rather than trusting the tap. **Batch play is the turn's** (`Room::play_cards`), where
+  nothing is being raced.
 - **Whether the pile may still be slammed is the server's word, and it rides every message that can
   open or shut the window** (`interrupt_open` on `card_played`, `card_drawn`, `turn_changed`,
   `match_ready` and every `GameStateDTO`; `store.interruptOpen`, `clientMayInterrupt`'s fourth
-  argument). A pointer on the message: false is the answer that matters, absent means unchanged.
+  argument). An `Option` on the message: false is the answer that matters, absent means unchanged.
   `interruptWindow.test.ts`.
 - **The window is open from the deal, and the opening discard is a card like any other**
-  (`GameState.InterruptOpen`, set by `dealRound`, distinct from `LastPlayBy`). **Bots stay out of
-  that one window** — they read `LastPlayBy`, which the deal leaves at -1.
+  (`GameState.interrupt_open`, set by `deal_round`, distinct from `last_play_by`). **Bots stay out of
+  that one window** — they read `last_play_by`, which the deal leaves `None`.
 
 **Scoring and history**
-- **Scoring**: single-finisher round, `CardValue` per `docs/rules.md` §10, cumulative `Room.Scores`,
+- **Scoring**: single-finisher round, `card_value` per `docs/rules.md` §10, cumulative `Room.scores`,
   tiebreakers **rounds won then score** then lost-hand total then sudden death. **The score measures
-  the gap, it does not crown anybody** — and `biggestLoser` stays indexed on it on purpose.
-- **The table remembers its finished matches** (`table.matchHistory`, one record per match, indexed
-  by seat). It **survives `resetForNextMatch`**, moves with `dropSeat` and `swapSeats`, rides the
-  drain snapshot and the personalised state, and is what the evening recap is drawn from. **It also
-  rides every `player_left` that re-bases the roster** — the client cannot re-base it itself.
-- **Each record says how long its match was played** (`duration_ms`, from `table.matchStartedAt`
+  the gap, it does not crown anybody** — and `biggest_loser` stays indexed on it on purpose.
+- **The table remembers its finished matches** (`Table.match_history`, one `MatchRecord` per match,
+  indexed by seat). It **survives `reset_for_next_match`**, moves with `drop_seat` and `swap_seats`,
+  rides the drain snapshot and the personalised state, and is what the evening recap is drawn from.
+  **It also rides every `player_left` that re-bases the roster** — the client cannot re-base it
+  itself.
+- **Each record says how long its match was played** (`duration_ms`, from `Table.match_started_at`
   stamped at `match_ready` — the gate is a wait, not the game). **Zero is "cannot say" and stays off
   the wire**, so a played match is rounded up to at least 1 ms. The client words it
   (`components/matchDuration.ts`) **to the second, units written out** — `12 min 34 s`, never
@@ -342,240 +398,296 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 
 ## Server
 Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.md`](docs/notes/live.md).
+Everything below lives in `server/crates/loco-hub/src/` unless a crate is named.
 
 **Admission and abuse**
-- **Client timestamps never decide an outcome.** Per-client token bucket at 10 msg/s, burst 20, with
-  **one notice per burst**.
-- **One message must never be able to cost the server.** `hub.dispatch` opens with a `recover` **and**
-  a gate refusing every `isGameplayMsg` at a table not `StatusPlaying` or whose `State` is nil.
-  Neither excuses a missing bounds check; `handler_panics` above zero is a bug by definition.
-- **The gameplay gate also bounds the seat**: `dispatchAtTable` refuses a sender whose `playerID` is
-  not an index into `State.Hands` — four entry points index a hand before they validate anything.
-- **Nothing is unbounded.** `MaxClients` (5000) and `MaxConnsPerNet` (64) refused in `ServeWS`
-  **before the upgrade**, against `admitConn`'s own counter, never `h.metrics.clients`; `MaxRooms` (2000)
-  in `handleCreateRoom`. **Reaching one in production is a signal to read the logs, not a number to
-  lower.**
-- **A wrong table code costs something**: `MaxFailedJoins` (20) per network per minute, refused
+- **Client timestamps never decide an outcome.** Per-client token bucket at 10 msg/s, burst 20
+  (`RATE_PER_SEC`, `RATE_BURST`), with **one notice per burst**.
+- **One message must never be able to cost the server.** `dispatch::dispatch` runs every handler
+  inside `catch_unwind` **and** a gate refusing every `is_gameplay_msg` at a table not
+  `Status::Playing` or with no state. Neither excuses a missing bounds check; `handler_panics` above
+  zero is a bug by definition.
+- **The gameplay gate also bounds the seat**: `dispatch_at_table` refuses a sender whose seat is not
+  an index into `state.hands` — four entry points index a hand before they validate anything.
+- **Nothing is unbounded.** `Limits` (`config.rs`): `max_clients` (5000) and `max_conns_per_net` (64)
+  refused in `serve.rs` **before the upgrade**, against the admission counter (`admit`, an
+  `AdmissionSlot` given back exactly once), never the metrics; `max_rooms` (2000) at `create_room`.
+  **Reaching one in production is a signal to read the logs, not a number to lower.**
+- **A wrong table code costs something**: `max_failed_joins` (20) per network per minute, refused
   before the lookup, keyed by network rather than by socket.
 - **Both of those are per network, and in production this server never sees one.** The network is
-  decided once by `hub.clientNet` and kept on `Client.netKey`. `ClientIPHeaders` in order
-  (`CF-Connecting-IP`, then `X-Real-IP`) **only from a trusted peer** (`TrustedProxies`), and a
-  multi-value header (a comma list or a repeated line) is **refused**. **That order is a security property.** Anything unbelievable
-  falls back to the peer (`isRoutableClient`). Truncated on the way in.
+  decided once by `privacy::client_net` (the `ClientNet` extractor) and kept on `Client.net_key`.
+  `NetPolicy.client_ip_headers` in order (`CF-Connecting-IP`, then `X-Real-IP`) **only from a trusted
+  peer** (`trusted_proxies`), and a multi-value header (a comma list or a repeated line) is
+  **refused**. **That order is a security property.** Anything unbelievable falls back to the peer
+  (`is_routable_client`). Truncated on the way in.
 - **Which of those headers a host may forward is the host's to declare, never the shared proxy
   block's** (`client/nginx.conf` `set $loco_cf_ip` / `$loco_real_ip`). `ws.` is grey-clouded, so it
   forwards `X-Real-IP` and empties the other; the site's host does the reverse. `csp.test.ts` pins it.
-- **The upgrade checks `Origin`** (`hub.originAllowed`): hostnames must match, ports need not; a
+- **The upgrade checks `Origin`** (`serve::origin_allowed`): hostnames must match, ports need not; a
   missing `Origin` is allowed. **`LOCO_ALLOWED_ORIGINS` is mandatory in production** — the page and
   the socket are on two hostnames, and it names the **page's** origin, never the socket's.
 - **A refusal must not name the roster.** `join_room` at a table in progress answers `game already in
-  progress` either way. Tokens compare with `subtle.ConstantTimeCompare`, and **a reclaim spends its
-  token and is issued a fresh one**.
-- **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback —
-  **the deal is hidden state**, and `game/rng_test.go` runs the clock-seed attack. **Every shuffle
-  that decides a hand takes it, the mid-round `Deck.Replenish` included.** `math/rand`'s global source
-  is for bots (their jitter and their choices) and nothing that decides hidden state; the room's own
-  `*rand.Rand` is seeded from `crypto/rand`.
-- **The nickname is validated in the domain and refused with one string.** `game.ValidateNickname`
-  owns length **in runes**, an allowlist charset and the blocked-term check; all three reach the
-  player as `nickname not allowed` and **never say which rule fired**. Wordlists matched folded,
-  whole-token first, **as a substring only from 6 characters up**, with `nicknameAllowSeed` for the
-  collisions. **That threshold is the false-positive control: do not lower it without a test proving
-  real names still pass.**
-- **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names what a correct
-  client produces all match; handlers call `Client.noteRejection(err)`. Always `errors.Is`.
+  progress` either way. A `SessionToken` (`ids.rs`) compares in constant time in its own `PartialEq`
+  (`subtle`), refuses an empty value, and has no `Display` and a `Debug` that prints nothing. **A
+  reclaim spends its token and is issued a fresh one.**
+- **Room codes, session tokens and the room's own RNG all come from the OS (`OsRng`)**, no fallback
+  — **the deal is hidden state**. The room's `ChaCha12Rng` is seeded with 32 OS bytes
+  (`room::new_room`, `SavedRoom::restore`), so a room without a source cannot exist, and
+  `loco-game/src/tests/rng_test.rs` runs the clock-seed attack. **Every shuffle that decides a hand
+  takes it, the mid-round `Deck::replenish` included.** The thread RNG (`rand::rng()`) is for bots —
+  their jitter and their choices — and nothing that decides hidden state. A `RoomCode` is parsed once,
+  at `join_room`, by `ROOM_CODE_CHARS` / `ROOM_CODE_LEN`.
+- **The nickname is validated in the domain and refused with one string.**
+  `loco_game::validate_nickname` owns length **in chars**, an allowlist charset and the blocked-term
+  check; all three reach the player as `nickname not allowed` and **never say which rule fired**.
+  Wordlists (`include_str!`) matched folded, whole-token first, **as a substring only from 6
+  characters up**, with `NICKNAME_ALLOW_SEED` for the collisions. **That threshold is the
+  false-positive control: do not lower it without a test proving real names still pass.**
+- **A refused action is not automatically suspicious.** `ErrorKind::is_honest()` names what a correct
+  client produces all match; handlers call `Client::note_rejection(&err)`.
 
 **The loop**
-- **A table is one object, it owns its own goroutine, and it is the only thing that may move a seat**
-  (`hub/table.go` + `hub/actor.go`). Deleting is one `delete`, a rematch's reset `resetForNextMatch()`,
-  removing a seat `dropSeat(id)` — which shifts members, `playerID`s, bots and tokens **together**.
-  Add per-table state as a field here, **never as a twelfth map and never as something another
-  goroutine reads**.
-- **The hub routes, the table decides.** `t.post(job)` and `h.postToRouter(fn)` are **both
-  non-blocking**: a blocking send either way deadlocks. Overflow is dropped and counted; the drops
-  that would leak something retry once. **Nothing but the hub may touch a table's fields.**
-- **A table is started only once the hub has finished filling it in** (`t.start(h)`, never
-  `newTable`), and it **stops existing and stops running at the same moment** (`deleteRoom`).
-- **A panic is recovered on the table as well as on the hub** (`runJob`): a dead table goroutine does
-  not fail, it goes quiet.
-- **A socket holds one seat for its lifetime, and the seat is one atomic value** (`Client.seat`, a
-  `seatRef` — never two fields written in pairs). `dispatchAtTable` re-checks the seat against the
-  table about to act on it.
-- **A seat that is empty must read as empty, and `awayAt` only answers half of that**: `table.gone`
-  (through `hasLeft`) is the other half. **A finished ordinary table holds its seats too**, and so
-  does a matchmade table in its versus reveal; a finished matchmade one does not. **`awayAt` and
-  `afk` re-base with every other seat-keyed map** (`table.shiftSeatKeys`), and **an expiry finds its
-  hold by the instant it began, never by the seat number it was armed with** (`heldSeatAt`).
-- **Personalised sends index by slot, never by `member.playerID`.**
-- **Removing a seat re-bases everything the scoreboard is drawn from** (`RemoveLobbyPlayer`), and the
-  `player_left` carries the re-based `scoreboard` and `round_history`.
-- **Every path that grows a hand goes through `hub.sendHandGrowth`**: the affected player gets the
-  cards, everyone else the count.
-- **A zero is a value, not an absence.** `turn` and `drawn_count` carry no `omitempty`;
-  `pending_draw`, `has_drawn`, `player_index` and `player_id` are pointers. Read seats with
-  `ServerMsg.Seat()` / `ServerMsg.OwnSeat()` (-1 = no seat named).
-- **Every message carries `server_now`**, stamped where a message is marshalled (`Client.Send`,
-  `broadcastToRoom`): every deadline on the wire is an absolute server instant.
-- Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
-  marshal once. `Client.SendBytes` force-closes on a full send buffer. **The versus reveal's deal is
-  armed twice** (`MatchmakingRevealBackstop`): every other dropped job is lossy, that one is unbounded.
-- **What the server costs is measured, not assumed** (`make bench-server`): 8.6 µs for a whole card
-  play against a bucket admitting at most 50 000 msg/s. The table split was bought for **isolation,
-  not throughput**. `/metrics` carries `loop_queue_depth`, `loop_queue_peak`, `loop_slowest_us` and
-  `messages_dropped_busy`, on one `hubMetrics` struct, high-water marks raised by CAS. **Argue about
-  scaling with those numbers or not at all.**
+- **A table is one value owned by one tokio task, and it is the only thing that may move a seat**
+  (`table.rs` + `actor.rs`): an `mpsc` mailbox, no lock, **nothing else can read it** — the compiler
+  refuses a second reader. **A seat is one `table::Seat`** (`occupant`, `token`, `afk`,
+  `wants_rematch`), so removing a seat is `Table::drop_seat` (a `Vec::remove`) and a host transfer
+  `swap_seats` (a `Vec::swap`): nothing keyed by seat can be left behind. A rematch's reset is
+  `reset_for_next_match`. **Add per-table state as a field of `Table`, never as a map on the hub and
+  never as something another task reads.**
+- **Who is in a chair is an `Occupant`**: `Human`, `Held { since }`, `Gone`, `Bot`, `Vacant`. A seat
+  cannot be held and seated at once, and the roster's `connected` is "neither held nor gone" by
+  construction. **A finished ordinary table holds its seats**, and so does a matchmade table in its
+  versus reveal; a finished matchmade one does not. **An expiry finds its hold by the instant it
+  began, never by the seat number it was armed with** (`Table::held_seat_at`).
+- **The hub routes, the table decides.** `TableSender::post` and `post_to_router` are **both
+  `try_send`**: a blocking send either way deadlocks. A full box hands the job back; overflow is
+  dropped and counted (`messages_dropped_busy`), and the drops that would leak something retry the
+  same job once (`post_critical`). **Nothing but the table's own task touches a `Table`**; the hub
+  reads only the `Phase` the table publishes.
+- **A table is started only once the hub has finished filling it in** (`TableHandle::start`); work
+  that must be its first job is handed to the task as it starts (`open_table_with`), never posted
+  into a box that could refuse it. **Deleting a table removes it and stops it in one step on the
+  loop** (`delete_room`, which never waits on the task): the one job the task may be inside finishes
+  — a job is synchronous and is never cut in half — and **after it the task runs nothing**, no job
+  left in its box and no deadline, not even one due in the same batch. Stopping hands its state
+  back, which is how the drain snapshot reads every table without a lock.
+- **A panic is caught on the table as well as on the hub** (`actor::run_job`, `catch_unwind`, and
+  `panic = "unwind"` in the release profile): a dead table task does not fail, it goes quiet.
+- **Every delay is a deadline in the table's state** (`Table.deadlines`, keyed by `DeadlineKey`), and
+  the task sleeps until the next one in the same `select!` that reads its mailbox. **Arming a key
+  replaces what was armed under it, and the paths that end a wait disarm it**; a fire re-checks only
+  state that can move without a re-arm. Reconnect holds take unique keys (`Table::unique_key`).
+- **One clock** (`clock.rs`): the domain's `Millis` are derived from tokio's, anchored once, so a test
+  under `tokio::time::pause` moves catch windows and deadlines together.
+- **A socket holds one seat for its lifetime, and the seat is one value** (`Client.seat`, a
+  `SeatRef` of code and index behind one lock — never two fields written in pairs).
+  `dispatch_at_table` re-checks it against the table about to act on it.
+- **Personalised sends index by seat, never by a client's own idea of its seat.**
+- **Removing a seat re-bases everything the scoreboard is drawn from** (`Room::remove_lobby_player`),
+  and the `player_left` carries the re-based `scoreboard` and `round_history`.
+- **Every path that grows a hand goes through `send_hand_growth`**: the affected player gets the
+  cards, everyone else the count. `card_drawn` is built in one place (`announce_cards_drawn`, which a
+  voluntary draw and a bot's draw call directly because they announce even an empty draw);
+  `tests/funnels.rs` fails on a second builder.
+- **A zero is a value, not an absence.** `turn` and `drawn_count` are always written; `pending_draw`,
+  `has_drawn`, `player_index` and `player_id` are `Option`s, so seat 0 and `false` survive. The
+  shapes are `loco-protocol`'s (`docs/protocol.md`).
+- **Every message carries `server_now`**, stamped where a message is serialised (`ServerMsg::stamp`,
+  from `Client::send` and `Table::broadcast`): every deadline on the wire is an absolute server
+  instant.
+- Broadcasts serialise once. `Client::send_bytes` force-closes on a full send buffer
+  (`SEND_BUFFER`). **The versus reveal's deal is armed twice** (`MatchmakingTimings.reveal_backstop`):
+  every other dropped job is lossy, that one is unbounded.
+- **The tunables are a value** (`HubConfig`: `Limits`, `Timings` with `MatchmakingTimings` and
+  `BotTimings`, origins, `NetPolicy`, debug mode), read once by `HubConfig::from_env`. A test narrows
+  a knob by passing a config, never by writing a global.
+- **What the server costs is measured, not assumed** (`make bench-server`, criterion,
+  `benches/hub.rs`): about 1.3 µs for a whole card play at four seats, against a bucket admitting at
+  most 50 000 msg/s. The table split was bought for **isolation, not throughput**. `/metrics` carries
+  `loop_queue_depth`, `loop_queue_peak`, `loop_slowest_us` and `messages_dropped_busy`, on one
+  `HubMetrics`, high-water marks raised by `fetch_max`. **Argue about scaling with those numbers or not
+  at all.**
 
 **A refused message must never be cheaper than an accepted one**
-- **A refusal does not clear the AFK counter.** `dispatchAtTable` resets it *after* the handler and
-  only when `Client.refusals` did not move; `sendError` is the single funnel that moves it. **A
-  gameplay message answered by nobody is a refusal too**: a Contre-LOCO! where nothing is offered,
-  one inside the lockout, or one already charged for this offer calls `Client.refuseSilently()`, which
-  bumps `Client.refusals` without answering, or a held catch button would be immunity from the threshold.
+- **Every refusal is a `refusal::Refusal`** (a domain one by `From<GameError>`), and `Client::refuse`
+  is the single funnel. **A new refusal string goes in `i18n/serverErrors.ts` in the same change.**
+- **A refusal does not clear the AFK counter.** `dispatch_at_table` resets it *after* the handler and
+  only when `Client.refusals` did not move. **A gameplay message answered by nobody is a refusal
+  too**: a Contre-LOCO! where nothing is offered, one inside the lockout, or one already charged for
+  this offer calls `Client::refuse_silently`, which counts without answering, or a held catch button
+  would be immunity from the threshold.
 - **A refusal answers its sender and nobody else**, unless the rules say the table pays too. Same
   rule makes `rematch` idempotent, and covers a penalty that drew nothing and a Contre-LOCO! already
   charged for this offer or aimed at a table where nothing is offered.
-- **A correction is throttled** (`resyncPeriod`, 1s per socket).
+- **A refusal that proves a drift carries the correction** (`refuse_action`: a `StaleState` refusal
+  is answered with a fresh personalised snapshot). **A correction is throttled** (`resync_period`,
+  1s per socket).
 
 **Rooms, hosts and modes**
-- **A table with no host is a shape, not a mode** (`table.hostless`, `refuseWithoutHost`): a
+- **A table with no host is a shape, not a mode** (`Table::hostless`, `refuse_without_host`): a
   matchmade pair and a solo game. `add_bot`, `start_game`, `set_match_format`, `set_max_players`,
   `kick_player` and `transfer_host` are refused at both.
 - **`play_bot` is a 1v1 against the server, and it is the queue's shape without the queue**
-  (`hub/solo.go`): no code, no waiting room, nothing to configure, BO1. **It touches nothing the
-  queue owns**, which the E2E suite depends on. Its `game_started` carries `room_code` / `player_id`
-  / `session_token`. **`rematch` is the one room where it is refused.**
+  (`solo.rs`): no code, no waiting room, nothing to configure, BO1. **It touches nothing the queue
+  owns**, which the E2E suite depends on. Its `game_started` carries `room_code` / `player_id` /
+  `session_token`. **`rematch` is the one room where it is refused.**
 - **`kick_player` is the one host control that acts on a person, so it is the strictest**: host only,
-  lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`. **It is not a ban and
+  lobby only, matchmade never, **never seat 0**. The work is `release_seat`. **It is not a ban and
   must not become one.**
-- **`transfer_host` hands the table over, and it is a seat swap** (`game.SwapLobbyPlayers` +
-  `table.swapSeats`, **the token travelling with the player**). Host only, lobby only, matchmade
+- **`transfer_host` hands the table over, and it is a seat swap** (`Room::swap_lobby_players` +
+  `Table::swap_seats`, **the token travelling with the player**). Host only, lobby only, matchmade
   never, never seat 0 and never a bot. `host_changed` is sent **per recipient**.
-- **The host is seat 0, so a bot never sits there** (`hub.keepHostHuman`, from
-  `reindexLobbyDisconnect` **and** `joinAtTable` — both call sites are needed).
+- **The host is seat 0, so a bot never sits there** (`keep_host_human`, from
+  `reindex_lobby_disconnect` **and** `join_at_table` — both call sites are needed).
 - **`rematch` is an ask, not a decision, in every room.** Every ask is broadcast (`rematch_offered`,
   carrying the **whole** offer state and the quorum), and **two asks deal the next match at any
-  size** (`RematchQuorum`; bots are not asked). **Nobody is dropped by that.** **The reopened table
-  is hosted by somebody who asked for it** (`promoteRematchHost`). **A departure retires that seat's
-  ask and re-bases the rest.**
+  size** (`REMATCH_QUORUM`; bots are not asked). **Nobody is dropped by that.** **The reopened table
+  is hosted by somebody who asked for it** (`promote_rematch_host`). **A departure retires that
+  seat's ask** — the ask lives on the seat, so it moves with the seats above it.
 - **`set_streamer_mode` is the one setting a client's *presentation* preference is allowed to reach
   the server through**. Host only, hostless never, **every status**. It carries a state and never a
   toggle, a repeat is **answered by nobody**, and the answer rides `streamer_mode_changed`,
   `room_joined` and every `GameStateDTO`. **Nothing else about a player's presentation may follow it
   here.**
 - **Three fixed emotes, on the game-over screen, and no free text anywhere in this game**
-  (`hub/emotes.go`, `protocol.AllEmotes`). **Closed and server-side**, **nothing is kept anywhere**,
-  refused anywhere but a finished match and never to or from a bot, **both refusals broadcast
-  nothing**. No per-seat cooldown — the client replaces a seat's line. Free text would be a
-  moderation surface.
+  (`emotes.rs`, `loco_protocol::ALL_EMOTES`). **Closed and server-side** (an unknown one fails at
+  decoding), **nothing is kept anywhere**, refused anywhere but a finished match and never to or from
+  a bot, **both refusals broadcast nothing**. No per-seat cooldown — the client replaces a seat's
+  line. Free text would be a moderation surface.
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — the number lives only
   on `/metrics`. Nothing player-facing says "unranked".
-- **`players_online` is the sockets, not the queue** (`hub/online.go`): sent on registration, then
+- **`players_online` is the sockets, not the queue** (`online.rs`): sent on registration, then
   **only when the count moves**, and **only to sockets not at a table**. **What each socket was last
-  told is kept per socket** (`Client.onlineSent`). The floor is the **client's**.
+  told is kept per socket** (`Client.online_sent`). The floor is the **client's**.
 
 **Leaving, and nobody waiting for somebody who is not there**
-- A matchmade room holds a dropped seat 15s and treats 2 turn timeouts as away; **both expiries
-  forfeit**, as does `leave_room`. Ordinary rooms keep 60s and 4. **The scoreboard is left alone.**
-  Every room allows `leave_room` in its waiting room behind one in-place confirmation, the only one
-  in the game.
-- **`WalkOutFloor` = 2 is what a match needs to keep being a match**, not a permission
-  (`Hub.canWalkOut`, `Room.RetireSeat`). **Evaluated once, at the ask.** Above it the seat is
+- A matchmade room holds a dropped seat 15s and treats 2 turn timeouts as away
+  (`MatchmakingTimings`); **both expiries forfeit**, as does `leave_room`. Ordinary rooms keep 60s
+  and 4. **The scoreboard is left alone.** A forfeit disarms every deadline the match armed (turn
+  clock, gate, reveal, bots) and keeps the table's own: the cleanup and the holds of seats still
+  away. Every room allows `leave_room` in its waiting room behind
+  one in-place confirmation, the only one in the game.
+- **`WALK_OUT_FLOOR` = 2 is what a match needs to keep being a match**, not a permission
+  (`can_walk_out`, `Room::retire_seat`). **Evaluated once, at the ask.** Above it the seat is
   *retired*, not removed: the hand goes back to the deck, the turn steps over it, its catch window
-  shuts, **and the scoreboard is left exactly as it stood**. `nextTurn`, `rotateSeats`,
-  `biggestLoser` and the Swap target all know about it.
-- **`leave_room` is refused nowhere, and the table decides what it does** (`leaveAtTable`, four
+  shuts, **and the scoreboard is left exactly as it stood**. `next_turn`, `rotate_seats`,
+  `biggest_loser` and the Swap target all know about it.
+- **`leave_room` is refused nowhere, and the table decides what it does** (`leave_at_table`, four
   branches in order): a matchmade match **forfeits**; a solo game or a table nobody can come back to
-  (`table.abandonedBy`) is **closed**; above the floor the round **carries on**; at or below it the
+  (`Table::abandoned_by`) is **closed**; above the floor the round **carries on**; at or below it the
   match **goes to the seat that stayed**. **A match nobody is at and nobody can return to ends where
-  that becomes true** (`closeAbandonedMatch`).
-- **A hold that runs out is settled the way `leave_room` settles the seat** (`settleExpiredSeat`,
-  `retireAbsentSeat`). `expiry_settle_test.go`.
-- **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub/drain.go`): nothing
+  that becomes true** (`close_abandoned_match`).
+- **A hold that runs out is settled the way `leave_room` settles the seat** (`settle_expired_seat`,
+  `retire_absent_seat`). `tests/expiry_settle.rs`.
+- **A deploy does not end the matches on the server.** `SIGTERM` drains (`drain.rs`): nothing
   starting a new match is accepted, the queue is emptied with an explanation, **every table is told
-  once — every table, not only the ones playing**, **everything already running is left completely
+  once — every table, not only the ones playing**, through `post_critical` so a full box is retried
+  rather than skipped, **everything already running is left completely
   alone**, and the refusal list is chosen so the drain terminates. The rest goes to
-  `LOCO_SNAPSHOT_PATH` (`hub/snapshot.go`): only matches in flight travel, a snapshot is never
-  replayed, and a foreign `SnapshotSchemaVersion` or an age past `SnapshotMaxAge` drops the file
-  whole. **`stop_grace_period` must stay above `LOCO_DRAIN_TIMEOUT`.**
+  `LOCO_SNAPSHOT_PATH` (`snapshot.rs`): only matches in flight travel, as `loco_game::SavedRoom`; a
+  snapshot is never replayed, and a foreign `SNAPSHOT_SCHEMA_VERSION` (5) or an age past
+  `snapshot_max_age` drops the file whole. **Each environment has its own snapshot directory**
+  (`${DATA_DIR}/snapshots/${DEPLOY_ENV}`). **`stop_grace_period` must stay above
+  `LOCO_DRAIN_TIMEOUT`.**
 
 **Bots and the gate**
-- **Bots**: `game/bot.go` decides, `hub` schedules, through the same domain calls and broadcasts as
-  humans. **A bot's Swap goes to the smallest hand and is held when it would not pay**, and **a plain
-  Wild that would name the colour already active is held the same way** (`botWildIsIdle`) — it is
-  only ever the colour it names, so it would move nothing; the +4 and the Rotation always pay and are
-  never held. **A colour tie is broken towards the change and never bought**
-  (`botPreferredColor(hand, active)`). **It batches its copies on its own turn only** — its
-  interject is one card, like everybody's (`BotInterrupt`); **a refused bot move gives the turn up,
-  never the table** (`botRecover`); `botCanPlayDrawn` asks `BotThink`, not `CanPlay`.
+- **Bots**: `loco-game/src/bot.rs` decides, `bots.rs` schedules, through the same domain commands and
+  broadcasts as humans. **A bot's Swap goes to the smallest hand and is held when it would not pay**,
+  and **a plain Wild that would name the colour already active is held the same way**
+  (`bot_wild_is_idle`) — it is only ever the colour it names, so it would move nothing; the +4 and the
+  Rotation always pay and are never held. **A colour tie is broken towards the change and never
+  bought** (`bot_preferred_color(hand, active)`). **It batches its copies on its own turn only** — its
+  interject is one card, like everybody's (`bot_interrupt`); **a refused bot move gives the turn up,
+  never the table** (`bot_recover`); whether to play a drawn card asks `bot_think`, not `can_play`.
 - **A bot's Contre-LOCO! is late, single and armed everywhere.** 3.2–4.4s of the 5s window, never
   past the deadline. **One attempt per window and one press, however many bots are at the table**
-  (`botCatchAttempt`, derived from seat + `LastCardAt`). **Their lateness is theirs alone** —
-  `BotCatchDelay` is the only thing between a bot and the instant a window opens. Armed by one
-  `maybeScheduleBotReactions` after **every** action, human or bot.
-- **A bot's move that takes the round is held to its instant** (`botFinishDue`): never sooner than
-  `BotFinishDelay` (1.8–2.6s) after it became possible — the card it slams onto landing, its turn
-  coming round — and **never before its own declaration** (`botUnoAt`) while its last card is
+  (`bot_catch_attempt`, derived from seat + `last_card_at`). **Their lateness is theirs alone** —
+  `BotTimings.catch_delay` is the only thing between a bot and the instant a window opens. Armed by
+  one `maybe_schedule_bot_reactions` after **every** action, human or bot.
+- **A bot's move that takes the round is held to its instant** (`bot_finish_due`): never sooner than
+  `BotTimings.finish_delay` (1.8–2.6s) after it became possible — the card it slams onto landing, its
+  turn coming round — and **never before its own declaration** (`bot_uno_at`) while its last card is
   undeclared, or the call it makes on the way out shuts the catch window early. **The declaration
   has one instant per window**, like the catch. Slam, batch, turn and counter alike.
-- **Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment** (gated on
-  `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
+- **Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment**
+  (`BotTimings::apply_env`, gated on `LOCO_E2E=1`); **every other bot delay is a reaction window
+  somebody is meant to be able to win.**
 - **An AFK kick answers the socket, never the turn**: the clock draws and passes for the kicked seat
   like any empty chair, a reclaim clears the counter, and the auto-draw re-arms before it broadcasts.
 - **Every snapshot carries `catch_seats` and `declared_seats`**, and what is the same for every
-  recipient is built once per broadcast (`sharedGameState`).
-- **The map-loading gate refuses every gameplay message while open**, and the turn clock starts at
-  `match_ready`, not `game_started`. Per match, not per round. **Nothing arms a clock or a bot behind
-  it either** (`scheduleTurnTimer`, `maybeScheduleBot`, and a bot move armed in the previous match).
+  recipient is built once per broadcast (`shared_game_state`).
+- **The map-loading gate refuses every gameplay message while open** (`Table.loading`), and the turn
+  clock starts at `match_ready`, not `game_started`. Per match, not per round. **Nothing arms a clock
+  or a bot behind it either** (`schedule_turn_timer`, `maybe_schedule_bot`, and a bot move armed in
+  the previous match).
 
 **The outside world, and the operator's surfaces**
 - **Every third-party call leaves through Janus, and nothing the gateway already does is written
-  again here** (`JANUS.md`, `server/janus/`): no cache, no retry, no backoff, no circuit breaker, no
-  token store, **no Twitch credential in this repository at all**. A 429's `Retry-After` is honoured
-  by skipping ticks. `application/problem+json` means the gateway refused; any other media type means
-  the API answered.
-- **The live-streams poller never touches the event loop** (`server/twitch/`, `hub/live.go`): its own
-  goroutine, 60s, back in through `PublishLive` → `postToRouter` alone. **Off, silently, without
-  `JANUS_API_KEY`.** **A `game_id` that will not resolve switches it off rather than widening the
-  query.** A non-2xx is an error, never an empty list; a list older than `LiveMaxAge` is published
-  **empty**.
+  again here** (`JANUS.md`, `server/crates/loco-janus/`): no cache, no retry, no backoff, no circuit
+  breaker, no token store, **no Twitch credential in this repository at all**. A 429's `Retry-After`
+  is honoured by skipping ticks. `application/problem+json` means the gateway refused; any other media
+  type means the API answered.
+- **The live-streams poller never touches the event loop** (`server/crates/loco-twitch/`,
+  `live.rs`): its own task, 60s, back in through `publish_live` → `post_to_router` alone. **Off,
+  silently, without `JANUS_API_KEY`.** **A `game_id` that will not resolve switches it off rather than
+  widening the query.** A non-2xx is an error, never an empty list; a list older than `LIVE_MAX_AGE`
+  (10 min) is published **empty**. `loco-twitch` **never depends on `loco-hub`**.
 - **A preview from Twitch is re-served from this origin, out of memory, under a key we mint.** The
   allowlist is the last poll's answers rather than a pattern; bounds and magic bytes are checked and
   **our** `Content-Type` is written. It is what keeps `img-src 'self'` untouched.
 - **A name this game did not write is screened before it is shown, and a catch drops the row rather
-  than masking it** (`game.ContainsBlockedTerm` — never `ValidateNickname`). **No stream title is
-  ever relayed**, and the DTO has no field for one.
-- `/metrics` **and `/health`** are operator surfaces: only `docker-compose.dev.yml` publishes the Go
-  server, and **nginx proxies `/ws`, `/live.json` and `/live-thumb/`, and nothing else**.
-  `debug_mode_active` must be `false` in prod.
-- **The server container has no privilege to lose**: uid 10001, `no-new-privileges`, `cap_drop: ALL`,
-  read-only rootfs, tmpfs `/tmp`. **Treat `${DATA_DIR}/snapshots` as a secret**: every session token
-  and every hand of every interrupted match.
-- Structured `key=value` logging, `conn=` on every connection-scoped line, never tokens or hands.
-- **The log never touches the event loop.** `main` installs `hub.NewAsyncLog` as the standard
-  logger's writer. The queue is bounded, **overflow is dropped rather than waited on**, counted on
-  `/metrics` (`log_lines_dropped`) and admitted in the log itself. Never route that notice back
-  through `log`. `main` closes the sink last and does not call `log.Fatal`.
+  than masking it** (`loco_game::contains_blocked_term` — never `validate_nickname`). **No stream
+  title is ever relayed**, and the DTO has no field for one.
+- **The listener is ours** (`loco-server/src/http.rs`, hyper's HTTP/1 builder): a 10s header-read
+  timeout, which also closes an idle keep-alive connection. An upgraded WebSocket is past it.
+- `/metrics` (Prometheus text, the `metrics` crate, one recorder per hub) **and `/health`** (JSON) are
+  operator surfaces: only `docker-compose.dev.yml` publishes the server, and **nginx proxies `/ws`,
+  `/live.json` and `/live-thumb/`, and nothing else**. `debug_mode_active` must be `0` in prod.
+- **The server container has no privilege to lose**: a static binary on distroless, uid 65532,
+  `no-new-privileges`, `cap_drop: ALL`, read-only rootfs, tmpfs `/tmp`. **Treat
+  `${DATA_DIR}/snapshots` as a secret**: every session token and every hand of every interrupted
+  match.
+- Structured `key=value` logging through `tracing`, **in spans rather than repeated fields**: a
+  table's task carries `code=`, a connection's pumps and jobs `conn=` (and `addr=`, a network prefix).
+  Never tokens or hands.
+- **The log never touches the event loop.** `main` installs a `logsink::AsyncLog` as the tracing
+  writer (`logsink::install`). The queue is bounded, **overflow is dropped rather than waited on**,
+  counted on `/metrics` (`log_lines_dropped`) and admitted in the log itself. Never route that notice
+  back through the log. `main` closes the sink last, **and so does the second signal**
+  (`abandon_drain`): the escape hatch flushes, bounded by `LOG_CLOSE_GRACE`, before it exits.
 
 ## Client
 Detail: [`docs/notes/client.md`](docs/notes/client.md).
 
 **Build and framework**
-- **The game is never an Astro island.** A `client:*` directive emits inline scripts the CSP refuses;
-  `entry.ts` is mounted by a bundled `<script>`. `csp.test.ts` fails on any `client:*` or `is:inline`, except an `is:inline`
-  `application/ld+json` data block (the structured data in `layouts/Base.astro`), which never executes.
+- **The CSP header allows the router's bootstrap by hash, and nothing inline by hand.** SvelteKit
+  starts a prerendered page with one inline script; `csp: { mode: 'hash' }` hashes it, and
+  `scripts/csp-hashes.mjs` (last step of `npm run build`) reads every hash out of `build/` into the
+  generated, git-ignored `csp-hashes.conf` that `security-headers.conf` splices into `script-src` — a
+  `<meta>` policy alone does not loosen the header. `csp.test.ts` refuses any hand-written inline
+  script except the `application/ld+json` data block (`layouts/Head.svelte`), which never executes.
+- **The game is rendered by the root layout, never server-rendered, and never unmounted by a
+  navigation.** The game's pages are prerendered for their served half with `#root` empty; the root
+  layout boots the game (`boot.ts`) **once per document, the first time the router is on a game
+  page** — never in `hooks.client.ts` or on a content page, where `initTabLock` would elect a tab
+  holding no game — and keeps `#root` rendered but `.parked` (inert, hidden) while a content page is
+  up, so the socket, the bed and a match survive. While parked it releases `data-seated` and TAB
+  (`hooks/gameShown.svelte.ts`).
 - **`make csp` belongs after a dependency bump too**: a dependency can break the CSP without
   appearing in our sources. The validator is Valibot, not Zod, whose JIT reached for `Function()`.
-- **`astro.config.mjs` puts the `VITE_` env prefix back**, which Astro narrows away (`wsEnv.test.ts`).
+- **`vite.config.ts` names the `VITE_` env prefix** (Astro once narrowed it away; `wsEnv.test.ts`).
 - **The client is Svelte 5, and React is gone — do not bring it back.** No `react`, `react-dom`,
   `@astrojs/react`, framer-motion, `.tsx` or `.module.css`. `noReact.test.ts` checks the manifest,
   both configs, every import and every file extension.
-- **`astro check` does not type-check `.svelte`**: `make build-client` is `astro check &&
-  svelte-check && astro build`; dropping the middle one leaves every component untyped under a green
-  build. **TypeScript stays on 6.x** — three tools refuse 7.x independently.
+- **`vite build` type-checks nothing**: `make build-client` is `svelte-kit sync && svelte-check &&
+  vite build` (+ the hashes); dropping svelte-check leaves every component untyped under a green
+  build. **TypeScript stays on 6.x** — svelte-check and SvelteKit both refuse 7.x.
 - **Every type import is an `import type`.** A `<script lang="ts">` keeps its imports after the types
-  are stripped, so `src/types/protocol.ts` gets asked for something to run.
+  are stripped, so `src/types/protocol.ts` gets asked for something to run. SvelteKit 3 enforces
+  `verbatimModuleSyntax`, so it is now a build error rather than a convention.
 - **`src/types/protocol.ts` and `protocolSchemas.ts` are generated and must not be edited.** A new
-  wire shape goes in `server/protocol/`, then `make protocol`; CI's `protocol_check` undoes a hand edit.
+  wire shape goes in `server/crates/loco-protocol/`, then `make protocol`; CI's `protocol_check` undoes a hand edit.
 
 **State and effects**
 - **The store is ours** (`hooks/store/createStore.ts`, ~40 lines, Zustand's semantics, pinned by
@@ -614,18 +726,18 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **A slam is one card, and holding a copy is a second press** — a reaction that puts three cards
   down is three reactions charged to one, and each copy it swallowed was a window somebody else
-  could have won. The tap sends `card` alone, `game.BotInterrupt` sends one copy, and **the server
-  refuses the batch rather than trusting either** (`game.ErrInterruptBatch`). Batch play survives on
-  your **own turn** (`Room.PlayCards`), where nothing is being raced.
+  could have won. The tap sends `card` alone, `loco_game::bot_interrupt` plays one copy, and **the
+  server refuses the batch rather than trusting either** (`GameError::InterruptBatch`). Batch play
+  survives on your **own turn** (`Room::play_cards`), where nothing is being raced.
 - **Contre-LOCO! is pressable before the server has named anybody**
   (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`): any *other* seat on exactly two
   cards, or a window still running — the server's end plus `CATCH_LATE_GRACE_MS` (2s), deliberately
-  under the server's `catchGrace` (3s) by the width of the wire. `serverMirrors.test.ts` pins the
+  under the server's `CATCH_GRACE_MS` (3s) by the width of the wire. `serverMirrors.test.ts` pins the
   inequality, not a number. **Hand sizes, our own seat and the clock decide it, and nothing else
   may** — `isCatchLive` does not take `declaredSeats`, because going dead on a declaration would
   report it. The clock is `store.onHookUntil`, kept past the declaration and past the hand growing back.
   **A seat that draws out of two keeps it live `CATCH_NEAR_GRACE_MS` (1.5s) longer**
-  (`store.nearUntil`, written by `applyCardDrawn`), under the server's `catchNearGrace` by the wire.
+  (`store.nearUntil`, written by `applyCardDrawn`), under the server's `CATCH_NEAR_GRACE_MS` by the wire.
 - **There is no latch: what ends the offer is the clock and never the next card** (`catchLiveUntil`,
   one timer in `GameView`). **`store.catchSpent` is the client's copy of the server's ration**,
   suppressing the *blind* send only. **A tail keeps a live button live and never lights a dark
@@ -664,13 +776,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   read on `/i/` only.
 - **`/i/` is a page of its own because a link preview is served HTML**: `noindex`, absent from
   `PAGES` and from the sitemap, and it carries the invitation's own title, description and art. **The
-  code stays a query parameter** — `/i/CODE` would need a fallback `astro dev` cannot be given.
+  code stays a query parameter** — `/i/CODE` would need a fallback in the dev server as well as in nginx.
   `invitePage.test.ts`.
 - **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`). A prefill that
   authenticates nothing, which is why it is not the `loco_session` record.
-- `initLang()` (from `langSwap.ts`), then `initMotion()`, `initI18n()`, `initPinchGuard()`,
+- `initLang()` (from `langRoute.ts`), then `initMotion()`, `initI18n()`, `initPinchGuard()`,
   `initContextGuard()`, `initTableInvite()`, `initTabLock()` (skipped in the dev showcase),
-  `initSessionRestore()` in `entry.ts` before the first render, **in that order**.
+  `initSessionRestore()` in `boot.ts` before the first render, **in that order**. On every later
+  arrival at a game page the root layout runs `initLang()` and `redetectLang()` again.
 
 **Input and controls**
 - **There are no gameplay keyboard shortcuts and there must never be any.** Aiming at a button that
@@ -694,7 +807,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `handTouch.test.ts`. Same rule as the deck's
   `@media (hover: hover)`.
 - **At a seat, text selection is refused on every element, not inherited from the body**
-  (`Base.astro`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
+  (`styles/base.css`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
   **Its `::after` is its own**: a component paint on it keeps the global `translate(-50%, -50%)` and
@@ -727,13 +840,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The language dropdown is ours, and it has to be**: `appearance: none` never reached the list the
   OS paints. A button plus `role="listbox"`, arrows/Enter/Home/End, `aria-activedescendant`. **Escape
   there closes the list and nothing else.**
-- **The language pick applies itself, on every screen** — `setLang` plus `swapServedLang`, nothing
-  reloads, so there is no Apply button and no sentence promising one. **A control that costs the page
+- **The language pick applies itself, on every screen** — `setLang`, plus a `goto` to the same page in
+  that language on a home page; nothing reloads, so there is no Apply button and no sentence promising one. **A control that costs the page
   must not fire on the press aiming for it: if a language ever reloads again, the button comes back
   with it.**
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
 - **Every glyph a player sees is one we drew** (`drawnGlyphs.test.ts`, scanning every `.svelte`,
-  `.astro` and both copy files): an emoji arrives at a weight and a hue nothing here chose and takes
+  `app.html` and both copy files): an emoji arrives at a weight and a hue nothing here chose and takes
   neither the ink outline nor the hard shadow. **The four ways a match ends are `OutcomeMark.svelte`**
   — **no trophy and no face** — same component at `size="sm"` on the round summary.
 - **The rules opener is a "How to play" pill before the deal and the "?" chip at the table**
@@ -760,11 +873,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   regex. **Add the string there when you add a server error** (`serverErrors.test.ts`).
 - **The rules page opens on what is different, and the rules modal does not** (`content/contrasts.ts`,
   eight lines, **numbers taken from the server, never typed**). `contentPages.test.ts`.
-- **A document is never in two languages at once, and `/` translates itself rather than navigating**
-  (`data-alt*`, `langSwap.ts`, `history.replaceState` carrying the query string and the fragment).
-  **The copy stays in the markup** — importing `content/ui.ts` would ship the whole site's copy to
-  every player. **A link left behind is the failure that matters**, so `homeLangSwap.test.ts` counts
-  `href={` against `data-alt-href={`. **`data-served-lang` is never rewritten.**
+- **A document is never in two languages at once, and a language is the page in that language**: a
+  client-side `goto` with `{ replace: true, reset: false }`, carrying the query string and the
+  fragment (`langRoute.ts`), never a document load and never a redirect. The router renders the other
+  page around a game the root layout keeps. **No page carries its other language** — the `data-alt*`
+  rewrite in place was Astro's answer and `langSync.test.ts` fails on it coming back.
+  `data-served-lang` is always the page on screen (rewritten with the route), and `<html lang>` is
+  the game's to write once it has booted.
 - **A stored choice wins everywhere; the browser's language wins only on `/`.** A detection is never
   persisted, because storing it would make it a choice. `chooseLang` in `lang.ts` is the one
   definition. **An invitation is not a language**, so `/i/` is served with none.
@@ -789,8 +904,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   out may only ever answer shape** — a disabled button is the one refusal a player cannot argue with.
   **A blocked term is not one of them**: that refusal arrives after the ask, and is answered by
   handing the field back focused with its contents selected.
-- **Both mirrors are pinned to the Go source** (`serverMirrors.test.ts`): a mirror drifts most quietly
-  by going *stricter* than the server.
+- **Both mirrors are pinned to the server's source** (`serverMirrors.test.ts`, reading through
+  `src/test/serverSource.ts`): a mirror drifts most quietly by going *stricter* than the server.
 - **The count of connected players is drawn from two up and absent below it**
   (`components/playersOnline.ts`, absolute so it reserves nothing; below 46rem at the foot of the
   screen, centred, on both screens that draw it). **Never rounded, never padded, never reworded.** It
@@ -810,7 +925,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   which **arms only while the tab is hidden** and never re-arms after a return (`tabAlert.test.ts`).
 - **The board's way out is a chip in the chrome row, at every table, and never on the action bar.** It
   asks in place, and **the line under the question is the feature**: `leaveNote` picks one of four
-  strings, counted the way `Hub.canWalkOut` counts. **Nothing here is greyed out.**
+  strings, counted the way `can_walk_out` counts. **Nothing here is greyed out.**
 - **A seat leaving is told to the table, by name** (`departureNotice`, riding `noteSeatGone`).
 - **A board that has stopped still says so**, off `goneSeats`, and it waits behind the reconnect
   curtains: our own socket being down may be the whole reason the table looks empty.
@@ -849,7 +964,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The host's streamer mode is the table's, and it is the one preference that goes on the wire.** The
   client ORs it with the local preference and **never overwrites one with the other**.
   `hostStreamerSync` sends on exactly two moments, and **a change of seat sends nothing**.
-  `tableStreamerMode.test.ts`, `hub/streamermode_test.go`.
+  `tableStreamerMode.test.ts`, `loco-hub/tests/streamermode.rs`.
 - **Colour assist gives each suit a silhouette** (`SUIT_SHAPE`, `SuitMark.svelte`): on the card, every
   picker swatch and the active-colour chip. **Never a letter.** A wild stays unmarked. Anything new
   that means something by hue alone needs the mark.
@@ -868,34 +983,53 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 **What a content page is**
 - **A content page restates what the game already knows, so it is pinned to the source**: the rules
   page maps `t.rules` rather than copying it, and the deck table is checked against
-  `server/game/deck.go` and `card.go` by `contentPages.test.ts`.
-- **A content page ships no JavaScript except `page-boot.ts`.** No `client:` directive, so
-  `<LocoLogo />` and every `<Card />` on `/cards/` are static markup. Anything interactive is a
-  **native control**: the home sheet is `<details>`, the language chooser a `[popover]`. That one
-  script also fills the live list on `/live/` (a same-origin `fetch`, so `connect-src` is untouched)
-  — **still one script, still no island, still nothing third-party**.
+  `loco-game/src/deck.rs` and `card.rs` by `contentPages.test.ts`.
+- **A content page is readable with no script.** It loads the router (that is what makes the move to
+  the game a navigation), but it is prerendered whole: `<LocoLogo />` and every `<Card />` are in the
+  served HTML, an article carries **no effect, no `{@html}`, no inline script** (`livePage.test.ts`,
+  `legal.test.ts`), and anything interactive is a **native control** — the home sheet is `<details>`,
+  the drawer and the language chooser `[popover]`s. **Behaviour is the component's that renders the
+  element** — `ToTop.svelte`, `SiteDrawer.svelte`, `SiteFooter.svelte`, the layouts,
+  `LiveArticle.svelte` (a same-origin `fetch`, so `connect-src` is untouched) — never a script
+  finding markup by selector; a control only a script can honour ships `hidden={!hydrated}`.
+  **Still nothing third-party**.
 - **`/live/` is prose first and a list second** ([`live.md`](docs/notes/live.md)). What is indexable
   is what the game gives a stream and how to appear in the category; the list of who is live is
   filled in the browser and is `WebPage`, never `Article`. Served with **a sentence rather than a
-  spinner**, and everything built with `textContent` — every string in it was written by a stranger.
+  spinner**, and every string rendered as Svelte text, never markup — every one was written by a
+  stranger.
 - **A content page is a player-facing surface, so it never says UNO either** (`seo.test.ts` extends
   `legal.test.ts`'s guard over `PAGES`, `UI` and every `src/content/**` file).
 
 **Layout and navigation**
-- **`content.css` is loaded by `GamePage.astro` too, so every selector in it is scoped to a class.**
-  A bare `table`/`th`/`td` rule there would style the score table and the evening recap.
-  `contentPages.test.ts` fails on a bare element selector.
-- **One `--shell`, one bar, no backdrop.** Header, column and footer share one width; the navigation
-  is a **fixed footer bar**, same links and order as the home page's row. `body.doc` is flat canvas.
+- **`content.css` is loaded by both group layouts, and a loaded stylesheet stays loaded across a
+  navigation, so every selector in it is scoped to a class** (and `GamePage.css` scopes its body
+  rules to `body.game`). A bare `table`/`th`/`td` rule there would style the score table and the
+  evening recap. `contentPages.test.ts` fails on a bare element selector.
+- **One bar and one drawer for the whole site** (`layouts/SiteFooter.svelte`,
+  `layouts/SiteDrawer.svelte`, styled once in `content.css`): the game page and every content page
+  render the same components, so the same links, the legal link at the end and **the language globe
+  in the same place on every page that is not a seat**. Pinned under a content page, in the flow on
+  `/` (`.onHome`), **one height in both**, and **held still across the router's cross-fade**
+  (`view-transition-name: site-footer`). The globe is a real link everywhere, `/` included, and
+  records the choice on the press. What differs is passed in: the sheet of prose vs. "Play" at the
+  left-hand end, Preferences vs. Play as the drawer's one action. **The content header (mark + Play)
+  is the one deliberate difference**: the entry screen is its own composition.
+- **One `--shell`, one bar, no backdrop, no glass.** Header, column and footer share one width;
+  `body.doc` is flat canvas; the header and the bar are **opaque canvas** — backdrop blur is the
+  modal scrim's alone (DESIGN.md's No-Glass Rule).
+- **A move between pages is one short cross-fade** (`routes/+layout.svelte`, View Transitions,
+  0.22s, opacity only), skipped under reduced motion — the game's `data-motion` once it has booted,
+  the system's before — and for a fragment.
 - **The header is sticky and the bar is fixed, so both ways out are always on screen.**
 - **Every in-page jump glides**: `scroll-behavior: smooth` behind `html[data-scroll="smooth"]`,
-  written by `page-boot.ts` from the system preference — a media query is refused here and
+  written by the content layout from the system preference — a media query is refused here and
   `data-motion` is the game's. **Anything that focuses an element after a smooth scroll passes
   `preventScroll: true`.**
-- **Under 46rem the bar is gone and one burger is the whole navigation**, on the content pages *and*
-  on `/`, styled once in `content.css`. **Only the list differs** (the game's carries no `Play`); a
-  `.navPop*` rule in `GamePage.astro` is a divergence by definition. Both drawers open on the
-  wordmark and carry exactly one action (`.navPopCta`). **Read the note before touching any of it**:
+- **Under 46rem the bar's row is gone and one burger is the whole navigation**, on the content pages
+  *and* on `/` — one component, styled once in `content.css`. A `.navPop*` or `.siteFooter` rule in
+  `GamePage.css` is a divergence by definition. The drawer opens on the wordmark, carries exactly one
+  action (`.navPopCta`: Play, or Preferences on `/`) and ends on the globe. **Read the note before touching any of it**:
   the drawer, the language popover and the sticky header have six documented failure modes between
   them, five of which fail silently.
 - **The language chooser's two links are real `<a href>`s** with `hreflang`/`lang`, in the document
@@ -910,19 +1044,21 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **The home page is exactly one viewport and never scrolls.** The indexable markup is a quiet footer
   row plus the prose in a **native `<details>` sheet** that must keep opening with **scripts
   disabled**. **A board that can be scrolled off-screen mid-match is a bug**, and so is a lobby that
-  hides text under the fold. The footer vanishes on `data-seated`: it is markup Astro rendered, so it
-  is never the app's to unmount.
+  hides text under the fold. The bar and the burger vanish on `data-seated`: they are the page's
+  markup, never the app's to unmount — **at a seat the board is the board**.
 - **Open, that sheet is `RulesModal` down to the measurements**: the card **is** the `<details>`, the
-  `<summary>` is the footer button (`order`), the scrim is a **sibling** of the card, and the ✕ ships
-  `hidden` for `homeSheet.ts` to reveal. `contentPages.test.ts` reads the card off `RulesModal.svelte`.
+  `<summary>` is the footer button (`order`), the scrim is a **sibling** of the card, the open state is
+  `bind:open` (never driven, so the summary still opens it with no script), and the ✕ ships
+  `hidden={!hydrated}`. `contentPages.test.ts` reads the card off `RulesModal.svelte`.
 - **The viewport may never forbid zooming** (no `user-scalable=no`, no `maximum-scale`; the
   double-tap is answered by `touch-action: manipulation` on `body`). **The seat is what costs the
   pinch, never the tag**: under `[data-seated]` the reset drops to `touch-action: pan-x pan-y` and
   `pinchGuard.ts` refuses WebKit's `gesturestart`. Safari has ignored `user-scalable=no` since iOS 10.
   **White on LOCO Red is 3.43:1**, so anything wearing it is 1.2rem or larger, never darkened. **A box
   that scrolls sideways takes `tabindex="0"`** and a `:focus-visible` ring. `a11y.test.ts`.
-- **Two things keep a page fast**: `build.inlineStylesheets: 'always'` (`style-src` allows
-  `'unsafe-inline'`, **scripts still may not**) and the tables page's art through `<Image />`.
+- **Two things keep a page fast**: `inlineStyleThreshold: Infinity` (`style-src` allows
+  `'unsafe-inline'`, **scripts only by hash**) and the tables page's art through
+  `@sveltejs/enhanced-img`.
 - **Never fade in the element the browser measures the LCP against.** Chrome takes its candidate at
   the first paint and skips anything at `opacity: 0`, so a screen fading up from zero can produce
   **no candidate at all** — `NO_LCP`, which scores performance **0**. Fade a veil off the top instead.
@@ -1307,9 +1443,9 @@ stated at the top of `styles/tokens.css`:
     fog's veil is the hour's colour, never a fixed white.** **A sign is bent tubes on a dark panel,
     never a bitmap of blocks** (`neonText`), and nothing is planted between it and the table.
     `sceneLights.test.ts`, scene `game-map-velvet-night-fog`.
-  - `maps.test.ts` pins the client's maps, hours and skies to `server/game/maps.go`. Add a room by
-    adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
-    Go, its light in `LOOK.rooms`, and its scenes.
+  - `maps.test.ts` pins the client's maps, hours and skies to `loco-game/src/maps.rs`. Add a room by
+    adding a builder, a registry entry, its copy in both languages, its `MapId` (`MAP_IDS`) and
+    weather list (`MAP_WEATHERS`) in the domain, its light in `LOOK.rooms`, and its scenes.
 - **The warm/cool split is the whole of the mood, so it is not a taste setting**: at every daylight
   hour **and in every room** the sun is warmer than the sky light and the sky light is cool
   (`sceneLighting.test.ts`). **A room's own light** (`LOOK.rooms`, `lightRig`'s third argument)
@@ -1335,7 +1471,7 @@ stated at the top of `styles/tokens.css`:
   (`.mist`), and the frame a re-render replaced is given back once the fade is over.
 - **The rooms page shows a photograph of the render, and nothing over it**: the still carries the
   table, as the render does on the board; the CSS table is only the stand-in for a missing still
-  (`TablesArticle.astro`, `RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make
+  (`TablesArticle.svelte`, `RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make
   rooms` shoots each room at its signature hour at `?gfx=force`, into `src/assets/rooms/`. The hour
   is written twice and the test pins the two; a missing still fails the test rather than the build.
 
@@ -1501,10 +1637,10 @@ Detail: [`docs/notes/legal.md`](docs/notes/legal.md).
   about anybody; the previews are re-served from this origin. A thumbnail loaded from Twitch would be
   a request from the reader's browser carrying their address — the tripwire, exactly. The policy
   copy says which of the two makes the request, and `legal.test.ts` pins that sentence.
-- **No address is ever written in full.** `hub.truncateAddr` / `Client.netPrefix` and the `anonymised`
-  `log_format` in `client/nginx.conf` cut every address to `/24` or `/48` **at the point of writing**.
-  Log lines are correlated by `conn=`. **Never log `RemoteAddr()` directly**; `legal.test.ts` fails
-  on any non-test file in `server/hub/` that does.
+- **No address is ever written in full.** `privacy::truncate_addr` (behind the `ClientNet` extractor)
+  and the `anonymised` `log_format` in `client/nginx.conf` cut every address to `/24` or `/48` **at the
+  point of writing**. Log lines are correlated by `conn=`. **Never read the peer's address outside
+  `privacy.rs`**; `legal.test.ts` fails on `remote_addr` / `peer_addr()` in any other hub module.
 - **Privacy, terms and credits are a page, not a modal** (`/privacy/`, `/fr/confidentialite/`), linked
   from every footer, without typing a name. The copy is `src/content/legal.ts`, typed
   `Record<Lang, LegalDoc[]>` so a document cannot exist in one language only, read at build time and
@@ -1550,13 +1686,20 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 - **`.gitlab-ci.yml` is the only CI definition**; the `gh` remote is a plain mirror. `build` must
   `needs` every test job, lint and E2E included, or red still ships.
 - **Nothing may use `artifacts:`** until the runner is fixed: the upload fails and fails the job.
-  `server-bin` travels by cache, keyed per branch with a `server-bin.sha` stamp.
+  `server-bin` (a static musl `loco-server` built by `backend_test`) travels by cache, keyed per
+  branch with a `server-bin.sha` stamp.
+- **The server's gates are `backend_test`** (`cargo test --workspace --locked`, and `loco-game` built
+  for `wasm32-unknown-unknown`), **`backend_lint`** (`cargo fmt --check`, `clippy -D warnings`,
+  `cargo deny check`) and **`protocol_check`** (the converter's refusals, `loco-protocol`'s tests,
+  `protocolgen --check`). Each Cargo job has its own cache key: two jobs pushing one key race.
+- **The client tests that pin a copy to the server's source read it through
+  `src/test/serverSource.ts`**, never a path of their own, so a moved constant is fixed in one file.
 - `PLAYWRIGHT_VERSION` and `e2e/package.json` are one decision: the dependency is pinned exactly and
   asserted against the image before the suite runs. There is no `playwright install` step.
 - Run `make csp` after touching `nginx.conf` **or bumping a dependency**.
 
 ## Docker
-Production path: Traefik to nginx (:80) to Go (:8080, internal only); **nginx proxies `/ws`,
+Production path: Traefik to nginx (:80) to `loco-server` (:8080, internal only); **nginx proxies `/ws`,
 `/live.json` and `/live-thumb/`, and nothing else** — `/health` and `/metrics` are operator surfaces
 and are deliberately unreachable from the internet, and `csp.test.ts` pins that list so a fourth path
 is a decision somebody takes on purpose — serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` /
@@ -1576,9 +1719,17 @@ nginx with `ws-proxy.conf` and a 404 for everything else. Why, and what it costs
 `add_header` of its own must `include` it** — in `nginx.conf` *and* in `client/ws-proxy.conf`, which
 `csp.test.ts` scans beside it. nginx inherits `add_header` only into a level that
 declares none, so one `Cache-Control` in a block silently strips all five from everything that block
-serves — which is how the whole `/_astro/` bundle shipped bare while the document response, the only
+serves — which is how the whole bundle (`/_astro/` then, `/_app/immutable/` now) shipped bare while the document response, the only
 one `make csp` looked at, reported clean. `csp.test.ts` fails on a block that declares without
 including.
+
+**The server image is a static musl binary on `gcr.io/distroless/static:nonroot`** (`server/Dockerfile`):
+no shell and no `wget`, so **the healthcheck is the binary itself** (`loco-server healthcheck`, a `GET
+/health` on loopback), and it runs as **uid 65532**. `/data` is created owned by that uid, and the
+deploy chowns the host path to it: a container that cannot write its snapshot loses every match in
+flight on the next deploy. **Snapshots are per environment**: `${DATA_DIR}/snapshots/${DEPLOY_ENV}`
+mounted at `/data`, so dev and prod on one host never read each other's file
+([`docs/deployment.md`](docs/deployment.md)).
 
 **Run `docker run` through `make` or PowerShell, never raw from Git Bash on Windows.** MSYS rewrites
 `-v src:/app` into `src;C:/Program Files/Git/app`; the `-w` errors out but the mount has already made

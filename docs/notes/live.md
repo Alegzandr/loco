@@ -3,7 +3,7 @@
 Who is streaming LOCO! right now, on the home screen and on a page of its own.
 
 This note exists because the feature crosses four subsystems that each have a note already: it is a
-goroutine on the server, a strip on the entry screen, an indexable page, and the first third party
+task on the server, a strip on the entry screen, an indexable page, and the first third party
 this project has ever touched. Filed under `server.md` it would hide the legal half; filed under
 `legal.md` it would hide the poller. It is a subject, so it gets a file.
 
@@ -59,7 +59,7 @@ every caller and doing them twice is two policies disagreeing about one upstream
 | the OAuth2 token | Janus, fetched and renewed there |
 | the API's secret | the vault behind Janus |
 
-What is left in `server/janus/` is a transport: two headers, one identity, a bounded body, and the
+What is left in `server/crates/loco-janus/` is a transport: two headers, one identity, a bounded body, and the
 one distinction the gateway's own error shape requires — `application/problem+json` means Janus
 refused, anything else means Twitch answered. Confusing those two is how "the CDN was never
 registered" would come back as "nobody is streaming".
@@ -83,10 +83,11 @@ this process has one outbound destination.
 
 ## The poller
 
-`server/twitch/` is a package of its own rather than a file in `hub/`. That package is governed by
-"one file per thing a message leads to", and a poller, a token-less HTTP client and an image cache
-are none of those. It imports `server/janus` and `server/protocol`, and **never `hub`**: the only way
-anything it produces reaches the event loop is the publish callback `Run` is handed.
+`server/crates/loco-twitch/` is a crate of its own rather than a module of the hub. The hub is
+governed by "one module per thing a message leads to", and a poller, a token-less HTTP client and an
+image cache are none of those. It depends on `loco-janus` and `loco-protocol`, and **never on
+`loco-hub`**: the only way anything it produces reaches the event loop is the publish callback
+`Poller::run` is handed (`publish_live` in the binary).
 
 - **60 seconds**, and the Helix quota is not what decides that. That quota is 800 points per minute
   per client id and `/streams` costs one point, so this spends 0.125% of it. What decides it is what
@@ -133,8 +134,9 @@ copied from upstream. An oversized image is abandoned, never truncated: the row 
 picture. The `ETag` is computed over the bytes, not the key — the URL is stable per channel while the
 image behind it changes every poll.
 
-Serving them costs the event loop nothing: the handler answers from an `atomic.Pointer` on an
-ordinary `net/http` goroutine, exactly like `/health` and `/metrics`, and no page load ever waits on
+Serving them costs the event loop nothing: the handler answers from the poller's last snapshot
+(an `Arc` behind a read lock, `Poller::live_json`, `thumbs::serve_thumb`) on an ordinary request
+task, exactly like `/health` and `/metrics`, and no page load ever waits on
 the gateway because the fetching happened minutes ago.
 
 ## Screening what a stranger wrote
@@ -235,13 +237,13 @@ readers at once: somebody arriving on a quiet evening and somebody whose browser
 Neither is ever shown the word "loading". `e2e/tests/live.spec.ts` reads the page with JavaScript
 disabled, which is the only place that can be proved.
 
-**The fill is wired into `page-boot.ts`** rather than shipped as a second script. That file already
-documents the rule in its own header: there is only ever one script on these pages, so a second
-behaviour is a few more lines rather than a second request. The rule in `CLAUDE.md` and
-[`seo.md`](seo.md) — a content page ships no JavaScript except `page-boot.ts` — therefore stays true
-to the letter; what changed is what that script does. Everything is built with `createElement` and
-`textContent`; `livePage.test.ts` fails on an `innerHTML` in that module, because every string it
-handles was written by a stranger.
+**The list is the article's own.** `content/LiveArticle.svelte` asks `content/liveList.ts:
+fetchLiveRows()` on mount and renders the rows it returns under `{#each}`; the prose around it is
+rendered on the server and does not wait on anything. (Under Astro the page had no component in the
+browser, so a script, `page-boot.ts`, filled the list with `createElement` and `textContent`.)
+Every string in a row is Svelte text or an attribute, escaped by construction; `livePage.test.ts`
+fails on an `innerHTML` in the module or an `{@html}` in the article, because every one of them was
+written by a stranger.
 
 ## The outgoing links
 
@@ -263,7 +265,7 @@ this project has no use for.
 
 ## Operating it
 
-Everything is off unless `JANUS_API_KEY` is set: no goroutine, no outbound request, no `live_streams`
+Everything is off unless `JANUS_API_KEY` is set: no task, no outbound request, no `live_streams`
 on the wire, and no log line either — a line at every startup about a feature nobody switched on is
 noise. One INFO line is written when it *does* switch on, naming the game id and the period. A key
 with no URL or no application id is a typo rather than an intention, and says so with a WARN.

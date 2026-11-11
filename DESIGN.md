@@ -316,7 +316,9 @@ toy. If you can't press it *into* something, it isn't finished.
 for a while — the one always-on control surface in the game was an 82%-opaque panel over a 10px
 blur, which also put whatever card sat behind it into the contrast of its own labels. It is opaque
 now. Blur is used in exactly
-one place — the scrim behind a modal — and never as the material of a panel.
+one place — the scrim behind a modal — and never as the material of a panel. The content pages'
+header and the site's bar wore it too (a 14px blur under 92% canvas) until the site and the game
+became one app; they are opaque canvas now, like the rest.
 
 ## 5. Components
 
@@ -353,10 +355,20 @@ one place — the scrim behind a modal — and never as the material of a panel.
 - **Error:** Never recolours the field. The error is announced by a separate alert.
 
 ### Navigation
-There is no persistent nav. Orientation is carried by a top-right utility cluster —
-language, graphics, audio, rules, scores — present on every screen at the same coordinates, each
-a pill with the standard ledge and a 40px minimum height. On the game screen it sits above
-the board's overlays so the control that opens a panel is always the control that closes it.
+Two layers, and they never meet at a seat.
+
+- **The site's bar** (`SiteFooter.svelte`): one quiet row at the foot of every page that is not a
+  seat — the entry screen and every content page alike — holding the pages, privacy and the
+  language globe, the same object in the same place everywhere, and held still while the page
+  around it cross-fades. Under 46rem it folds into one burger and one drawer (`SiteDrawer.svelte`).
+  Muted 12px text on opaque canvas with a hairline above: it is how you get somewhere else, never
+  the thing on screen worth pressing.
+- **The game's top-right utility cluster** — fullscreen, graphics and the rest of the gear, audio,
+  rules, scores — present on every game screen at the same coordinates, each a pill with the
+  standard ledge and a 40px minimum height. On the game screen it sits above the board's overlays
+  so the control that opens a panel is always the control that closes it.
+
+At a seat the bar and the burger are gone: the board is the board.
 
 ### Alerts
 - **Style:** A pill in Alarm Red with the standard ink outline and ledge, entering with a

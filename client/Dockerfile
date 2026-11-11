@@ -1,6 +1,6 @@
-# Astro 7 declares engines.node >= 22.12, so 22 is the floor; the image is the
-# current LTS rather than the floor, because a build image is the one place
-# there is nothing to gain from running the oldest thing that works.
+# Vite 8 and SvelteKit 3 declare engines.node >= 22.12, so 22 is the floor; the
+# image is the current LTS rather than the floor, because a build image is the
+# one place there is nothing to gain from running the oldest thing that works.
 FROM node:24-alpine AS builder
 
 # The absolute origin baked into canonical / hreflang / og: tags. Crawlers do not
@@ -36,8 +36,13 @@ RUN npm run build
 
 FROM nginx:alpine
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/build /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# The script hashes `npm run build` read out of the HTML it just built
+# (scripts/csp-hashes.mjs): security-headers.conf includes it, so the header
+# allows exactly the bootstrap scripts of exactly these pages. From the builder,
+# never from the context — a copy built against other HTML refuses this one.
+COPY --from=builder /app/csp-hashes.conf /etc/nginx/csp-hashes.conf
 # Not into conf.d/: nginx.conf's own `include /etc/nginx/conf.d/*.conf` would
 # pick these up as second server-level files and refuse to start on an
 # add_header, or a location, outside any server block.

@@ -26,7 +26,7 @@ turns a two-screen policy into a real one.
 
 **There is no user-generated text on that list, and that is a position rather than
 an omission.** The only things a player can say to another are the three fixed
-emotes on the game-over screen (`hub/emotes.go`), and they travel as an
+emotes on the game-over screen (`loco-hub/src/emotes.rs`), and they travel as an
 identifier out of a closed server-side set: a client cannot invent a fourth, and
 nothing said is stored, logged or carried across a deploy. Free text would be a
 moderation surface, and a moderation surface means retention, reports and a
@@ -77,7 +77,7 @@ costs the server, is in [`live.md`](live.md).
 
 ## Addresses are truncated at the point of writing
 
-`hub/privacy.go` (`truncateAddr`, `Client.netPrefix`) and the `anonymised`
+`loco-hub/src/privacy.rs` (the `ClientNet` extractor, `truncate_addr`) and the `anonymised`
 `log_format` in `client/nginx.conf` both cut an address down to `/24` (IPv4) or
 `/48` (IPv6) before it is written. Two reasons it is done at write time rather
 than by a retention policy:
@@ -89,8 +89,8 @@ than by a retention policy:
    `conn=` (the connection ID); the prefix exists only to tell two networks
    apart when one of them is flooding.
 
-**Never log `RemoteAddr()` directly.** `src/test/legal.test.ts` fails if any
-non-test file in `server/hub/` does, and if the nginx `log_format` mentions
+**Never read the peer's address outside `privacy.rs`.** `src/test/legal.test.ts` fails if any
+other module in `server/crates/loco-hub/src/` mentions `remote_addr` or `peer_addr()`, and if the nginx `log_format` mentions
 `$remote_addr` outside the truncating `map`.
 
 ## The trademark line
@@ -109,7 +109,7 @@ to revisit, not the test.
 ## Where the copy lives
 
 In `client/src/content/legal.ts`, as `LEGAL: Record<Lang, readonly LegalDoc[]>`,
-rendered by `content/LegalArticle.astro` onto one page: `/privacy/` and
+rendered by `content/LegalArticle.svelte` onto one page: `/privacy/` and
 `/fr/confidentialite/`, linked from every footer: last in the home page's row
 of links, at the right-hand end of the content pages' bar. Four
 deliberate consequences:

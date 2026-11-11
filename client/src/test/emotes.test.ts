@@ -81,7 +81,7 @@ describe('the three things', () => {
 
 /*
  * A seat the server plays is refused the emote in both directions
- * (`hub/emotes.go`), so it is not somebody to say "gg" to. At a table where
+ * (`loco-hub/src/emotes.rs`), so it is not somebody to say "gg" to. At a table where
  * every other seat is one, the three buttons could only ever be pressed at
  * nobody.
  */

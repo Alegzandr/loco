@@ -1,7 +1,7 @@
 import { catchLiveUntil, isCatchLive, isCatchLocked } from '../../components/catchAvailability'
-import { StateCreator } from './createStore'
+import { type StateCreator } from './createStore'
 import { deriveCatch } from './helpers'
-import { GameStore } from './types'
+import { type GameStore } from './types'
 
 /**
  * `catchTarget`, `unoTimerEnd`, `myDeclared` and `catchLive` are not state. They

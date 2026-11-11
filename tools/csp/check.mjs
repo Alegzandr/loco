@@ -124,7 +124,7 @@ async function check(url) {
   //
   // That distinction is the whole reason this block exists. nginx inherits
   // `add_header` into a location block only while that block declares none of
-  // its own, so a single `add_header Cache-Control` under /_astro/ silently
+  // its own, so a single `add_header Cache-Control` under /_app/ silently
   // strips the security headers from the entire bundle — while the document
   // response, which is all this script used to look at, still carries all five
   // and reports clean. Checking the document alone cannot see it.
@@ -137,9 +137,9 @@ async function check(url) {
     if (!headers[name]) problems.push(`missing header: ${name} (is nginx serving client/nginx.conf?)`)
   }
 
-  const assets = responses.filter(r => new URL(r.url()).pathname.startsWith('/_astro/'))
+  const assets = responses.filter(r => new URL(r.url()).pathname.startsWith('/_app/'))
   if (assets.length === 0) {
-    problems.push('no /_astro/ asset was requested — the header check below asserted nothing')
+    problems.push('no /_app/ asset was requested — the header check below asserted nothing')
   }
   for (const asset of assets) {
     const h = await asset.allHeaders()
@@ -172,8 +172,51 @@ async function check(url) {
   const fontsLoaded = await page.evaluate(() => document.fonts.size)
   problems.push(...(await page.evaluate(() => window.__CSP__ ?? [])))
 
+  // Every other page, and the way between them. Each prerendered page starts
+  // the router with an inline script of its own, so each has its own hash in
+  // the header (client/scripts/csp-hashes.mjs): one missing is one page that
+  // renders and never becomes interactive, and only loading it says so. Then
+  // a content page to the game by a link — the router's own path, which loads
+  // the next page's modules under the same policy.
+  const origin = new URL(url).origin
+  const pages = [
+    '/fr/', '/i/', '/rules/', '/fr/regles/', '/cards/', '/fr/cartes/', '/tables/', '/fr/tables/',
+    '/play-with-friends/', '/fr/jouer-entre-amis/', '/live/', '/fr/en-direct/', '/faq/', '/fr/faq/',
+    '/privacy/', '/fr/confidentialite/',
+  ]
+  const pageProblems = []
+  for (const path of pages) {
+    const p = await browser.newPage()
+    await p.addInitScript(() => {
+      document.addEventListener('securitypolicyviolation', e => {
+        ;(window.__CSP__ ??= []).push(`${e.violatedDirective} blocked ${e.blockedURI || '(inline)'}`)
+      })
+    })
+    p.on('pageerror', e => pageProblems.push(`${path} [pageerror] ${e.message}`))
+    p.on('console', m => {
+      if (/Content Security Policy|Refused to/i.test(m.text())) pageProblems.push(`${path} ${m.text()}`)
+    })
+    const r = await p.goto(origin + path, { waitUntil: 'networkidle' })
+    if (!r.headers()['content-security-policy']) pageProblems.push(`${path} has no CSP header`)
+    pageProblems.push(...(await p.evaluate(() => window.__CSP__ ?? [])).map(v => `${path} ${v}`))
+    await p.close()
+  }
+  {
+    const p = await browser.newPage()
+    p.on('console', m => {
+      if (/Content Security Policy|Refused to/i.test(m.text())) pageProblems.push(`navigation ${m.text()}`)
+    })
+    await p.goto(origin + '/rules/', { waitUntil: 'networkidle' })
+    await p.locator('.toTop:not([hidden])').waitFor({ state: 'attached' })
+    await p.locator('.footerPlay').click()
+    await p.getByRole('button', { name: /New table|Nouvelle table/ }).waitFor({ timeout: 10_000 })
+    await p.close()
+  }
+  problems.push(...pageProblems)
+
   const report = {
     url,
+    pagesChecked: pages.length + 1,
     title: await page.title(),
     csp: headers['content-security-policy'],
     sockets,

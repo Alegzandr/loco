@@ -28,6 +28,7 @@ import { mkdirSync, rmSync, readFileSync, writeFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { test } from '@playwright/test'
+import { readMetric } from './metrics'
 
 const LOCK_DIR = join(tmpdir(), 'loco-e2e-matchmaking.lock')
 const OWNER_FILE = join(LOCK_DIR, 'owner')
@@ -63,11 +64,6 @@ const POLL_MS = 50
 const DRAIN_MS = 10_000
 const DRAIN_POLL_MS = 50
 
-/**
- * Where the Go server is. The suite already assumes :8080 (playwright.config.ts
- * passes VITE_WS_PORT=8080 to the client), and /metrics is served beside /ws.
- */
-const METRICS_URL = `http://localhost:${process.env.VITE_WS_PORT ?? '8080'}/metrics`
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -77,19 +73,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  *
  * This is the only place in the suite that reads an operator surface, and it is
  * worth saying why it is not a test smell: the queue's size is deliberately
- * never on the wire (see hub/matchmaking.go), so there is no client-visible way
+ * never on the wire (see loco-hub/src/matchmaking.rs), so there is no client-visible way
  * to ask "is the queue empty" — and that is precisely the question a test has to
  * answer before it can trust a pairing to be its own.
  */
 async function queuedCount(): Promise<number | null> {
-  try {
-    const res = await fetch(METRICS_URL)
-    if (!res.ok) return null
-    const body = (await res.json()) as { matchmaking_queue?: number }
-    return typeof body.matchmaking_queue === 'number' ? body.matchmaking_queue : null
-  } catch {
-    return null
-  }
+  return readMetric('matchmaking_queue')
 }
 
 /** Wait until nobody is left in the server's queue. */

@@ -7,7 +7,7 @@
  * made it worse by sending an entry labelled "Tables" to a page about the four
  * places, so a visitor could not tell which of the two anything meant.
  *
- * The internal naming is untouched and stays untouched: `maps`, `game/maps.go`,
+ * The internal naming is untouched and stays untouched: `maps`, `loco-game/src/maps.rs`,
  * `mapPreload`, `cardTheme`. This is a rule about copy a player reads.
  *
  * Same shape as the guard in `legal.test.ts` that keeps the other game's name

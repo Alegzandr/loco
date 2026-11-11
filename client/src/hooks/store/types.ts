@@ -1,14 +1,14 @@
 import {
-  CardDTO,
-  CardColor,
-  GameStateDTO,
-  PlayerDTO,
-  MatchFormat,
-  ScoreboardEntryDTO,
-  LatencyEntryDTO,
-  LiveStreamDTO,
-  MatchRecordDTO,
-  Emote,
+  type CardDTO,
+  type CardColor,
+  type GameStateDTO,
+  type PlayerDTO,
+  type MatchFormat,
+  type ScoreboardEntryDTO,
+  type LatencyEntryDTO,
+  type LiveStreamDTO,
+  type MatchRecordDTO,
+  type Emote,
 } from '../../types/protocol'
 import type { PersistedSession, RestoreTarget } from '../sessionPersistence'
 

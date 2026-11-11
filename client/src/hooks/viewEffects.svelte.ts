@@ -1,5 +1,6 @@
 import { playSfx } from '../audio/sfx'
 import { live, type Live } from './live.svelte'
+import { gameShown } from './gameShown.svelte'
 
 /**
  * The small timing effects the game view is built out of, ported one for one
@@ -85,7 +86,9 @@ export function heldKey(
   const isEnabled = live(enabled)
 
   $effect(() => {
-    if (!isEnabled()) {
+    // Parked behind a content page (routes/+layout.svelte), the key is that page's: TAB
+    // is how a keyboard reads it, and a scoreboard nobody can see must not eat it.
+    if (!isEnabled() || !gameShown.current) {
       held = false
       return
     }

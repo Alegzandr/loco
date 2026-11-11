@@ -6,7 +6,7 @@ import { fr } from '../i18n/fr'
 describe('resolveServerError', () => {
   it('never returns the raw server string', () => {
     // Every error the server can send a player, verbatim from
-    // server/game/*.go and server/hub/*.go.
+    // server/crates/loco-game/src/ and server/crates/loco-hub/src/.
     const raw = [
       'nickname "Alice" already taken',
       'nickname already taken',
@@ -66,12 +66,12 @@ describe('resolveServerError', () => {
       'afk_forfeit',
       'afk_kicked',
       // A deploy in progress. Every action that would start a new match answers
-      // with this while the server drains; see server/hub/drain.go.
+      // with this while the server drains; see server/crates/loco-hub/src/drain.rs.
       'server updating, try again in a moment',
       // The admission ceilings, the wrong-code throttle and the answer a
       // recovered handler panic sends. All four are refusals the player did not
       // earn, and none of them may reach the screen as the wire string it is.
-      // See the caps in server/hub/hub.go.
+      // See the caps in server/crates/loco-hub/src/config.rs.
       'the server is full, try again in a moment',
       'too many attempts, wait a moment',
       'server error',
@@ -104,7 +104,7 @@ describe('resolveServerError', () => {
       .toBe(fr.errors.nicknameTaken)
     // Every nickname refusal is one server string and one line of copy: the
     // player must not be able to read the rule that fired off the message and
-    // walk around it. See server/game/nickname.go.
+    // walk around it. See server/crates/loco-game/src/nickname.rs.
     expect(resolveServerError('nickname not allowed', fr.errors))
       .toBe(fr.errors.nicknameRejected)
     expect(resolveServerError('nickname not allowed', en.errors))

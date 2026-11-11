@@ -5,7 +5,7 @@
 
   type Props = {
     nickname: string
-    /** A bot can never host the table, so the server refuses it. See hub/rooms.go. */
+    /** A bot can never host the table, so the server refuses it. See loco-hub/src/rooms.rs. */
     canMakeHost: boolean
     onmakehost: () => void
     onkick: () => void

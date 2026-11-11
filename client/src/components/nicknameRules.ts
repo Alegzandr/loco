@@ -1,6 +1,6 @@
 /**
  * The shape half of nickname validation, mirrored from
- * `server/game/nickname.go` so a refusal is instant instead of a round trip.
+ * `server/crates/loco-game/src/nickname.rs` so a refusal is instant instead of a round trip.
  *
  * Two things this file deliberately does not do.
  *
