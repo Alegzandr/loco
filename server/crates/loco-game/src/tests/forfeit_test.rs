@@ -1,4 +1,4 @@
-//! Ported from Go: `server/game/forfeit_test.go`.
+//! A forfeit: the match ends on the spot and goes to whoever stayed.
 
 use super::support::*;
 use crate::room::Status;

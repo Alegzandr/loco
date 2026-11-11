@@ -1,5 +1,3 @@
-//! Ported from Go: `server/game/loco_finish_test.go`.
-//!
 //! The rule these pin: a seat cannot forget LOCO! and still take the round.
 //!
 //! It used to be enforceable only through the 5 s catch window, which left two

@@ -1,4 +1,4 @@
-//! Ported from Go: `server/game/audit_fixes_test.go`.
+//! Fixes from the audit: each test pins a bug that once shipped.
 
 use super::support::*;
 use crate::card::{Card, Color};

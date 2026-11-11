@@ -1,4 +1,4 @@
-//! Ported from `server/game/rules_test.go`.
+//! Legality and card effects.
 
 use super::support::*;
 use crate::card::{Color, Kind};

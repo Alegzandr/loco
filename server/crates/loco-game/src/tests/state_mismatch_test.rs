@@ -1,4 +1,5 @@
-//! Ported from Go: `server/game/state_mismatch_test.go`.
+//! Which refusals mean the client's board is stale, and that marking one so
+//! leaves its wire text untouched.
 
 use super::support::*;
 use crate::card::Color;
@@ -44,7 +45,6 @@ fn is_state_mismatch_excludes_lost_races() {
         GameError::AlreadyDeclared,
         GameError::CatchWindowExpired,
         GameError::TargetNotSingleCard,
-        // Go: errors.New("game not in progress").
         GameError::GameNotInProgress,
     ] {
         assert!(

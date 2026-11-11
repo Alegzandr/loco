@@ -1,5 +1,4 @@
-//! Asks the gateway who is live, on a timer, and keeps the answer. Port of
-//! `server/twitch/poller.go`.
+//! Asks the gateway who is live, on a timer, and keeps the answer.
 //!
 //! It is the only thing in this process that talks to anybody outside it, and
 //! it never touches the event loop: what it produces reaches the hub through

@@ -1,16 +1,14 @@
-//! Ported from `server/game/maps_test.go`. `startedRoom` lives in
-//! `support.rs` as `started_room`.
+//! Maps, hours and weathers: the registry and the draw.
 //!
-//! Go's `MapID`, `TimeOfDay` and `Weather` were strings, so an unknown id was a
-//! value of the type. Here they are enums and an unknown id never parses: the
-//! Go cases on `MapID("atlantis")` become "it does not parse".
+//! `MapId`, `TimeOfDay` and `Weather` are enums, so an unknown id is not a
+//! value of the type: the cases on "atlantis" assert that it never parses.
 
 use super::support::*;
 use crate::maps::{self, MAP_IDS, MAP_WEATHERS, MapId, TIMES_OF_DAY, TimeOfDay, Weather};
 use crate::room::{MatchFormat, Status};
 use std::collections::HashSet;
 
-// Go's `MapIDValid`, `TimeOfDayValid` and `WeatherValid`: whether a name parses.
+// Whether a name parses.
 fn parses_map_id(s: &str) -> bool {
     s.parse::<MapId>().is_ok()
 }
@@ -229,8 +227,7 @@ fn map_weathers_cover_every_map() {
             "MapWeathers names {id:?}, which is not a map"
         );
     }
-    // Go: `MapID("atlantis").Weathers() == nil`. An unknown id is not a
-    // `MapId` here, so the nearest statement is that it never becomes one.
+    // An unknown id lists no weather: it never becomes a `MapId`.
     assert!(
         "atlantis".parse::<MapId>().is_err(),
         "an unknown map should list no weather"
@@ -257,8 +254,7 @@ fn pick_weather_stays_inside_the_maps_list() {
             assert!(seen.contains(w), "{id:?} never dealt {w:?} in 300 draws");
         }
     }
-    // Go: `pickWeather(MapID("atlantis")) == WeatherClear`. An unknown id
-    // cannot reach `pick_weather` (it is not a `MapId`), so the guard it
+    // An unknown id cannot reach `pick_weather` (it is not a `MapId`), so the guard it
     // exercised is the empty-list branch, which no registered map takes.
     assert!(
         "atlantis".parse::<MapId>().is_err(),

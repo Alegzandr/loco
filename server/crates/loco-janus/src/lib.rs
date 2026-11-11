@@ -9,8 +9,6 @@
 //! `JANUS.md` names them one by one as things not to build here. A second layer
 //! of any of them would not be redundancy, it would be two policies disagreeing
 //! about the same upstream.
-//!
-//! Port of `server/janus/client.go`.
 
 use std::time::{Duration, SystemTime};
 
@@ -71,7 +69,7 @@ pub struct Request {
     pub slug: String,
     /// Forwarded unchanged, leading slash included.
     pub path: String,
-    /// Unchanged. Encoded sorted by key, like Go's `url.Values.Encode`.
+    /// Unchanged. Encoded sorted by key, so one request always encodes the same way.
     pub query: Vec<(String, String)>,
     /// Bounds what a third party can make this process decode. Per call because
     /// a JSON list and a preview image are not the same size, and the honest

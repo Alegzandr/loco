@@ -1,7 +1,6 @@
-//! The Go suite of `server/game/`, one module per `_test.go` file and one
-//! `#[test]` per Go test, under the same name in snake_case. In-crate rather
-//! than under `tests/` because the Go tests were package-internal and read
-//! unexported state (`dealRound`, `catchOfferKey`, the room's source).
+//! The domain's tests, one module per subject. In-crate rather than under
+//! `tests/` because they read crate-private state (`deal_round`,
+//! `catch_offer_key`, the room's source).
 
 mod support;
 
@@ -25,7 +24,6 @@ mod rules_test;
 mod screen_test;
 mod state_mismatch_test;
 
-// Beyond the Go suite.
 mod api_test;
 mod proptests;
 mod scripted_round;

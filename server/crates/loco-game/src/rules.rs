@@ -1,11 +1,11 @@
-//! Legality and card effects (`server/game/rules.go`).
+//! Legality and card effects.
 
 use crate::Seat;
 use crate::card::{Card, Color, Kind};
 use crate::state::GameState;
 
 /// Whether `card` may be played on `top` given the active colour (relevant
-/// after a wild). (Go: `CanPlay`.)
+/// after a wild).
 pub fn can_play(card: Card, top: Card, active_color: Color) -> bool {
     if card.is_wild() || card.color == active_color {
         return true;
@@ -15,7 +15,7 @@ pub fn can_play(card: Card, top: Card, active_color: Color) -> bool {
 
 impl GameState {
     /// Applies the card's effect and returns the seat to play next; the caller
-    /// moves `current_turn` to it. (Go: `ApplyEffect`.)
+    /// moves `current_turn` to it.
     pub fn apply_effect(&mut self, card: Card, chosen_color: Color) -> Seat {
         // The seats still in the round, not the seats at the table: at three
         // seats with one retired a Reverse behaves as a Skip, as in a duel.
@@ -51,7 +51,7 @@ impl GameState {
     }
 
     /// The next seat in the play direction, stepping over every retired seat;
-    /// `from` itself when no other seat can play. (Go: `nextTurn`.)
+    /// `from` itself when no other seat can play.
     pub fn next_turn(&self, from: Seat) -> Seat {
         let n = self.hands.len();
         if n == 0 {
@@ -69,12 +69,12 @@ impl GameState {
     }
 
     /// Whether a seat has left the match. Bounds-checked: a hand-built state
-    /// may carry fewer seat records than hands. (Go: `isRetired`.)
+    /// may carry fewer seat records than hands.
     pub fn is_retired(&self, i: Seat) -> bool {
         self.seats.get(i).is_some_and(|s| s.retired)
     }
 
-    /// The seats still in the round. (Go: `activeSeats`.)
+    /// The seats still in the round.
     pub fn active_seats(&self) -> usize {
         (0..self.hands.len())
             .filter(|&i| !self.is_retired(i))
@@ -82,8 +82,7 @@ impl GameState {
     }
 
     /// For each seat, the seat its hand comes from when a GlobalSwitch turns the
-    /// table one place in the play direction, skipping retired seats. (Go:
-    /// `rotateSeats`.)
+    /// table one place in the play direction, skipping retired seats.
     pub fn rotate_seats(&self) -> Vec<Seat> {
         let active: Vec<Seat> = (0..self.hands.len())
             .filter(|&i| !self.is_retired(i))

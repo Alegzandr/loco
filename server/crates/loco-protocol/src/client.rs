@@ -1,12 +1,11 @@
 //! Everything a client can send.
 //!
 //! One variant per message type, each carrying the fields its handler reads
-//! and nothing else. The Go server read every message into one flat envelope,
-//! so any field was accepted on any message and ignored where it meant
-//! nothing; serde ignores unknown fields the same way, so a client sending a
-//! stray field is still answered as before.
+//! and nothing else. Any field is accepted on any message and ignored where it
+//! means nothing: serde ignores unknown fields, so a client sending a stray
+//! field is answered as if it had not.
 //!
-//! The defaults are the Go envelope's: a missing nickname reads as an empty
+//! The defaults are lenient: a missing nickname reads as an empty
 //! one (and is refused by the nickname rules, not by the decoder), a missing
 //! card as none (refused with "card required"), a missing seat as none.
 

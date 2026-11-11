@@ -1,4 +1,4 @@
-//! Ported from `server/game/rng_test.go`, against ChaCha.
+//! The room's source of randomness, against the clock-seed attack.
 //!
 //! The deal is hidden state, so the source that produces it has to be
 //! unguessable. This runs the actual attack rather than asserting a property of
