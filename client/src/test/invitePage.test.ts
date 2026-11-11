@@ -17,7 +17,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { INVITE, INVITE_OG, OG_IMAGE, PAGES, NAV, LANGS } from '../seo/meta'
 import { tableInviteUrl } from '../hooks/tableInvite'
-import { documentFor } from '../seo/document'
+import { routeFor } from '../seo/document'
 import { sitemapUrls } from '../seo/sitemap'
 
 const CLIENT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -25,7 +25,8 @@ const read = (...p: string[]) => readFileSync(path.join(CLIENT, ...p), 'utf8')
 
 const nginx = read('nginx.conf')
 const viteConfig = read('vite.config.ts')
-const pageSource = read('src', 'routes', 'i', '+page.svelte')
+// The page is the game's frame, rendered by the (game) layout from the URL.
+const pageSource = read('src', 'routes', '(game)', '+layout.svelte')
 
 describe('the invite page', () => {
   it('is one path in both languages, because an invitation carries no language', () => {
@@ -37,7 +38,8 @@ describe('the invite page', () => {
   })
 
   it('is served by a real file', () => {
-    expect(existsSync(path.join(CLIENT, 'src', 'routes', 'i', '+page.svelte'))).toBe(true)
+    expect(existsSync(path.join(CLIENT, 'src', 'routes', '(game)', 'i', '+page.svelte'))).toBe(true)
+    expect(routeFor('/i/').page).toBe(INVITE)
   })
 
   it('is noindex, and carries no chrome and no structured data', () => {
@@ -47,12 +49,11 @@ describe('the invite page', () => {
     // invited to, jsonLd={null} stops a second #webpage node describing the game
     // at a second URL, and no `data-served-lang` is what keeps initLang from
     // moving the address bar away from an invitation it has no opinion about.
-    expect(pageSource).toMatch(/\bnoindex\b/)
-    expect(pageSource).toMatch(/chrome=\{false\}/)
-    expect(pageSource).toMatch(/jsonLd=\{null\}/)
-    expect(pageSource).toMatch(/page=\{INVITE\}/)
-    expect(documentFor(INVITE.path.en).servedLang).toBeUndefined()
-    expect(documentFor(INVITE.path.en).altTitle).toBeUndefined()
+    expect(pageSource).toMatch(/const invite = .*\(def\.id === INVITE\.id\)/)
+    expect(pageSource).toMatch(/noindex=\{invite\}/)
+    expect(pageSource, 'no chrome on an invitation').toMatch(/\{#if !invite\}[\s\S]*<SiteFooter/)
+    expect(pageSource, 'and no structured data').toMatch(/jsonLd=\{invite \? undefined :/)
+    expect(routeFor(INVITE.path.en).servedLang).toBeUndefined()
   })
 
   it('is in no navigation and no hreflang set', () => {

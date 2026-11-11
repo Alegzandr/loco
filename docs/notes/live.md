@@ -235,13 +235,13 @@ readers at once: somebody arriving on a quiet evening and somebody whose browser
 Neither is ever shown the word "loading". `e2e/tests/live.spec.ts` reads the page with JavaScript
 disabled, which is the only place that can be proved.
 
-**The fill is wired into `page-boot.ts`** rather than shipped as a second script. That file already
-documents the rule in its own header: there is only ever one script on these pages, so a second
-behaviour is a few more lines rather than a second request. The rule in `CLAUDE.md` and
-[`seo.md`](seo.md) — a content page ships no JavaScript except `page-boot.ts` — therefore stays true
-to the letter; what changed is what that script does. Everything is built with `createElement` and
-`textContent`; `livePage.test.ts` fails on an `innerHTML` in that module, because every string it
-handles was written by a stranger.
+**The list is the article's own.** `content/LiveArticle.svelte` asks `content/liveList.ts:
+fetchLiveRows()` on mount and renders the rows it returns under `{#each}`; the prose around it is
+rendered on the server and does not wait on anything. (Under Astro the page had no component in the
+browser, so a script, `page-boot.ts`, filled the list with `createElement` and `textContent`.)
+Every string in a row is Svelte text or an attribute, escaped by construction; `livePage.test.ts`
+fails on an `innerHTML` in the module or an `{@html}` in the article, because every one of them was
+written by a stranger.
 
 ## The outgoing links
 

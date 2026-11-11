@@ -71,6 +71,22 @@ body {
 }
 
 /*
+  The game, while a content page is on screen (routes/+layout.svelte keeps it
+  rendered so the socket, the music and a match survive the trip). Out of reach
+  in every way a subtree can be — `inert` and `aria-hidden` are on the element —
+  and nothing painted, but still the viewport's size, so the board's
+  measurements do not collapse to zero under a match that is still running.
+*/
+#root.parked {
+  position: fixed;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: -1;
+}
+
+/*
   A move between two pages of the site is one cross-fade (src/routes/+layout.svelte
   starts it), short enough to read as the same app changing its mind rather than
   a page loading: the site's bar is named on its own (`site-footer`, content.css)

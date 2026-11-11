@@ -443,7 +443,7 @@ html[data-room] body {
    separately, off the same preference: they ask `prefersReducedMotion()` before
    they animate, because a keyframe animation is not a CSS rule this can reach.
 
-   `data-motion` is written by `initMotion()`, which entry.ts calls before the
+   `data-motion` is written by `initMotion()`, which boot.ts calls before the
    first render. Nothing below applies until it has. */
 :root[data-motion="reduce"] *,
 :root[data-motion="reduce"] *::before,

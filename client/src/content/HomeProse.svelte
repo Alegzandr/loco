@@ -1,10 +1,9 @@
 <script lang="ts">
   // What the home page says about the game, written once.
   //
-  // It appears in the sheet a wide screen opens from the footer row and the
-  // drawer's first row opens on a phone — the only prose on `/` a crawler can
-  // read. Rendering it from here is what stops two copies drifting into two
-  // different descriptions of the game.
+  // It is what the sheet at the left-hand end of the home page's bar opens, on
+  // a wide screen from the bar and on a phone from the drawer's first row — and
+  // the only prose on `/` a crawler can read.
   //
   // The sections head at <h3>: the sheet is the rules modal now, and the modal
   // titles itself at <h2>. The document's one <h1> is the served heading on `/`.
@@ -12,22 +11,18 @@
   import type { Lang } from '../seo/meta'
 
   const { lang }: { lang: Lang } = $props()
-  // The other language, carried in `data-alt` so `src/langSwap.ts` can translate
-  // this in place: `/` is the one page that changes language without reloading,
-  // and this prose is rendered into it. See the note in `layouts/GamePage.svelte`.
-  const alt = $derived<Lang>(lang === 'en' ? 'fr' : 'en')
 </script>
 
 <section>
-  <h3 data-alt={ui('homeAboutH2', alt)}>{ui('homeAboutH2', lang)}</h3>
-  <p data-alt={ui('homeAbout', alt)}>{ui('homeAbout', lang)}</p>
+  <h3>{ui('homeAboutH2', lang)}</h3>
+  <p>{ui('homeAbout', lang)}</p>
 </section>
 
 <section>
-  <h3 data-alt={ui('homeDiffH2', alt)}>{ui('homeDiffH2', lang)}</h3>
+  <h3>{ui('homeDiffH2', lang)}</h3>
   <ul>
-    <li data-alt={ui('homeDiff1', alt)}>{ui('homeDiff1', lang)}</li>
-    <li data-alt={ui('homeDiff2', alt)}>{ui('homeDiff2', lang)}</li>
-    <li data-alt={ui('homeDiff3', alt)}>{ui('homeDiff3', lang)}</li>
+    <li>{ui('homeDiff1', lang)}</li>
+    <li>{ui('homeDiff2', lang)}</li>
+    <li>{ui('homeDiff3', lang)}</li>
   </ul>
 </section>

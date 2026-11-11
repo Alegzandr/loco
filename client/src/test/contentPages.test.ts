@@ -39,10 +39,13 @@ const article = readFileSync(path.join(CLIENT, 'src', 'content', 'RulesArticle.s
  * The game page, markup and document stylesheet together: under Astro they were
  * one `.astro` file with an `is:global` style; the component is markup now, and
  * the rules that style what it does not own (the app's mounted child, the
- * body) are `GamePage.css` beside it.
+ * body) are `GamePage.css` beside it. The markup is the (game) route group's
+ * layout now: the frame `/`, `/fr/` and `/i/` share.
  */
+const GAME_LAYOUT = path.join(CLIENT, 'src', 'routes', '(game)', '+layout.svelte')
+const CONTENT_LAYOUT = path.join(CLIENT, 'src', 'routes', '(content)', '+layout.svelte')
 const gamePage = () =>
-  readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.svelte'), 'utf8') +
+  readFileSync(GAME_LAYOUT, 'utf8') +
   '\n<style>\n' +
   readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.css'), 'utf8')
 
@@ -123,7 +126,7 @@ describe('the content stylesheet', () => {
   })
 
   it('styles no bare table element, because the game loads this file too', () => {
-    // `GamePage.svelte` imports this stylesheet for the footer row and the burger
+    // The game's layout imports this stylesheet for the footer row and the burger
     // drawer, so a bare `table`/`th`/`td` rule here reaches every table the game
     // draws. `thead th { background: var(--color-stroke) }` is what that cost:
     // an ink band landed behind the score table's column heads and the evening
@@ -166,7 +169,7 @@ describe('the content stylesheet', () => {
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
     const block = (selector: string) =>
       new RegExp(`\\${selector}\\s*\\{[^}]*\\}`).exec(css)?.[0] ?? ''
-    const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.svelte'), 'utf8')
+    const layout = readFileSync(CONTENT_LAYOUT, 'utf8')
 
     expect(layout, 'the header row must sit inside the pinned band').toMatch(
       /class="headerBar"[\s\S]{0,200}class="siteHeader"/,
@@ -188,7 +191,7 @@ describe('the content stylesheet', () => {
     // focus whatever the gesture was. So the focus move is fenced behind a
     // keyboard activation, `detail === 0`.
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
-    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'page-boot.ts'), 'utf8')
+    const boot = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ToTop.svelte'), 'utf8')
     expect(boot, 'back-to-top is what moves focus there').toMatch(
       /\.skip'\)\?\.focus\(\{ preventScroll: true \}\)/,
     )
@@ -207,7 +210,7 @@ describe('the content stylesheet', () => {
     // in two files, and either alone is silent: the stylesheet with no attribute
     // never glides, the attribute with no rule does nothing.
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
-    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'page-boot.ts'), 'utf8')
+    const boot = readFileSync(CONTENT_LAYOUT, 'utf8')
 
     expect(css, 'the smooth rule must hang off the attribute').toMatch(
       /html\[data-scroll="smooth"\][^{]*\{[^}]*scroll-behavior:\s*smooth/,
@@ -272,7 +275,7 @@ describe('the mobile menu', () => {
   const layouts = path.join(CLIENT, 'src', 'layouts')
   const footer = readFileSync(path.join(layouts, 'SiteFooter.svelte'), 'utf8')
   const drawer = readFileSync(path.join(layouts, 'SiteDrawer.svelte'), 'utf8')
-  const content = readFileSync(path.join(layouts, 'ContentPage.svelte'), 'utf8')
+  const content = readFileSync(CONTENT_LAYOUT, 'utf8')
   const block = (selector: string) =>
     new RegExp(`\\${selector}\\s*\\{[^}]*\\}`).exec(css)?.[0] ?? ''
 
@@ -280,8 +283,8 @@ describe('the mobile menu', () => {
     // The two copies drifted once — different padding, the legal link in two
     // places, a globe on one side only — and crossing between the game and a
     // content page read as crossing between two sites.
-    const game = readFileSync(path.join(layouts, 'GamePage.svelte'), 'utf8')
-    for (const [name, src] of [['GamePage', game], ['ContentPage', content]] as const) {
+    const game = readFileSync(GAME_LAYOUT, 'utf8')
+    for (const [name, src] of [['(game)', game], ['(content)', content]] as const) {
       expect(src, `${name} renders the bar`).toMatch(/<SiteFooter\b/)
       expect(src, `${name} renders the drawer`).toMatch(/<SiteDrawer\b/)
       expect(src, `${name} must not write a drawer of its own`).not.toMatch(/id="navPop"/)
@@ -392,10 +395,15 @@ describe('the mobile menu', () => {
     expect(rule(game, '.homeSheet[open] .homeSheetBtn'), 'the summary is the footer').toMatch(/order:\s*1/)
     expect(game, 'the scrim is a sibling of the sheet').toMatch(/<\/details>[\s\S]*?class="homeSheetScrim"/)
     expect(game).toMatch(/\.homeSheet\[open\]\s*~\s*\.homeSheetScrim/)
-    expect(game).toMatch(/class="homeSheetX"\s*\n?\s*hidden/)
+    // The ✕ is the scripted second way out: hidden until a script runs, and
+    // `hidden` has to be stated in the CSS as well, or the `display: flex` that
+    // draws it wins over the attribute.
+    expect(game).toMatch(/class="homeSheetX"\s*\n?\s*hidden=\{!hydrated\}/)
     expect(rule(game, '.homeSheetX[hidden]')).toMatch(/display:\s*none/)
-    const script = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
-    expect(script, 'the script reveals it and wires it').toMatch(/homeSheetX/)
+    expect(game, 'and it closes the sheet').toMatch(/class="homeSheetX"[\s\S]{0,200}onclick=\{closeSheet\}/)
+    // The native control stays the native control: the open state is bound,
+    // never driven, so the <summary> still opens it with no script.
+    expect(game).toMatch(/<details class="homeSheet" bind:open=\{sheetOpen\}>/)
   })
 
   it('becomes the rulebook\'s own sheet on a phone', () => {
@@ -429,9 +437,8 @@ describe('the mobile menu', () => {
     expect(drawer, 'the row is first in the game drawer').toMatch(
       /<nav class="navPopLinks"[^>]*>\s*\{#if home\}[\s\S]*?<button\b[^>]*id="navAbout"/,
     )
-    expect(drawer).toMatch(/id="navAbout"[^>]*hidden/)
-    const script = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
-    expect(script, 'the script reveals it and opens the sheet').toMatch(/navAbout/)
+    expect(drawer).toMatch(/id="navAbout"[^>]*hidden=\{!hydrated\}/)
+    expect(gamePage(), 'and the game page hands it the sheet').toMatch(/onAbout=\{openSheetFrom\}/)
     // Only the *closed* sheet's button goes at this width: the open sheet is
     // fixed and must survive the row it lives in being hidden.
     const game = gamePage()
@@ -440,10 +447,8 @@ describe('the mobile menu', () => {
   })
 
   it('never ships the drawer a button that opens nothing', () => {
-    expect(drawer).toMatch(/id="navPrefs"[^>]*hidden/)
-    const script = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
-    expect(script, 'the script reveals it').toMatch(/navPrefs/)
-    expect(script, 'and asks the app for the panel').toMatch(/loco:preferences/)
+    expect(drawer).toMatch(/id="navPrefs"[^>]*hidden=\{!hydrated\}/)
+    expect(drawer, 'and asks the game for the panel').toMatch(/loco:preferences/)
   })
 
   it('makes the bar one height on both pages, held still between them', () => {
@@ -478,8 +483,8 @@ describe('the mobile menu', () => {
     expect(frames).toMatch(/opacity/)
     expect(frames, 'no transform in the reveal').not.toMatch(/transform/)
 
-    const entry = readFileSync(path.join(CLIENT, 'src', 'entry.ts'), 'utf8')
-    expect(entry, 'entry.ts writes the attribute the CSS waits on').toMatch(/dataset\.booted/)
+    const entry = readFileSync(path.join(CLIENT, 'src', 'boot.ts'), 'utf8')
+    expect(entry, 'boot.ts writes the attribute the CSS waits on').toMatch(/dataset\.booted/)
     expect(entry, 'and does it after the commit has been painted').toMatch(
       /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/,
     )
@@ -488,10 +493,10 @@ describe('the mobile menu', () => {
   })
 
   it('closes the drawer at the width the CSS stops drawing it', () => {
-    const script = readFileSync(path.join(CLIENT, 'src', 'content', 'navMenu.ts'), 'utf8')
+    const script = drawer
     const inScript = /\(max-width:\s*([\d.]+)rem\)/.exec(script)?.[1]
     const inCss = /@media\s*\(max-width:\s*([\d.]+)rem\)\s*\{\s*@supports\s+selector\(\[popover\]\)/.exec(css)?.[1]
-    expect(inScript, 'navMenu.ts must name a phone breakpoint').toBeTruthy()
+    expect(inScript, 'SiteDrawer.svelte must name a phone breakpoint').toBeTruthy()
     expect(inCss, 'content.css must gate the burger on one').toBeTruthy()
     expect(inScript).toBe(inCss)
   })

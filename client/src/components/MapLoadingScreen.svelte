@@ -61,7 +61,7 @@
   <div class="body">
     <div class="kicker">{t.mapLoadingTitle}</div>
     <!-- An h2, like every screen in the game: the page's own top-level heading is
-         the one GamePage.svelte serves. -->
+         the one the game's layout serves. -->
     <h2 class="name">{copy.name}</h2>
     <div class="moment" data-testid="map-moment">{moment}</div>
     <p class="tagline">{copy.tagline}</p>

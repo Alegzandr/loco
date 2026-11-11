@@ -7,7 +7,7 @@
    * capture the entire UI in one pass, and by hand during design work.
    *
    * Tree-shaken from production builds: the only import site is guarded by
-   * `import.meta.env.DEV` in entry.ts.
+   * `import.meta.env.DEV` in boot.ts.
    */
   import { gameStore } from '../hooks/gameStore'
   import { game } from '../hooks/gameStore.svelte'
@@ -168,7 +168,7 @@
     if (scene) applyScene(scene)
 
     // What App.svelte does for every screen but the lobby, and the showcase does
-    // not mount App. Without it `GamePage.svelte`'s footer stays up in every
+    // not mount App. Without it the game layout's bar stays up in every
     // captured scene, and its burger — positioned top left, z-index 61 — lands on
     // the round indicator in every board screenshot. The contact sheets are the
     // review tool, so a scene that lies about its own chrome is worse than no

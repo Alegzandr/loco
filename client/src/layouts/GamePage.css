@@ -2,7 +2,7 @@
 
    Global on purpose and by necessity. Half of what is styled here is markup no
    component owns at compile time — the app's mounted child under `#root` is
-   put there by src/entry.ts — and Svelte would prune a scoped selector it
+   rendered there by the root layout — and Svelte would prune a scoped selector it
    cannot see in this component's markup, silently.
 
    And because a stylesheet the router has loaded stays loaded for the life of
@@ -33,14 +33,6 @@ body.game {
   width: 100%;
 }
 
-/* The app's own element, which src/entry.ts mounts the game into and keeps
-   across a navigation. Every screen sizes itself to its parent exactly as it
-   sized itself to #root, so this one fills #root and owns nothing else. */
-.appHost {
-  width: 100%;
-  height: 100%;
-}
-
 /* Once a seat is taken there is nothing on this page but the game, and a board
    that can be dragged off-screen mid-match is a bug. The bar and the burger are
    the site's; at a seat the board is the board. */
@@ -56,7 +48,7 @@ body.game {
    and the links on a wide screen, the canvas and the burger on a phone, then
    the lobby a few hundred milliseconds later when the bundle landed. Both
    halves now wait for the mount and fade in together — `data-booted` is
-   written on <html> by entry.ts once <App /> has painted.
+   written on <html> by boot.ts once the game has painted.
 
    Gated on `scripting: enabled`, because with no script there is no mount to
    wait for and the prose behind the sheet is the only thing on `/` a crawler
@@ -78,7 +70,7 @@ body.game {
    containing block for the fixed burger and for every panel the app renders,
    for as long as the animation runs.
 
-   `data-booted="in"` is the reveal and it is spent: entry.ts blanks the value
+   `data-booted="in"` is the reveal and it is spent: boot.ts blanks the value
    once the fade is over. Every screen is a fresh child of #root, so a reveal
    rule left standing would replay on every screen change for the rest of the
    match. The bare attribute is what lifts the hold, and it stays.
@@ -246,7 +238,7 @@ body.game {
   color: var(--color-ink);
 }
 
-/* `hidden` in the markup and revealed by `homeSheet.ts`: the summary below
+/* `hidden` in the markup and revealed once a script runs: the summary below
    closes this with no script, this one cannot, and a control that does nothing
    is worse than one that is not there. The explicit rule is load-bearing —
    `display: flex` would otherwise win over the attribute. */

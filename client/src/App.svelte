@@ -197,7 +197,7 @@
   // watched from `tabLock.ts` because this is the one place that already knows.
   //
   // The document is told only while the game is on screen. The router keeps it
-  // mounted behind a content page (src/entry.ts), and a page somebody stepped
+  // mounted behind a content page (routes/+layout.svelte), and a page somebody stepped
   // away to read must keep its pinch and its text selection; the other tab's
   // question is about the seat, which is still taken, so it is answered either
   // way.

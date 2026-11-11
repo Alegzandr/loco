@@ -77,6 +77,25 @@ const OUTSIDE_THE_REPO = new Set([
   // is an input the maintainer unpacks by hand, and the docs name it in order
   // to say where to put them.
   '.assets-in/unpacked',
+  // Retired by the move to SvelteKit and named by the notes in order to say what
+  // replaced them — the history of a rule is half its reasoning. A file listed
+  // here that comes back into the tree is fine; one the docs name that is in
+  // neither place is still a failure.
+  'src/entry.ts',
+  'entry.ts',
+  'src/langSwap.ts',
+  'langSwap.ts',
+  'src/homeSheet.ts',
+  'homeSheet.ts',
+  'content/page-boot.ts',
+  'page-boot.ts',
+  'content/navMenu.ts',
+  'navMenu.ts',
+  'homeLangSwap.test.ts',
+  'GamePage.svelte',
+  'ContentPage.svelte',
+  // Named in order to say the boot is deliberately not there.
+  'hooks.client.ts',
 ])
 
 /**

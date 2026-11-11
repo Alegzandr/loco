@@ -1,18 +1,19 @@
 /**
  * One language per document, across both halves of the site.
  *
- * The bug this pins: `/` is markup Astro built in English, and a stored French
- * choice outranks the URL when the app picks its language. So the game rendered
- * in French under a footer reading "With friends", on an `<html lang="fr">` — a
+ * The bug this pins: `/` is a page built in English, and a stored French choice
+ * outranks the URL when the app picks its language. So the game rendered in
+ * French under a footer reading "With friends", on an `<html lang="fr">` — a
  * document half of which was English, which is a lie to a screen reader before
- * it is a mess to look at. The answer is that both halves move together: the
- * served markup is translated in place by `langSwap.ts` and the address bar goes
- * with it, to a URL where a reload finds the real document.
+ * it is a mess to look at. The answer is that the whole page moves: the router
+ * goes to the same page in the chosen language (`langRoute.ts`), which is the
+ * URL where a reload finds the real document, and the game the root layout
+ * keeps follows it.
  *
  * The decision is pure so it can be tested without a DOM; `initLang` is the
- * three lines that apply it, and `homeLangSwap.test.ts` owns the swap itself.
+ * three lines that apply it, tested below against a recorded router.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
@@ -26,6 +27,9 @@ import {
   readStoredLang,
   rememberLang,
 } from '../lang'
+import { goto } from '$app/navigation'
+import { vi } from 'vitest'
+import { initLang } from '../langRoute'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 
@@ -134,11 +138,34 @@ describe('where that puts the address bar', () => {
     // here, or the way out of the game is a trap. `replaceState` is also what
     // keeps this from reading as a redirect: the request for `/` was answered
     // with the English page, and that is still what a crawler is holding.
-    const src = readFileSync(path.join(CLIENT, 'src', 'langSwap.ts'), 'utf8')
-    expect(src).toMatch(/history\.replaceState\(/)
-    expect(src, 'a language is no longer a navigation').not.toMatch(
-      /location\.replace\(|location\.assign\(|location\.href =/,
+    const src = readFileSync(path.join(CLIENT, 'src', 'langRoute.ts'), 'utf8')
+    expect(src).toMatch(/goto\(url, \{ replace: true/)
+    expect(src, 'a language is never a document load').not.toMatch(
+      /location\.replace\(|location\.assign\(|location\.href =|history\.replaceState\(/,
     )
+  })
+
+  it('moves the router only when the page is in the wrong language', () => {
+    const html = document.documentElement
+    try {
+      localStorage.setItem(LANG_STORAGE_KEY, 'fr')
+      html.dataset.servedLang = 'en'
+      expect(initLang()).toBe('fr')
+      expect(vi.mocked(goto)).toHaveBeenCalledWith('/fr/', { replace: true, reset: false })
+
+      vi.mocked(goto).mockClear()
+      html.dataset.servedLang = 'fr'
+      expect(initLang()).toBe('fr')
+      expect(vi.mocked(goto), 'the right page is left alone').not.toHaveBeenCalled()
+
+      // The invitation is built as no language: nothing to disagree with.
+      delete html.dataset.servedLang
+      initLang()
+      expect(vi.mocked(goto)).not.toHaveBeenCalled()
+    } finally {
+      localStorage.clear()
+      delete html.dataset.servedLang
+    }
   })
 })
 
@@ -151,8 +178,8 @@ describe('a detection is not a choice', () => {
     // A detection that stored itself would become a choice, and a choice
     // outranks the URL — so the next French link this player was sent would
     // open in English, for good. Only the two switches write.
-    const swap = readFileSync(path.join(CLIENT, 'src', 'langSwap.ts'), 'utf8')
-    expect(swap).not.toMatch(/rememberLang|setItem/)
+    const route = readFileSync(path.join(CLIENT, 'src', 'langRoute.ts'), 'utf8')
+    expect(route).not.toMatch(/rememberLang|setItem/)
     const lang = readFileSync(path.join(CLIENT, 'src', 'lang.ts'), 'utf8')
     // One writer in the module, and it is the one the switches call.
     expect(lang.match(/setItem/g) ?? []).toHaveLength(1)
@@ -181,12 +208,12 @@ describe('both halves of the site write the choice down', () => {
       path.join(CLIENT, 'src', 'components', 'LanguageSwitcher.svelte'),
       'utf8',
     )
-    // The pick applies itself now, on both halves of the page at once: the
-    // game's strings and the choice through `setLang`, the served markup and
-    // the address bar through the swap. No link, so no Apply button.
+    // The pick applies itself: the game's strings and the choice through
+    // `setLang`, the page around the game and the address bar through the
+    // router. No link, so no Apply button.
     expect(switcher, 'the pick records the choice').toMatch(/i18n\.setLang\(code\)/)
-    expect(switcher, 'and carries the served half with it').toMatch(/swapServedLang\(/)
-    expect(switcher, 'nothing here navigates any more').not.toMatch(/<a\b|href=/)
+    expect(switcher, 'and moves the page with it').toMatch(/moveTo\(url\)/)
+    expect(switcher, 'nothing here is a link').not.toMatch(/<a\b|href=/)
   })
 
   it('a content page stores it too, without losing the href', () => {
@@ -194,19 +221,19 @@ describe('both halves of the site write the choice down', () => {
     // French, read the rules and pressed "Jouer" reached `/fr/` with English
     // stored — and a stored choice outranks the URL, so the game opened in
     // English at a French address.
-    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'page-boot.ts'), 'utf8')
-    expect(boot).toMatch(/rememberLang\(/)
-    expect(boot, 'delegated, because two globes open one panel').toMatch(/#langPop a\[lang\]/)
+    // On the link itself, in the one panel both globes open, on every page.
+    const footer = readFileSync(path.join(CLIENT, 'src', 'layouts', 'SiteFooter.svelte'), 'utf8')
+    expect(footer).toMatch(/onclick=\{\(\) => rememberLang\(l\)\}/)
 
     // The links themselves stay real: the href is what makes an hreflang pair
     // navigable, and a crawler follows nothing else.
     const layout = readFileSync(path.join(CLIENT, 'src', 'layouts', 'SiteFooter.svelte'), 'utf8')
     expect(layout).toMatch(/<a\s+href=\{page\.path\[l\]\}/)
-    // And the game page, which carries the same panel since the bar is one,
-    // turns a pick into the gear's in-place swap rather than a navigation.
-    const sheet = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
-    expect(sheet).toMatch(/#langPop a\[lang\]/)
-    expect(sheet).toMatch(/setLang\(code\)[\s\S]{0,80}swapServedLang\(/)
+    // And when the router brings the game back to a game page, the language is
+    // decided again against the page arrived at: the choice just written down
+    // is what it reads.
+    const root = readFileSync(path.join(CLIENT, 'src', 'routes', '+layout.svelte'), 'utf8')
+    expect(root).toMatch(/initLang\(\)\s*\n\s*redetectLang\(\)/)
   })
 
   it('settles the language before anything one-shot is spent', () => {
@@ -216,15 +243,35 @@ describe('both halves of the site write the choice down', () => {
     // Anchored on the indentation, because both names are also written in the
     // comments explaining why they sit in this order, and `indexOf` would find
     // the prose first.
-    const entry = readFileSync(path.join(CLIENT, 'src', 'entry.ts'), 'utf8')
+    const entry = readFileSync(path.join(CLIENT, 'src', 'boot.ts'), 'utf8')
     const decided = entry.match(/^ {2}initLang\(\)$/m)
     const invite = entry.match(/^ {2}initTableInvite\(\)$/m)
-    expect(decided?.index, 'entry.ts must ask the question').toBeGreaterThan(-1)
+    expect(decided?.index, 'boot.ts must ask the question').toBeGreaterThan(-1)
     expect(invite?.index).toBeGreaterThan(decided!.index!)
-    // One boot per document, the first time the game page mounts: the router
-    // keeps the game across a navigation, and a second boot would elect the tab
-    // and seed the store a second time.
+    // One boot per document, the first time the router is on a game page: the
+    // root layout keeps the game across a navigation, and a second boot would
+    // elect the tab and seed the store a second time.
     expect(entry.match(/^\s*boot\(\)$/gm), 'boot() is called from exactly one place').toHaveLength(1)
-    expect(entry, 'and only for a document that has not booted').toMatch(/if \(!host\) \{\s*boot\(\)/)
+    const root = readFileSync(path.join(CLIENT, 'src', 'routes', '+layout.svelte'), 'utf8')
+    expect(root, 'and only for a document that has not booted').toMatch(/if \(booting\) return\s*\n\s*booting = true\s*\n\s*void bootGame\(\)/)
+  })
+})
+
+describe('a page is in one language, and the other language is another page', () => {
+  it('carries no second language in its markup', () => {
+    // Under Astro, `/` carried every string and link twice (`data-alt*`) so a
+    // script could translate it in place. The router renders the other page
+    // instead, so a second copy is dead weight that would quietly drift from
+    // the first. Nothing under src/ writes one any more.
+    const walk = (d: string): string[] =>
+      readdirSync(d).flatMap((e) => {
+        const full = path.join(d, e)
+        if (statSync(full).isDirectory()) return e === 'test' ? [] : walk(full)
+        return /\.(svelte|ts)$/.test(e) ? [full] : []
+      })
+    const offenders = walk(path.join(CLIENT, 'src')).filter((f) =>
+      /data-alt(-href|-aria|-title)?=|dataset\.alt/.test(readFileSync(f, 'utf8')),
+    )
+    expect(offenders.map((f) => path.relative(CLIENT, f))).toEqual([])
   })
 })

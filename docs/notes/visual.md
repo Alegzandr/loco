@@ -39,7 +39,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   the LOCO mark — and it is the one part of the UI that does **not** follow the app's chunky-sticker
   language. A card is an object, not a control.
 - `--ease-bounce` for anything that should feel physical; `--ease-out` for travel.
-- **Reduced motion is applied by `initMotion()` in `entry.ts`, before first render**: every
+- **Reduced motion is applied by `initMotion()` in `boot.ts`, before first render**: every
   reduced-motion rule in the CSS hangs off `:root[data-motion="reduce"]` instead of a media query,
   so the attribute has to be on `<html>` before the first paint. See `docs/notes/client.md`.
 
@@ -748,7 +748,7 @@ replaced was the same numbers written at their call sites, where finding the one
 read as night meant reading four files.
 
 The dev panel is lil-gui over exactly this object: `?look=1` on any page in dev mounts it
-(`entry.ts`, behind `import.meta.env.DEV`, so neither the panel nor lil-gui reaches a build), a
+(`boot.ts`, behind `import.meta.env.DEV`, so neither the panel nor lil-gui reaches a build), a
 move edits `LOOK` in place and calls `bumpLook()` after 180 ms of quiet, the backdrop hears it
 (`subscribeLook`) and asks for the room again — `lookVersion()` is part of the cache key
 (`sceneCache.entryKey`) and of the entry (`PreparedScene.look`), so a frame rendered with the old
@@ -2365,7 +2365,7 @@ is a board the player cannot act on.
 ## Visual showcase & screenshot harness
 `client/src/dev/scenes.ts` registers every screen/state as pure data; `?showcase` renders the index,
 `?showcase=<id>` renders one scene full-screen with no server, no WebSocket and no second player.
-Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup drops the chunk in prod.
+Gated behind `import.meta.env.DEV` (dynamic import in `boot.ts`), so Rollup drops the chunk in prod.
 
 `tools/visual/shoot.mjs` (`make visual`) boots the dev server through
 `tools/lib/devserver.mjs`, walks the registry and writes

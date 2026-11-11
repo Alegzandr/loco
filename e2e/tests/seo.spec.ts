@@ -324,8 +324,8 @@ test.describe('with JavaScript, it is still the game', () => {
  * `/` is the root and the canonical English page at once, which is what makes it
  * the one URL a browser setting is allowed to decide anything at. A device set
  * to French gets the French game, under a French footer, at `/fr/` — and none of
- * it is a round trip: the served markup carries both languages and
- * `src/langSwap.ts` walks it. Nothing is written to storage, because a detection
+ * it is a round trip: the router renders the French page in place of the
+ * history entry (`src/langRoute.ts`). Nothing is written to storage, because a detection
  * that stored itself would become a choice and outrank every French link this
  * player is sent afterwards.
  */
@@ -338,8 +338,8 @@ test.describe('a browser that asks for French', () => {
     await expect(page.locator('#root')).toContainText(fr.tagline, { timeout: 15_000 })
     await expect(page).toHaveURL(/\/fr\/$/)
 
-    // The half Astro served moved too, links included — that is the half with no
-    // second chance, since a content page mounts nothing. Both renderings of the
+    // The prerendered half moved too, links included — the bar is the French
+    // page's now, not a translation of the English one. Both renderings of the
     // navigation are in this footer, the row and the drawer, so the assertion
     // that means anything is that neither leaks: nothing still points at an
     // English page.
@@ -347,10 +347,10 @@ test.describe('a browser that asks for French', () => {
     await expect(page.locator('footer a[href="/fr/regles/"]').first()).toBeVisible()
     await expect(page.locator('footer')).toContainText('Confidentialité')
 
-    // But the document is still the one that was served: `data-served-lang` says
-    // what the page was built as, and a reload is what fetches the real French
-    // one. Nothing recorded a choice on the player's behalf.
-    await expect(page.locator('html')).toHaveAttribute('data-served-lang', 'en')
+    // And the document is the French page: `data-served-lang` says what the page
+    // on screen was built as, which is what a reload fetches. Nothing recorded a
+    // choice on the player's behalf.
+    await expect(page.locator('html')).toHaveAttribute('data-served-lang', 'fr')
     expect(await page.evaluate(() => localStorage.getItem('loco_lang'))).toBeNull()
   })
 

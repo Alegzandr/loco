@@ -82,7 +82,7 @@ export function resetI18n(): void {
 /**
  * Detection is lazy, and that is what makes it happen at the right moment.
  *
- * `entry.ts` calls `initI18n()` before the first render, so in the app this has
+ * `boot.ts` calls `initI18n()` before the first render, so in the app this has
  * always already run. What it buys is the boundary a test needs: reading the
  * language for the first time after a reset decides it, which is exactly when
  * the provider used to decide it — on mount, against whatever storage says now.

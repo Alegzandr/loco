@@ -1,7 +1,7 @@
 /**
  * The look panel: every number in `scene/look.ts`, as sliders, in dev.
  *
- * `?look=1` on any page of the app mounts it (`entry.ts`), the showcase
+ * `?look=1` on any page of the app mounts it (`boot.ts`), the showcase
  * included, so a room can be tuned live over a real board or over a still.
  * Moving a control edits `LOOK` in place and publishes the change
  * (`bumpLook`), which the backdrop answers by rendering the room again and
@@ -12,7 +12,7 @@
  * `look.ts` is where they live. "Copy JSON" puts the whole look on the
  * clipboard to paste into it; "Reset" puts the file's numbers back.
  *
- * Dev-only by construction: `entry.ts` imports it behind
+ * Dev-only by construction: `boot.ts` imports it behind
  * `import.meta.env.DEV`, so neither this module nor lil-gui reaches a build.
  */
 import GUI from 'lil-gui'

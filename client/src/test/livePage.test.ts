@@ -10,7 +10,6 @@ const read = (p: string) => readFileSync(path.join(CLIENT, p), 'utf8')
 
 const article = read('src/content/LiveArticle.svelte')
 const list = read('src/content/liveList.ts')
-const boot = read('src/content/page-boot.ts')
 
 /**
  * The file with its comments taken out.
@@ -40,16 +39,20 @@ describe('the live page', () => {
   })
 
   // The page is prerendered, and its prose has to be in the served HTML for a
-  // reader with no script and a crawler alike. So the article is markup and
-  // nothing else: no effect (which never runs on the server, so whatever it
-  // drew would be missing from the file), no inline script, no raw HTML. The
-  // list is filled by `page-boot.ts`, over what this already says.
-  it('is markup that renders on the server, with no script of its own', () => {
-    const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(article)?.[1] ?? ''
-    // Built rather than written out: a rune spelled in a plain .ts file is what
-    // runeScope.test.ts exists to refuse, even inside a pattern.
-    expect(script).not.toMatch(new RegExp(['\\$' + 'effect', 'onMount', '\\$' + 'state'].join('|')))
-    expect(article.slice(article.indexOf('</script>'))).not.toMatch(/<script|\{@html/)
+  // reader with no script and a crawler alike. What the browser adds is the
+  // list, and only the list: the one piece of state is the rows, the one thing
+  // drawn from them is under `#each rows`, and nothing is raw HTML.
+  it('renders its prose on the server, and only the list in the browser', () => {
+    const markup = article.slice(article.indexOf('</script>'))
+    expect(markup).not.toMatch(/<script|\{@html/)
+    const state = [...article.matchAll(new RegExp('\\$' + 'state', 'g'))]
+    expect(state, 'the rows are the only state').toHaveLength(1)
+    expect(article).toMatch(/let rows = /)
+    expect(markup).toMatch(/\{#each rows as row/)
+    // The prose is outside every block that waits on the browser.
+    for (const key of ['liveWhyH2', 'liveHowH2', 'liveListedH2']) {
+      expect(markup.indexOf(`ui('${key}', lang)`), key).toBeGreaterThan(markup.indexOf('{/each}'))
+    }
   })
 
   // The paragraph that stands in for the list is *served*, not written by the
@@ -60,19 +63,21 @@ describe('the live page', () => {
   it('serves the sentence that stands in for an empty list', () => {
     expect(article).toContain("ui('liveNowNote', lang)")
     expect(article).toContain('class="liveNote"')
-    // The list itself starts hidden and is revealed only once there are rows.
-    expect(article).toMatch(/class="liveList"[^>]*hidden/)
+    // The list itself is hidden until there are rows, and the sentence after.
+    expect(article).toMatch(/class="liveList" hidden=\{rows\.length === 0\}/)
+    expect(article).toMatch(/class="liveNote" hidden=\{rows\.length > 0\}/)
     for (const lang of ['en', 'fr'] as const) {
       expect(UI.liveNowNote[lang].toLowerCase()).not.toMatch(/loading|chargement/)
     }
   })
 
-  // Every one of these names was written by a stranger. textContent is the
-  // whole construction, and this is the assertion that keeps it that way.
-  it('builds the list without innerHTML', () => {
+  // Every one of these names was written by a stranger. They are rendered as
+  // Svelte text and attributes, escaped by construction, and nothing anywhere
+  // builds markup out of them.
+  it('builds the list without markup from a string', () => {
     expect(code(list)).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/)
-    expect(list).toContain('createElement')
-    expect(list).toContain('textContent')
+    expect(article.slice(article.indexOf('</script>'))).not.toMatch(/\{@html/)
+    expect(article).toMatch(/<span class="liveName">\{row\.name\}<\/span>/)
   })
 
   // Same origin, which is what leaves connect-src alone, and a preview that is
@@ -83,13 +88,10 @@ describe('the live page', () => {
     expect(list).toContain("startsWith('/live-thumb/')")
   })
 
-  // One script on these pages, still. The list is a few more lines in it rather
-  // than a second request, which is the rule page-boot.ts states about itself.
-  it('is wired from the one script a content page loads', () => {
-    expect(boot).toContain('fillLiveList')
-    // And it is a no-op everywhere else: the guard is in the module, so every
-    // other page pays a function call and nothing more.
-    expect(list).toContain("getElementById('liveNow')")
+  // Asked for once, by the article on mount, and only on this page: the
+  // module is the article's import and nobody else's.
+  it('is asked for by this page alone', () => {
+    expect(article).toMatch(/onMount\(\(\) => \{[\s\S]{0,80}fetchLiveRows\(\)/)
   })
 
   // The category link is the one thing on this page that leaves for Twitch, and

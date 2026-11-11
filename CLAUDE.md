@@ -118,24 +118,29 @@ Detail, and the full required-coverage list: [`docs/notes/testing-ci.md`](docs/n
 merges it and adds jsdom and the `browser` resolve condition. `src/app.html` the one template,
 `src/hooks.server.ts` its `<html>`/`<body>` attributes at prerender, `scripts/csp-hashes.mjs` the
 header's script hashes out of the build.
-- `src/routes/` one `+page.svelte` per URL (`+layout.ts`: `prerender`, `trailingSlash`; `404/`;
-  the two `sitemap-*.xml/+server.ts`) · `src/layouts/` `Head.svelte`, `GamePage.svelte` + `.css`,
-  `ContentPage.svelte`, `NotFound.svelte`, and the site's one chrome: `SiteFooter.svelte` (the bar),
-  `SiteDrawer.svelte` (the burger and the drawer) · `src/seo/document.ts` `<html>`/`<body>` per path
-- `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
-  the curtain saying another tab holds the game · `src/entry.ts` boots once per document and
-  `mount()`s *that* into `#root`, then parks it across navigations (`attachGame`)
-- `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/lang.ts` (storage key, the two
-  home paths, `chooseLang`) — framework-free, so a content page can use it · `src/langSwap.ts`
-  translates the served half of `/` in place and moves the address bar, app-only · `src/pinchGuard.ts`
+- `src/routes/`: `+layout.svelte` (fonts, reset, the document's attributes, the cross-fade, **and
+  the game in `#root`**), `+layout.ts` (`prerender`, `trailingSlash`), `+error.svelte`, two groups —
+  `(game)/` (`+layout.svelte` the frame: head, `<h1>`, the bar with the sheet, the drawer; a page each
+  for `/`, `/fr/`, `/i/`) and `(content)/` (`+layout.svelte` the shell; `[slug=pageEn]` and
+  `fr/[slug=pageFr]`, one route per language with `entries` from the registry) — `404/` and the two
+  `sitemap-*.xml/+server.ts` · `src/params.ts` the slug matchers (`defineParams`) ·
+  `src/seo/document.ts` `routeFor(pathname)`: every URL's page, language and `<html>`/`<body>`
+- `src/layouts/` `Head.svelte`, `GamePage.css` (the game frame's document rules), `NotFound.svelte`,
+  `ToTop.svelte`, and the site's one chrome: `SiteFooter.svelte` (the bar), `SiteDrawer.svelte` (the
+  burger and the drawer)
+- `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which renders the app or
+  the curtain saying another tab holds the game · `src/boot.ts` the ordered boot sequence
+  (`bootGame`) and the reveal (`markBooted`)
+- `src/lang.ts` (storage key, the two home paths, `chooseLang`) — framework-free · `src/langRoute.ts`
+  acts on it: `initLang`, `moveTo` (a `goto` in place of the history entry) · `src/pinchGuard.ts`
   the seated half of "no accidental zoom" and `src/contextGuard.ts` the same gate over the browser's
-  own menu, both installed by `entry.ts`
+  own menu, both installed by `boot.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
   `HomeProse.svelte`, `CardsArticle.svelte`, `LiveArticle.svelte`, `TablesArticle.svelte`,
   `RulesArticle.svelte`, `FaqArticle.svelte`, `FriendsArticle.svelte`, `LegalArticle.svelte`, `deck.ts`
   (the deck as the content pages read it), `contrasts.ts`, `ui.ts` (the pages' own chrome strings),
-  `liveList.ts`, `navMenu.ts`, `page-boot.ts` (`bootContentPage()`). **Never imported by the app** · `src/assets/rooms/` the six stills
+  `Article.svelte` (which article is which page), `liveList.ts` (`fetchLiveRows`). **Never imported by the app** · `src/assets/rooms/` the six stills
   the rooms page shows, shot by `make rooms` and committed · `src/assets/plates/` the painted rooms'
   plates and their tables' two strips, three WebPs a room, made by `tools/plates` and committed
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
@@ -571,11 +576,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   generated, git-ignored `csp-hashes.conf` that `security-headers.conf` splices into `script-src` — a
   `<meta>` policy alone does not loosen the header. `csp.test.ts` refuses any hand-written inline
   script except the `application/ld+json` data block (`layouts/Head.svelte`), which never executes.
-- **The game is never server-rendered, and never unmounted by a navigation.** The game route is
-  prerendered for its served half with `#root` empty; `entry.ts` boots it **once per document, on the
-  game page only** (a content tab must never be elected by `initTabLock`), and parks it in an inert
-  holder while a content page is up, so the socket, the bed and a match survive. While parked it
-  releases `data-seated` and TAB (`hooks/gameShown.svelte.ts`).
+- **The game is rendered by the root layout, never server-rendered, and never unmounted by a
+  navigation.** The game's pages are prerendered for their served half with `#root` empty; the root
+  layout boots the game (`boot.ts`) **once per document, the first time the router is on a game
+  page** — never in `hooks.client.ts` or on a content page, where `initTabLock` would elect a tab
+  holding no game — and keeps `#root` rendered but `.parked` (inert, hidden) while a content page is
+  up, so the socket, the bed and a match survive. While parked it releases `data-seated` and TAB
+  (`hooks/gameShown.svelte.ts`).
 - **`make csp` belongs after a dependency bump too**: a dependency can break the CSP without
   appearing in our sources. The validator is Valibot, not Zod, whose JIT reached for `Function()`.
 - **`vite.config.ts` names the `VITE_` env prefix** (Astro once narrowed it away; `wsEnv.test.ts`).
@@ -682,9 +689,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `invitePage.test.ts`.
 - **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`). A prefill that
   authenticates nothing, which is why it is not the `loco_session` record.
-- `initLang()` (from `langSwap.ts`), then `initMotion()`, `initI18n()`, `initPinchGuard()`,
+- `initLang()` (from `langRoute.ts`), then `initMotion()`, `initI18n()`, `initPinchGuard()`,
   `initContextGuard()`, `initTableInvite()`, `initTabLock()` (skipped in the dev showcase),
-  `initSessionRestore()` in `entry.ts` before the first render, **in that order**.
+  `initSessionRestore()` in `boot.ts` before the first render, **in that order**. On every later
+  arrival at a game page the root layout runs `initLang()` and `redetectLang()` again.
 
 **Input and controls**
 - **There are no gameplay keyboard shortcuts and there must never be any.** Aiming at a button that
@@ -741,8 +749,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The language dropdown is ours, and it has to be**: `appearance: none` never reached the list the
   OS paints. A button plus `role="listbox"`, arrows/Enter/Home/End, `aria-activedescendant`. **Escape
   there closes the list and nothing else.**
-- **The language pick applies itself, on every screen** — `setLang` plus `swapServedLang`, nothing
-  reloads, so there is no Apply button and no sentence promising one. **A control that costs the page
+- **The language pick applies itself, on every screen** — `setLang`, plus a `goto` to the same page in
+  that language on a home page; nothing reloads, so there is no Apply button and no sentence promising one. **A control that costs the page
   must not fire on the press aiming for it: if a language ever reloads again, the button comes back
   with it.**
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
@@ -774,11 +782,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   regex. **Add the string there when you add a server error** (`serverErrors.test.ts`).
 - **The rules page opens on what is different, and the rules modal does not** (`content/contrasts.ts`,
   eight lines, **numbers taken from the server, never typed**). `contentPages.test.ts`.
-- **A document is never in two languages at once, and `/` translates itself rather than navigating**
-  (`data-alt*`, `langSwap.ts`, `history.replaceState` carrying the query string and the fragment).
-  **The copy stays in the markup** — importing `content/ui.ts` would ship the whole site's copy to
-  every player. **A link left behind is the failure that matters**, so `homeLangSwap.test.ts` counts
-  `href={` against `data-alt-href={`. **`data-served-lang` is never rewritten.**
+- **A document is never in two languages at once, and a language is the page in that language**: a
+  client-side `goto` with `{ replace: true, reset: false }`, carrying the query string and the
+  fragment (`langRoute.ts`), never a document load and never a redirect. The router renders the other
+  page around a game the root layout keeps. **No page carries its other language** — the `data-alt*`
+  rewrite in place was Astro's answer and `langSync.test.ts` fails on it coming back.
+  `data-served-lang` is always the page on screen (rewritten with the route), and `<html lang>` is
+  the game's to write once it has booted.
 - **A stored choice wins everywhere; the browser's language wins only on `/`.** A detection is never
   persisted, because storing it would make it a choice. `chooseLang` in `lang.ts` is the one
   definition. **An invitation is not a language**, so `/i/` is served with none.
@@ -887,18 +897,21 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   the game a navigation), but it is prerendered whole: `<LocoLogo />` and every `<Card />` are in the
   served HTML, an article carries **no effect, no `{@html}`, no inline script** (`livePage.test.ts`,
   `legal.test.ts`), and anything interactive is a **native control** — the home sheet is `<details>`,
-  the drawer and the language chooser `[popover]`s. `page-boot.ts: bootContentPage()` adds the rest
-  on mount and removes it on destroy, the live list included (a same-origin `fetch`, so
-  `connect-src` is untouched) — **still nothing third-party**.
+  the drawer and the language chooser `[popover]`s. **Behaviour is the component's that renders the
+  element** — `ToTop.svelte`, `SiteDrawer.svelte`, `SiteFooter.svelte`, the layouts,
+  `LiveArticle.svelte` (a same-origin `fetch`, so `connect-src` is untouched) — never a script
+  finding markup by selector; a control only a script can honour ships `hidden={!hydrated}`.
+  **Still nothing third-party**.
 - **`/live/` is prose first and a list second** ([`live.md`](docs/notes/live.md)). What is indexable
   is what the game gives a stream and how to appear in the category; the list of who is live is
   filled in the browser and is `WebPage`, never `Article`. Served with **a sentence rather than a
-  spinner**, and everything built with `textContent` — every string in it was written by a stranger.
+  spinner**, and every string rendered as Svelte text, never markup — every one was written by a
+  stranger.
 - **A content page is a player-facing surface, so it never says UNO either** (`seo.test.ts` extends
   `legal.test.ts`'s guard over `PAGES`, `UI` and every `src/content/**` file).
 
 **Layout and navigation**
-- **`content.css` is loaded by `GamePage.svelte` too, and a loaded stylesheet stays loaded across a
+- **`content.css` is loaded by both group layouts, and a loaded stylesheet stays loaded across a
   navigation, so every selector in it is scoped to a class** (and `GamePage.css` scopes its body
   rules to `body.game`). A bare `table`/`th`/`td` rule there would style the score table and the
   evening recap. `contentPages.test.ts` fails on a bare element selector.
@@ -907,8 +920,8 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   render the same components, so the same links, the legal link at the end and **the language globe
   in the same place on every page that is not a seat**. Pinned under a content page, in the flow on
   `/` (`.onHome`), **one height in both**, and **held still across the router's cross-fade**
-  (`view-transition-name: site-footer`). On `/` a globe pick is the gear's in-place swap, not a
-  navigation (`homeSheet.ts`). What differs is passed in: the sheet of prose vs. "Play" at the
+  (`view-transition-name: site-footer`). The globe is a real link everywhere, `/` included, and
+  records the choice on the press. What differs is passed in: the sheet of prose vs. "Play" at the
   left-hand end, Preferences vs. Play as the drawer's one action. **The content header (mark + Play)
   is the one deliberate difference**: the entry screen is its own composition.
 - **One `--shell`, one bar, no backdrop, no glass.** Header, column and footer share one width;
@@ -919,7 +932,7 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   the system's before — and for a fragment.
 - **The header is sticky and the bar is fixed, so both ways out are always on screen.**
 - **Every in-page jump glides**: `scroll-behavior: smooth` behind `html[data-scroll="smooth"]`,
-  written by `page-boot.ts` from the system preference — a media query is refused here and
+  written by the content layout from the system preference — a media query is refused here and
   `data-motion` is the game's. **Anything that focuses an element after a smooth scroll passes
   `preventScroll: true`.**
 - **Under 46rem the bar's row is gone and one burger is the whole navigation**, on the content pages
@@ -943,8 +956,9 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   hides text under the fold. The bar and the burger vanish on `data-seated`: they are the page's
   markup, never the app's to unmount — **at a seat the board is the board**.
 - **Open, that sheet is `RulesModal` down to the measurements**: the card **is** the `<details>`, the
-  `<summary>` is the footer button (`order`), the scrim is a **sibling** of the card, and the ✕ ships
-  `hidden` for `homeSheet.ts` to reveal. `contentPages.test.ts` reads the card off `RulesModal.svelte`.
+  `<summary>` is the footer button (`order`), the scrim is a **sibling** of the card, the open state is
+  `bind:open` (never driven, so the summary still opens it with no script), and the ✕ ships
+  `hidden={!hydrated}`. `contentPages.test.ts` reads the card off `RulesModal.svelte`.
 - **The viewport may never forbid zooming** (no `user-scalable=no`, no `maximum-scale`; the
   double-tap is answered by `touch-action: manipulation` on `body`). **The seat is what costs the
   pinch, never the tag**: under `[data-seated]` the reset drops to `touch-action: pan-x pan-y` and

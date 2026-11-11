@@ -5,13 +5,29 @@
   // choice: a list of channels live this afternoon is wrong tomorrow and carries
   // no search value at all, while what the game gives a stream and what it takes
   // to appear in the category are properties of the product. So the indexable
-  // half is served in the markup here, and the list is filled over it by
-  // `content/liveList.ts` — from this origin, never from Twitch.
+  // half is served in the markup here, and the list is drawn over it once the
+  // browser has asked this origin who is live (`content/liveList.ts`) — never
+  // Twitch. Every string in a row was written by a stranger, and is rendered as
+  // text: no `{@html}`, no `innerHTML`.
+  import { onMount } from 'svelte'
   import { ui } from './ui'
-  import { EXTERNAL_REL, twitchCategory } from '../components/twitchLinks'
+  import { EXTERNAL_REL, twitchCategory, twitchChannel } from '../components/twitchLinks'
+  import { fetchLiveRows, type LiveRow } from './liveList'
   import { FAQ_PAGE, RULES, type Lang } from '../seo/meta'
 
   const { lang }: { lang: Lang } = $props()
+
+  /** Nothing until the browser has asked; the served sentence stands in. */
+  let rows = $state<LiveRow[]>([])
+  onMount(() => {
+    let live = true
+    void fetchLiveRows().then((found) => {
+      if (live) rows = found
+    })
+    return () => {
+      live = false
+    }
+  })
 </script>
 
 <h1>{ui('liveH1', lang)}</h1>
@@ -23,8 +39,24 @@
      no scripts. Neither is ever shown the word "loading". -->
 <section id="liveNow">
   <h2>{ui('liveNowH2', lang)}</h2>
-  <p class="liveNote">{ui('liveNowNote', lang)}</p>
-  <ul class="liveList" data-watching={ui('liveViewersLabel', lang)} hidden></ul>
+  <!-- The served sentence explains an empty list and a browser with no
+       scripts; neither is true any more once there are rows. -->
+  <p class="liveNote" hidden={rows.length > 0}>{ui('liveNowNote', lang)}</p>
+  <ul class="liveList" hidden={rows.length === 0}>
+    {#each rows as row (row.login)}
+      <li>
+        <a class="liveCard" href={twitchChannel(row.login)} target="_blank" rel={EXTERNAL_REL}>
+          {#if row.thumb}
+            <!-- Sized on the element: a preview that arrives late must not
+                 resize the list under somebody who is reading it. -->
+            <img class="liveThumb" src={row.thumb} alt="" width="320" height="180" loading="lazy" decoding="async" />
+          {/if}
+          <span class="liveName">{row.name}</span>
+          <span class="liveCount">{row.viewers.toLocaleString(lang)} {ui('liveViewersLabel', lang)}</span>
+        </a>
+      </li>
+    {/each}
+  </ul>
   <!-- The way to the category is a button, the same object every CTA in the
        game is: gradient, ink outline, ledge. It was a line of underlined words
        under the list, which is a footnote, and it is the one thing on this page

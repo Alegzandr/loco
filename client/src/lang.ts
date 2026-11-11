@@ -5,7 +5,7 @@
  * own hook: the content pages have to take part in this decision and
  * they mount nothing, so the storage key and the two home paths could not live
  * inside a provider. There is still exactly one definition of each — `i18n`,
- * `LanguageSwitcher` and `content/page-boot.ts` all read them from here.
+ * `LanguageSwitcher`, `langRoute.ts` and the bar's globe all read them from here.
  *
  * ## Why the home page translates itself rather than navigating
  *
@@ -21,7 +21,7 @@
  * by throwing the document away. It cost a round trip on the one page the game
  * is played from, and it put a redirect on the site's canonical English URL —
  * which is the pattern Google names when it asks sites not to redirect on a
- * visitor's presumed language. `langSwap.ts` translates the served markup in
+ * visitor's presumed language. `langRoute.ts` moves the router to the other language's page in
  * place instead and moves the address bar with `history.replaceState`, which is
  * not a canonicalisation signal. The document at the new URL is real: reloading
  * `/fr/` serves the French page, and sharing the link hands over the French

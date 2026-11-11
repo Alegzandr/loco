@@ -86,7 +86,7 @@ export function heldKey(
   const isEnabled = live(enabled)
 
   $effect(() => {
-    // Parked behind a content page (src/entry.ts), the key is that page's: TAB
+    // Parked behind a content page (routes/+layout.svelte), the key is that page's: TAB
     // is how a keyboard reads it, and a scoreboard nobody can see must not eat it.
     if (!isEnabled() || !gameShown.current) {
       held = false

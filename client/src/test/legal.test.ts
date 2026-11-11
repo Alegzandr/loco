@@ -4,6 +4,7 @@ import path from 'node:path'
 import { LEGAL, LEGAL_UPDATED } from '../content/legal'
 import { LEGAL as LEGAL_PAGE, PAGES, LANGS, type Lang } from '../seo/meta'
 import { UI } from '../content/ui'
+import { contentSlugs, routeFor } from '../seo/document'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
 import { FULL_ADDRESS_READ, serverHubSources } from './serverSource'
@@ -107,11 +108,17 @@ describe('required disclosures', () => {
  */
 describe('reaching it', () => {
   it('is a real page in both languages', () => {
+    // Built by the content route in each language (its `entries` are the
+    // registry's slugs), and the article it renders for this page is the
+    // legal one.
     for (const lang of LANGS) {
-      const clean = LEGAL_PAGE.path[lang].replace(/^\/|\/$/g, '')
-      const file = path.join(CLIENT, 'src', 'routes', clean, '+page.svelte')
-      expect(readFileSync(file, 'utf8')).toContain('LegalArticle')
+      const prefix = lang === 'en' ? '/' : '/fr/'
+      const slug = LEGAL_PAGE.path[lang].slice(prefix.length, -1)
+      expect(contentSlugs(lang), lang).toContain(slug)
+      expect(routeFor(LEGAL_PAGE.path[lang]).page).toBe(LEGAL_PAGE)
     }
+    const article = readFileSync(path.join(CLIENT, 'src', 'content', 'Article.svelte'), 'utf8')
+    expect(article).toMatch(new RegExp(`${LEGAL_PAGE.id}: LegalArticle`))
   })
 
   // The jump list is what the modal's tab strip became, and its anchors are the
@@ -148,8 +155,9 @@ describe('reaching it', () => {
       expect(src, file).toMatch(/LEGAL\.path\[lang\]/)
       expect(src, file).toMatch(/legalNav/)
     }
-    for (const file of ['GamePage.svelte', 'ContentPage.svelte']) {
-      expect(readFileSync(path.join(layouts, file), 'utf8'), file).toMatch(/<SiteFooter\b/)
+    for (const group of ['(game)', '(content)']) {
+      const layout = path.join(CLIENT, 'src', 'routes', group, '+layout.svelte')
+      expect(readFileSync(layout, 'utf8'), group).toMatch(/<SiteFooter\b/)
     }
   })
 
