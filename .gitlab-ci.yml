@@ -449,6 +449,11 @@ e2e_test:
       rollout() {
         local snaps="${DATA_DIR}/snapshots/${DEPLOY_ENV}"
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml stop server
+        # What the drain did, in the job log: the old container's last lines
+        # ("snapshot written", "no match in flight", or why it could not write)
+        # are lost the moment `up` recreates it. Addresses are truncated and
+        # tokens are never logged, so these lines are safe to print here.
+        docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml logs --no-log-prefix --tail 25 server || true
         mkdir -p "${snaps}"
         if [ -f "${DATA_DIR}/snapshots/snapshot.json" ] && [ ! -e "${snaps}/snapshot.json" ]; then
           mv "${DATA_DIR}/snapshots/snapshot.json" "${snaps}/snapshot.json"
@@ -456,6 +461,8 @@ e2e_test:
         chown -R 65532:65532 "${snaps}"
         chmod 700 "${snaps}"
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait server
+        # And what the new one made of it ("snapshot restored", or why not).
+        docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml logs --no-log-prefix server | grep -i snapshot || true
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait client
       }
     # deploy/app.env is sourced under `set -a`, so every key it declares is

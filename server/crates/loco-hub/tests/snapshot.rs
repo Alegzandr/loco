@@ -511,3 +511,38 @@ async fn snapshot_disabled_when_no_path_is_configured() {
         .expect("load_snapshot(\"\")");
     th.stop().await;
 }
+
+// A game against the bot is a match in flight like any other: the deploy that
+// interrupts it must hand it back, the bot still in its chair.
+#[tokio::test]
+async fn snapshot_solo_game_survives_a_restart() {
+    let tp = snapshot_path("solo");
+
+    let th1 = new_test_hub().await;
+    let mut alice = dial_ws(&th1).await;
+    send_msg(&mut alice, json!({"type": "play_bot", "nickname": "Alice"})).await;
+    let started = read_msg_of_type(&mut alice, "game_started").await;
+    send_msg(&mut alice, json!({"type": "map_ready"})).await;
+    let code = started["room_code"].as_str().unwrap().to_owned();
+    let token = started["session_token"].as_str().unwrap().to_owned();
+
+    th1.hub.begin_drain();
+    read_msg_of_type(&mut alice, "server_updating").await;
+    th1.hub
+        .save_snapshot(&tp.path)
+        .await
+        .expect("save_snapshot");
+    drop(alice);
+    th1.stop().await;
+    assert!(tp.path.exists(), "a game against the bot wrote no snapshot");
+
+    let th2 = new_test_hub().await;
+    th2.hub
+        .load_snapshot(&tp.path)
+        .await
+        .expect("load_snapshot");
+    let mut back = reconnect_as(&th2, &code, "Alice", &token).await;
+    let after = read_msg_of_type(&mut back, "player_reconnected").await;
+    assert!(after["state"].is_object(), "no state after reconnecting");
+    th2.stop().await;
+}
