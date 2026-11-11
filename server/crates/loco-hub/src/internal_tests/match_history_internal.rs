@@ -3,7 +3,7 @@
 //! cannot reach cheaply: a swap (transfer_host in the lobby a rematch reopened)
 //! and the reset that must NOT touch it.
 
-use crate::table::room::new_room;
+use crate::table::room::{Status, new_room};
 use crate::table::{MatchRecord, Table, match_duration_ms};
 use std::time::{Duration, SystemTime};
 
@@ -35,21 +35,34 @@ fn opened() -> SystemTime {
     SystemTime::UNIX_EPOCH + Duration::from_secs(1_788_642_000)
 }
 
+fn nicknames(tb: &Table) -> Vec<&str> {
+    tb.room
+        .seats()
+        .iter()
+        .map(|s| s.nickname.as_str())
+        .collect()
+}
+
 #[test]
 fn match_history_swap_seats_moves_the_columns() {
     let mut tb = history_table();
-    tb.swap_seats(0, 2);
+    tb.swap_seats(0, 2).unwrap();
     let want = vec![
         rec(&[0, 1, 2], &[10, 40, 80], 2),
         rec(&[2, 0, 0], &[70, 15, 5], 0),
     ];
     assert_eq!(tb.match_history, want);
+    assert_eq!(
+        nicknames(&tb),
+        ["carol", "bob", "alice"],
+        "the room did not follow"
+    );
 }
 
 #[test]
-fn match_history_drop_seat_removes_the_column() {
+fn match_history_remove_seat_removes_the_column() {
     let mut tb = history_table();
-    tb.drop_seat(0);
+    tb.remove_seat(0).unwrap();
     let want = vec![
         // Alice took the first match and has left: nobody owns that row now.
         rec(&[1, 0], &[40, 10], -1),
@@ -57,6 +70,35 @@ fn match_history_drop_seat_removes_the_column() {
         rec(&[0, 2], &[15, 70], 1),
     ];
     assert_eq!(tb.match_history, want);
+    assert_eq!(nicknames(&tb), ["bob", "carol"], "the room did not follow");
+    assert_eq!(tb.seats.len(), 2, "the chair did not go");
+}
+
+// The room says when a seat may move; when it refuses, none of the three
+// columns moves, or the recap and the chairs would be one seat off the room.
+#[test]
+fn a_refused_seat_move_moves_nothing() {
+    let mut tb = history_table();
+    tb.room.status = Status::Playing;
+    let history = tb.match_history.clone();
+
+    assert!(tb.remove_seat(0).is_err(), "a seat left a running match");
+    assert!(
+        tb.swap_seats(0, 2).is_err(),
+        "seats moved in a running match"
+    );
+
+    assert_eq!(tb.match_history, history, "the recap moved");
+    assert_eq!(tb.seats.len(), 3, "a chair moved");
+    assert_eq!(nicknames(&tb), ["alice", "bob", "carol"], "the room moved");
+
+    tb.room.status = Status::Lobby;
+    assert!(
+        tb.remove_seat(7).is_err(),
+        "a seat that is not there was removed"
+    );
+    assert_eq!(tb.match_history, history, "the recap moved");
+    assert_eq!(tb.seats.len(), 3, "a chair moved");
 }
 
 // reset_for_next_match clears what belonged to the match that just ended. The
@@ -77,14 +119,17 @@ fn match_history_record_copies_the_scoreboard() {
     let mut room = new_room("COPY");
     room.join("alice").unwrap();
     room.join("bob").unwrap();
-    room.scores = vec![70, 20];
-    room.rounds_won = vec![2, 0];
+    for (seat, (score, won)) in [(70, 2), (20, 0)].into_iter().enumerate() {
+        let s = room.seat_mut(seat).unwrap();
+        s.score = score;
+        s.rounds_won = won;
+    }
     room.match_winner = "alice".into();
     let mut tb = Table::new("COPY", room);
 
     tb.record_finished_match(SystemTime::now());
-    tb.room.scores[0] = 999;
-    tb.room.rounds_won.clear();
+    tb.room.seat_mut(0).unwrap().score = 999;
+    tb.room.seat_mut(1).unwrap().rounds_won = 5;
 
     assert_eq!(
         tb.match_history[0].scores[0], 70,

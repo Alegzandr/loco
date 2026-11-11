@@ -197,6 +197,13 @@ proptest! {
             if let Some(st) = r.state.as_ref() {
                 prop_assert_ne!(st.active_color, Color::Wild);
             }
+            // Every seat carries one entry per finished round, and its score
+            // is what those entries add up to.
+            let rounds = r.round_history().len();
+            for s in r.seats() {
+                prop_assert_eq!(s.round_points.len(), rounds, "{:?}", s);
+                prop_assert_eq!(s.score, s.round_points.iter().sum::<i32>(), "{:?}", s);
+            }
             if r.round_ended {
                 r.round_ended = false;
                 if !r.match_over {

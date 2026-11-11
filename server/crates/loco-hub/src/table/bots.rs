@@ -107,7 +107,7 @@ pub fn bot_catch_attempt(b: &BotTimings, seat: usize, window_at: Millis) -> (Dur
 pub fn next_bot_name(room: &Room) -> String {
     (1..)
         .map(|n| format!("Bot{n}"))
-        .find(|name| room.players.iter().all(|p| &p.nickname != name))
+        .find(|name| room.seat_of(name).is_none())
         .expect("an unbounded range")
 }
 
@@ -160,13 +160,12 @@ impl Table {
         if self.room.status != Status::Lobby {
             return;
         }
-        while self.connected() > 0 && !self.room.players.is_empty() && self.is_bot(0) {
-            let name = self.room.players[0].nickname.clone();
-            if let Err(e) = self.room.remove_lobby_player(0) {
+        while self.connected() > 0 && !self.room.seats().is_empty() && self.is_bot(0) {
+            let name = self.room.seats()[0].nickname.clone();
+            if let Err(e) = self.remove_seat(0) {
                 tracing::warn!("host promotion failed err={e}");
                 return;
             }
-            self.drop_seat(0);
             if let Err(e) = self.room.join(&name) {
                 cx.hub.metrics().bots_active.fetch_sub(1, Ordering::Relaxed);
                 tracing::warn!(nickname = %name, "bot reseat failed err={e}");

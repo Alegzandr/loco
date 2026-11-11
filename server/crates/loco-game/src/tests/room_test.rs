@@ -12,15 +12,15 @@ fn room_create() {
     let r = new_room("ABCD");
     assert_eq!(r.code, "ABCD", "Room code");
     assert_eq!(r.status, Status::Lobby, "Initial status");
-    assert_eq!(r.players.len(), 0, "Initial players");
+    assert_eq!(r.seats.len(), 0, "Initial players");
 }
 
 #[test]
 fn room_join() {
     let mut r = new_room("TEST");
     r.join("alice").expect("Join() error");
-    assert_eq!(r.players.len(), 1, "Players after join");
-    assert_eq!(r.players[0].nickname, "alice", "Player nickname");
+    assert_eq!(r.seats.len(), 1, "Players after join");
+    assert_eq!(r.seats[0].nickname, "alice", "Player nickname");
 }
 
 #[test]
@@ -85,8 +85,8 @@ fn room_start_deals_cards() {
     let _ = r.join("alice");
     let _ = r.join("bob");
     let _ = r.start(NOW);
-    for p in &r.players {
-        let n = st_ref(&r).hands[p.index].cards.len();
+    for (i, p) in r.seats().iter().enumerate() {
+        let n = st_ref(&r).hands[i].cards.len();
         assert_eq!(n, 8, "Player {:?} hand size", p.nickname);
     }
 }
@@ -517,9 +517,9 @@ fn room_card_value_scoring() {
     r.play_card(0, win_card, win_card.color, None, NOW)
         .expect("PlayCard error");
 
-    assert_eq!(r.scores[0], 67, "alice score");
-    assert_eq!(r.scores[1], 0, "bob score");
-    assert_eq!(r.rounds_won[0], 1, "alice rounds won");
+    assert_eq!(r.seats[0].score, 67, "alice score");
+    assert_eq!(r.seats[1].score, 0, "bob score");
+    assert_eq!(r.seats[0].rounds_won, 1, "alice rounds won");
 }
 
 // The in-game score table shows one column per round played, so every finished
@@ -534,9 +534,9 @@ fn room_round_history_one_row_per_round() {
     let _ = r.start(NOW);
 
     assert!(
-        r.round_history.is_empty(),
+        r.round_history().is_empty(),
         "fresh match RoundHistory = {:?}, want empty",
-        r.round_history
+        r.round_history()
     );
 
     // Round 1: alice finishes holding nothing, bob holds 7 + Skip(20) = 27.
@@ -552,11 +552,11 @@ fn room_round_history_one_row_per_round() {
     r.end_round(1, NOW);
 
     let want: Vec<Vec<i32>> = vec![vec![27, 0], vec![0, 40]];
-    assert_eq!(r.round_history.len(), want.len(), "RoundHistory");
+    assert_eq!(r.round_history().len(), want.len(), "RoundHistory");
     for (round, row) in want.iter().enumerate() {
         for (idx, &points) in row.iter().enumerate() {
             assert_eq!(
-                r.round_history[round][idx],
+                r.round_history()[round][idx],
                 points,
                 "round {} player {}",
                 round + 1,
@@ -565,7 +565,7 @@ fn room_round_history_one_row_per_round() {
         }
     }
     // The rows must add up to the cumulative scores the scoreboard shows.
-    assert_eq!(r.scores, vec![27, 40], "Scores");
+    assert_eq!(scores(&r), vec![27, 40], "Scores");
 }
 
 #[test]
@@ -661,15 +661,15 @@ fn room_match_score_accumulation() {
 
     // Round 1: alice wins, bob has 10 points worth
     win_round(&mut r, 0, 1, vec![num(Color::Red, 10)]);
-    assert_eq!(r.scores[0], 10, "after round 1, alice score");
+    assert_eq!(r.seats[0].score, 10, "after round 1, alice score");
 
     // Round 2: bob wins, alice has 20 points worth
     win_round(&mut r, 1, 0, vec![act(Color::Red, Kind::Skip)]);
-    assert_eq!(r.scores[1], 20, "after round 2, bob score");
+    assert_eq!(r.seats[1].score, 20, "after round 2, bob score");
 
     // Round 3: alice wins, bob has WildCard (40 pts per docs/rules.md §10) → match over
     win_round(&mut r, 0, 1, vec![wild(Kind::WildCard)]);
-    assert_eq!(r.scores[0], 50, "after round 3, alice score"); // 10 + 40
+    assert_eq!(r.seats[0].score, 50, "after round 3, alice score"); // 10 + 40
     assert!(r.match_over, "match should be over after 3 rounds of BO3");
     assert_eq!(r.match_winner, "alice", "MatchWinner");
 }
@@ -686,9 +686,9 @@ fn room_tiebreaker_rounds_won() {
     // Manually set state to simulate after 2 rounds:
     // alice: 50 pts, 1 win; bob: 50 pts, 1 win (same score, same wins before round 3)
     r.round_number = 2;
-    r.scores = vec![50, 50];
-    r.rounds_won = vec![1, 1];
-    r.lost_hand_total = vec![50, 50];
+    set_scores(&mut r, &[50, 50]);
+    set_rounds_won(&mut r, &[1, 1]);
+    set_lost_hand_totals(&mut r, &[50, 50]);
 
     // Round 3: alice wins with score = 0 (bob has no cards — shouldn't happen normally,
     // but for tiebreaker test: give both players different rounds-won so we can test)
@@ -697,12 +697,12 @@ fn room_tiebreaker_rounds_won() {
     let _ = r2.join("alice");
     let _ = r2.join("bob");
     r2.format = MatchFormat::Bo3;
-    r2.scores = vec![50, 50];
-    r2.rounds_won = vec![2, 1];
-    r2.lost_hand_total = vec![25, 60];
+    set_scores(&mut r2, &[50, 50]);
+    set_rounds_won(&mut r2, &[2, 1]);
+    set_lost_hand_totals(&mut r2, &[25, 60]);
     let winner = r2
         .determine_match_winner()
-        .map(|i| r2.players[i].nickname.clone());
+        .map(|i| r2.seats[i].nickname.clone());
     assert_eq!(winner.as_deref(), Some("alice"), "tiebreaker by rounds won");
 }
 
@@ -713,12 +713,12 @@ fn room_tiebreaker_lost_hand_total() {
     let _ = r.join("bob");
     r.format = MatchFormat::Bo3;
     // Same score, same rounds won → tiebreak by lowest lost hand total
-    r.scores = vec![50, 50];
-    r.rounds_won = vec![1, 1];
-    r.lost_hand_total = vec![10, 30]; // alice has lower loss total
+    set_scores(&mut r, &[50, 50]);
+    set_rounds_won(&mut r, &[1, 1]);
+    set_lost_hand_totals(&mut r, &[10, 30]); // alice has lower loss total
     let winner = r
         .determine_match_winner()
-        .map(|i| r.players[i].nickname.clone());
+        .map(|i| r.seats[i].nickname.clone());
     assert_eq!(
         winner.as_deref(),
         Some("alice"),
@@ -733,12 +733,12 @@ fn room_sudden_death() {
     let _ = r.join("bob");
     r.format = MatchFormat::Bo1;
     // All tiebreakers exhausted: sudden death
-    r.scores = vec![50, 50];
-    r.rounds_won = vec![1, 1];
-    r.lost_hand_total = vec![10, 10];
+    set_scores(&mut r, &[50, 50]);
+    set_rounds_won(&mut r, &[1, 1]);
+    set_lost_hand_totals(&mut r, &[10, 10]);
     let winner = r
         .determine_match_winner()
-        .map(|i| r.players[i].nickname.clone());
+        .map(|i| r.seats[i].nickname.clone());
     assert_eq!(winner, None, "perfectly tied: determineMatchWinner()");
 }
 
@@ -789,7 +789,7 @@ fn room_room_code_collision() {
     assert_eq!(r1.code, r2.code, "code mismatch");
     // Both rooms are independent objects
     let _ = r1.join("alice");
-    assert_eq!(r2.players.len(), 0, "rooms should be independent");
+    assert_eq!(r2.seats.len(), 0, "rooms should be independent");
 }
 
 // --- Round-end model: first player to empty hand wins ---
@@ -819,14 +819,18 @@ fn room_round_ends_immediately_first_finisher() {
         "round must end the moment alice empties her hand"
     );
     assert_eq!(r.winner, "alice", "round winner");
-    assert_eq!(r.rounds_won[0], 1, "alice rounds won");
+    assert_eq!(r.seats[0].rounds_won, 1, "alice rounds won");
     // alice scores bob(Skip=20) + carol(W+4=50) = 70
-    assert_eq!(r.scores[0], 70, "alice score");
+    assert_eq!(r.seats[0].score, 70, "alice score");
     // Other players get 0 this round
-    assert_eq!((r.scores[1], r.scores[2]), (0, 0), "losers scores");
+    assert_eq!(
+        (r.seats[1].score, r.seats[2].score),
+        (0, 0),
+        "losers scores"
+    );
     // LostHandTotal accumulates losing-round hand values
-    assert_eq!(r.lost_hand_total[1], 20, "bob LostHandTotal");
-    assert_eq!(r.lost_hand_total[2], 50, "carol LostHandTotal");
+    assert_eq!(r.seats[1].lost_hand_total, 20, "bob LostHandTotal");
+    assert_eq!(r.seats[2].lost_hand_total, 50, "carol LostHandTotal");
 }
 
 #[test]
@@ -1205,7 +1209,7 @@ fn room_swap_as_last_card_ends_round_without_swapping() {
     r.play_card(0, swap_card, Color::Red, Some(1), NOW)
         .expect("PlayCard Swap as last card");
     assert!(r.round_ended, "playing last card (Swap) must end the round");
-    assert_eq!(r.winner, r.players[0].nickname, "Winner");
+    assert_eq!(r.winner, r.seats[0].nickname, "Winner");
     let s = st_ref(&r);
     assert_eq!(s.hands[0].cards.len(), 0, "actor hand size (swap aborted)");
     assert_eq!(
@@ -1242,7 +1246,7 @@ fn room_global_switch_as_last_card_ends_round_without_rotating() {
         r.round_ended,
         "playing last card (GlobalSwitch) must end the round"
     );
-    assert_eq!(r.winner, r.players[0].nickname, "Winner");
+    assert_eq!(r.winner, r.seats[0].nickname, "Winner");
     let s = st_ref(&r);
     assert_eq!(
         s.hands[0].cards.len(),

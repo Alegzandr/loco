@@ -27,10 +27,16 @@ crate's entry points, and the reasons they are shaped the way they are.
   wrapper would be unwrapped at every one of those indexes. A `-1` sentinel invites
   `chosen_player >= 0` checks that can be forgotten; `Option` removes the class. A signed seat exists
   only on the wire (`loco-protocol`), converted by the hub at that border.
-- **One record per seat.** `GameState.seats: Vec<SeatState>` holds what a seat owes and is owed
-  (`retired`, `declared`, `last_card_at`, `catch_paid_for`, `catch_locked_until`, `near_left_at`),
-  serialised as it is. The hands stay apart on purpose: a Swap or a GlobalSwitch moves hands between
-  seats while every obligation stays with the chair.
+- **One record per seat, at both levels.** `Room`'s seats are one `Vec<RoomSeat>` (`nickname`,
+  `score`, `rounds_won`, `lost_hand_total`, `retired`, `round_points`): what the match keeps about a
+  chair, so removing or swapping a lobby seat is one `Vec::remove` / `Vec::swap` and no column can be
+  left behind. The round history is each seat's `round_points` (one entry per finished round, every
+  seat alike), and `Room::round_history()` reads it back by round for the wire. A seat's number is
+  its place in the list; nothing stores it. Within a round, `GameState.seats: Vec<SeatState>` holds
+  what a seat owes and is owed (`retired`, `declared`, `last_card_at`, `catch_paid_for`,
+  `catch_locked_until`, `near_left_at`). Both serialise as they are. The hands stay apart on
+  purpose: a Swap or a GlobalSwitch moves hands between seats while every obligation stays with the
+  chair.
 - **The snapshot is plain serde.** `SavedRoom`, `GameState`, `SeatState`, `Hand`, `Deck`, `Card` and
   `GameEvent` derive it with their field names as written: instants are integer `Millis`, absences
   are `null`. Nothing here is on the wire; `loco-protocol`'s DTOs are.
@@ -49,8 +55,8 @@ crate's entry points, and the reasons they are shaped the way they are.
 | `join(&str)` | |
 | `set_format(MatchFormat)` | A bad number is `MatchFormat::try_from(n)`'s refusal |
 | `set_max_players(usize)` | |
-| `swap_lobby_players(a, b)` | The host transfer's half of the work |
-| `remove_lobby_player(i) -> Result<bool, _>` | `true` when the seat was the host |
+| `swap_lobby_players(a, b)` | Lobby only. The hub calls it from `Table::swap_seats` alone |
+| `remove_lobby_player(i) -> Result<bool, _>` | Lobby or finished; `true` when the seat was the host. The hub calls it from `Table::remove_seat` alone |
 | `start(now)` | |
 | `play_card(p, card, color, target: Option<Seat>, now)` | |
 | `play_cards(p, &cards, color, target, declare, now)` | A batch, on the seat's own turn |
@@ -68,6 +74,16 @@ crate's entry points, and the reasons they are shaped the way they are.
 | `begin_next_round(now)` | |
 | `reset_for_rematch()` | |
 | `SavedRoom::from(&room)` / `saved.restore(seed)` | The drain snapshot, out and back |
+
+## Reads (`Room`, `src/room.rs`)
+
+| Read | Notes |
+| --- | --- |
+| `seats() -> &[RoomSeat]`, `seat(i)`, `seat_count()` | One record per seat, in seat order |
+| `seat_mut(i)` | Writes a record; never adds, removes or moves one |
+| `nickname(i)`, `seat_of(name)` | |
+| `has_match_record()` | A match has begun since the last reset and somebody is seated: the scoreboard and the round history mean something |
+| `round_history() -> Vec<Vec<i32>>` | By round, then by seat: the seats' `round_points` |
 
 ## Reads (`GameState`, `src/state.rs`)
 

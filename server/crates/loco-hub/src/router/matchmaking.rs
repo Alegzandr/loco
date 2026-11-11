@@ -155,8 +155,8 @@ impl HubCore {
             .fetch_add(1, Ordering::Relaxed);
         tracing::info!(
             code = %code,
-            a = %t.room.players[0].nickname,
-            b = %t.room.players[1].nickname,
+            a = %t.room.seats()[0].nickname,
+            b = %t.room.seats()[1].nickname,
             waited_ms = paired_at.saturating_duration_since(a.since).as_millis() as u64,
             "matchmaking paired"
         );
@@ -257,7 +257,7 @@ impl Table {
                 survivor = Some(m.clone());
                 nickname = self
                     .room
-                    .players
+                    .seats()
                     .get(seat)
                     .map(|p| p.nickname.clone())
                     .unwrap_or_default();
@@ -297,7 +297,7 @@ impl Table {
             .metrics()
             .matches_matchmade
             .fetch_add(1, Ordering::Relaxed);
-        tracing::info!(players = self.room.players.len(), "matchmade rematch");
+        tracing::info!(players = self.room.seat_count(), "matchmade rematch");
         self.announce_match_found();
         self.schedule_matchmaking_start(paired_at);
     }
@@ -308,7 +308,7 @@ impl Table {
         let leaving = c.player_id();
         let nickname = self
             .room
-            .players
+            .seats()
             .get(leaving)
             .map(|p| p.nickname.clone())
             .unwrap_or_default();
@@ -375,7 +375,7 @@ impl Table {
         let seat = c.player_id();
         let nickname = self
             .room
-            .players
+            .seats()
             .get(seat)
             .map(|p| p.nickname.clone())
             .unwrap_or_default();
@@ -475,7 +475,7 @@ impl Table {
 
 /// `want`, or `want (2)`, `(3)`… when somebody at the table already has it.
 pub fn unique_nickname(room: &Room, want: &str) -> String {
-    let taken = |n: &str| room.players.iter().any(|p| p.nickname == n);
+    let taken = |n: &str| room.seat_of(n).is_some();
     if !taken(want) {
         return want.to_owned();
     }

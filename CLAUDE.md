@@ -218,7 +218,8 @@ the build.
 **`server/`** authoritative game server: a Cargo workspace (edition 2024, `members =
 ["crates/*"]`, every version in `[workspace.dependencies]`, `unsafe_code` forbidden), `deny.toml`
 (cargo-deny: licences, advisories, sources), `Dockerfile`.
-- `crates/loco-game/` the pure domain: `room.rs` (the `Room` and every command, the constants),
+- `crates/loco-game/` the pure domain: `room.rs` (the `Room`, one `RoomSeat` per seat, every
+  command, the constants),
   `state.rs` (`GameState`, one `SeatState` per seat, the catch windows), `rules.rs`, `deck.rs`,
   `card.rs`, `hand.rs`, `bot.rs`, `maps.rs`, `event.rs`, `error.rs` (`GameError`, `ErrorKind`),
   `rng.rs`, `nickname.rs` + `wordlists/` + `screen.rs` (the nickname matcher, exported for the one
@@ -284,9 +285,13 @@ every entry point: `server/crates/loco-game/API.md`.
   mutates**: a refusal leaves the room exactly as it was (the proptests hold every command to that).
 - **A seat is `usize`, and nobody is `None`** (`Seat`, `Option<Seat>`). A signed seat exists only on
   the wire (`loco-protocol`); the hub converts at that one border.
-- **What a seat owes is one record** (`GameState.seats: Vec<SeatState>`: `retired`, `declared`,
-  `last_card_at`, `catch_paid_for`, `catch_locked_until`, `near_left_at`). **The hands stay apart**:
-  a Swap or a GlobalSwitch moves the hand and leaves the obligation with the chair.
+- **What the match keeps about a seat is one record** (`Room::seats() -> &[RoomSeat]`: `nickname`,
+  `score`, `rounds_won`, `lost_hand_total`, `retired`, `round_points`), so a lobby seat leaves or
+  moves in one `Vec` operation; the round history is the seats' `round_points`, read by round through
+  `Room::round_history()`. **What a seat owes in the round is one record too** (`GameState.seats:
+  Vec<SeatState>`: `retired`, `declared`, `last_card_at`, `catch_paid_for`, `catch_locked_until`,
+  `near_left_at`). **The hands stay apart**: a Swap or a GlobalSwitch moves the hand and leaves the
+  obligation with the chair.
 - **Refusals are `GameError`, one string each, byte for byte what `serverErrors.ts` matches**, classed
   by `GameError::kind()`: `StaleState` answers with a snapshot, `ErrorKind::is_honest()` (`LostRace`,
   `MissedCatch`) keeps a refusal off `suspected_cheats`.
@@ -348,11 +353,11 @@ every entry point: `server/crates/loco-game/API.md`.
   out of that one window** (they read `last_play_by`, which the deal leaves `None`).
 
 **Scoring and history**
-- **Scoring**: single-finisher round, `card_value` per `docs/rules.md` §10, cumulative `Room.scores`,
+- **Scoring**: single-finisher round, `card_value` per `docs/rules.md` §10, cumulative `RoomSeat.score`,
   tiebreakers **rounds won then score** then lost-hand total then sudden death. **The score measures
   the gap, it does not crown anybody**; `biggest_loser` stays indexed on it.
 - **The table remembers its finished matches** (`Table.match_history`, one `MatchRecord` per match,
-  by seat; a departed winner is `None`): it survives `reset_for_next_match`, moves with `drop_seat`
+  by seat; a departed winner is `None`): it survives `reset_for_next_match`, moves with `remove_seat`
   and `swap_seats`, rides the drain snapshot, the personalised state and **every `player_left` that
   re-bases the roster**. The evening recap is drawn from it.
 - **Each record says how long its match was played** (`duration_ms`, from `match_ready`); **zero is
@@ -403,10 +408,14 @@ Paths are under `server/crates/loco-hub/src/` unless a crate is named.
 **The loop**
 - **A table is one value owned by one tokio task, the only thing that may move a seat**
   (`table/mod.rs` + `table/actor.rs`): an `mpsc` mailbox, no lock, **nothing else can read it**. **A
-  seat is one `table::Seat`** (`occupant`, `token`, `afk`, `wants_rematch`): removing one is
-  `Table::drop_seat` (a `Vec::remove`), a host transfer `swap_seats` (a `Vec::swap`), a rematch's
-  reset `reset_for_next_match`. **Per-table state is a field of `Table`, never a map on the hub nor
-  anything another task reads.**
+  seat is one `table::Seat`** (`occupant`, `token`, `afk`, `wants_rematch`), and a reset for a
+  rematch is `reset_for_next_match`. **Per-table state is a field of `Table`, never a map on the hub
+  nor anything another task reads.**
+- **A chair is three columns moved by two operations**: the room's `RoomSeat`, the table's `Seat`
+  and the seat's column in `match_history`. `Table::remove_seat` and `Table::swap_seats` are the
+  only code that removes or exchanges a seat, each moving all three or none (the room's
+  `remove_lobby_player` / `swap_lobby_players` decide, and are called from those two alone);
+  `tests/funnels.rs` fails on any other call site.
 - **Who is in a chair is an `Occupant`** (`Human`, `Held { since }`, `Gone`, `Bot`, `Vacant`).
   **A finished ordinary table holds its seats**; a finished matchmade one does not. **An expiry finds
   its hold by the instant it began** (`Table::held_seat_at`), never by seat number.
@@ -422,7 +431,7 @@ Paths are under `server/crates/loco-hub/src/` unless a crate is named.
 
 - **A socket holds one seat, as one value** (`Client.seat`, re-checked by `dispatch_at_table`).
   **Personalised sends index by seat, never by a client's idea of its seat.**
-- **Removing a seat re-bases everything the scoreboard is drawn from** (`Room::remove_lobby_player`,
+- **Removing a seat re-bases everything the scoreboard is drawn from** (`Table::remove_seat`,
   carried on `player_left`).
 - **Every path that grows a hand goes through `send_hand_growth`**, and `card_drawn` is built only by
   `announce_cards_drawn` (`tests/funnels.rs`).
@@ -453,7 +462,7 @@ Paths are under `server/crates/loco-hub/src/` unless a crate is named.
   is refused there.**
 - **`kick_player` and `transfer_host`: host only, lobby only, matchmade never, never seat 0.** A kick
   (`release_seat`) **is not a ban and must not become one**; a transfer is a seat swap
-  (`Room::swap_lobby_players` + `Table::swap_seats`, **the token travelling with the player**), never
+  (`Table::swap_seats`, **the token travelling with the player**), never
   to a bot, `host_changed` sent **per recipient**. **The host is seat 0, so a bot never sits there**
   (`keep_host_human`, from both `reindex_lobby_disconnect` **and** `join_at_table`).
 - **`rematch` is an ask, in every room**: every ask broadcast (`rematch_offered`, the **whole** offer

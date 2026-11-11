@@ -28,7 +28,12 @@ fn playing_room() -> Value {
     json!({
         "code": "ABC234",
         "status": 1,
-        "players": [{"nickname": "alice", "index": 0}, {"nickname": "Étienne", "index": 1}],
+        "seats": [
+            {"nickname": "alice", "score": 0, "rounds_won": 0, "lost_hand_total": 14,
+             "retired": false, "round_points": [0, 0]},
+            {"nickname": "Étienne", "score": 31, "rounds_won": 2, "lost_hand_total": 0,
+             "retired": false, "round_points": [14, 17]}
+        ],
         "state": {
             "hands": [
                 {"cards": [c(0, 0, 7), c(4, 4, 0)]},
@@ -60,12 +65,7 @@ fn playing_room() -> Value {
         "map_id": "orbit",
         "map_time": "night",
         "map_weather": "fog",
-        "round_number": 1,
-        "scores": [0, 0],
-        "rounds_won": [0, 0],
-        "lost_hand_total": [0, 0],
-        "retired": [false, false],
-        "round_history": [],
+        "round_number": 3,
         "round_ended": false,
         "match_over": false,
         "match_winner": ""
@@ -79,12 +79,12 @@ fn a_snapshot_room_round_trips() {
 
     assert_eq!(room.code, "ABC234");
     assert_eq!(room.status, Status::Playing);
-    assert_eq!(room.players[1].nickname, "Étienne");
+    assert_eq!(room.seats[1].nickname, "Étienne");
+    assert_eq!(room.seats[1].round_points, vec![14, 17]);
     assert_eq!(room.format, MatchFormat::Bo3);
     assert_eq!(room.map_id, Some(MapId::Orbit));
     assert_eq!(room.map_time, Some(TimeOfDay::Night));
     assert_eq!(room.map_weather, Some(Weather::Fog));
-    assert!(room.round_history.is_empty());
     let st = room.state.as_ref().unwrap();
     assert_eq!(st.hands[0].cards[1].kind, Kind::WildCard);
     assert_eq!(st.hands[0].cards[1].color, Color::Wild);
@@ -109,15 +109,13 @@ fn a_snapshot_room_round_trips() {
 fn a_lobby_room_round_trips() {
     // A lobby: nothing dealt, nothing drawn, every match list still empty.
     let raw = json!({
-        "code": "LOBBY2", "status": 0, "players": [], "state": null, "winner": "",
+        "code": "LOBBY2", "status": 0, "seats": [], "state": null, "winner": "",
         "format": 1, "max_players": 7, "map_id": null, "map_time": null, "map_weather": null,
-        "round_number": 0, "scores": [], "rounds_won": [], "lost_hand_total": [],
-        "retired": [], "round_history": [], "round_ended": false, "match_over": false,
-        "match_winner": ""
+        "round_number": 0, "round_ended": false, "match_over": false, "match_winner": ""
     });
     let room: SavedRoom = serde_json::from_value(raw.clone()).unwrap();
     assert_eq!(room.status, Status::Lobby);
-    assert!(room.state.is_none() && room.map_id.is_none() && room.players.is_empty());
+    assert!(room.state.is_none() && room.map_id.is_none() && room.seats.is_empty());
     assert_eq!(serde_json::to_value(&room).unwrap(), raw);
 }
 
@@ -143,6 +141,11 @@ fn a_restored_room_plays_on_its_fresh_seed() {
     let saved: SavedRoom = serde_json::from_value(playing_room()).unwrap();
     let mut room = saved.clone().restore([7; 32]);
     assert_eq!(SavedRoom::from(&room), saved, "the restore moved a field");
+    assert_eq!(
+        room.round_history(),
+        vec![vec![0, 14], vec![0, 17]],
+        "the round history is not the seats' round points by round"
+    );
     room.draw_card(1, NOW).expect("a restored room draws");
     let st = room.state.as_ref().unwrap();
     assert_eq!(st.hands[1].len(), 3, "the pending +2 was drawn");
@@ -155,6 +158,7 @@ fn a_restored_room_plays_on_its_fresh_seed() {
 fn a_room_survives_its_own_round_trip() {
     let mut r = super::support::setup_three_player_game();
     r.retire_seat(2, NOW).unwrap();
+    super::support::set_scores(&mut r, &[12, 0, 40]);
     let saved = SavedRoom::from(&r);
     let json = serde_json::to_string(&saved).unwrap();
     let back: SavedRoom = serde_json::from_str(&json).unwrap();
@@ -165,7 +169,8 @@ fn a_room_survives_its_own_round_trip() {
     let restored = back.restore([9; 32]);
     assert_eq!(restored.code, r.code);
     assert_eq!(restored.status, r.status);
-    assert_eq!(restored.players, r.players);
+    assert_eq!(restored.seats(), r.seats());
+    assert!(restored.is_retired(2), "the walk-out did not travel");
     assert_eq!(restored.state, r.state);
     assert_eq!(restored.winner, r.winner);
     assert_eq!(restored.format, r.format);
@@ -175,11 +180,6 @@ fn a_room_survives_its_own_round_trip() {
         (r.map_id, r.map_time, r.map_weather)
     );
     assert_eq!(restored.round_number, r.round_number);
-    assert_eq!(restored.scores, r.scores);
-    assert_eq!(restored.rounds_won, r.rounds_won);
-    assert_eq!(restored.lost_hand_total, r.lost_hand_total);
-    assert_eq!(restored.retired, r.retired);
-    assert_eq!(restored.round_history, r.round_history);
     assert_eq!(
         (
             restored.round_ended,

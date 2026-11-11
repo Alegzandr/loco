@@ -37,7 +37,7 @@ pub use event::{EventKind, GameEvent};
 pub use hand::Hand;
 pub use maps::{MapId, TimeOfDay, Weather};
 pub use nickname::validate_nickname;
-pub use room::{CatchCharge, MatchFormat, Player, Room, SavedRoom, Status};
+pub use room::{CatchCharge, MatchFormat, Room, RoomSeat, SavedRoom, Status};
 pub use rules::can_play;
 pub use screen::contains_blocked_term;
 pub use state::{GameState, SeatState};

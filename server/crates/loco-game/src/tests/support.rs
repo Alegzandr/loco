@@ -10,7 +10,7 @@
 use crate::card::{Card, Color, Kind};
 use crate::event::EventKind;
 use crate::hand::Hand;
-use crate::room::{CatchCharge, MatchFormat, Room};
+use crate::room::{CatchCharge, MatchFormat, Room, RoomSeat};
 use crate::state::{GameState, SeatState};
 use crate::{Millis, Seat};
 use rand_chacha::ChaCha12Rng;
@@ -32,6 +32,48 @@ pub(crate) fn new_room(code: &str) -> Room {
         v
     });
     Room::from_u64_seed(code, seed)
+}
+
+/// One column of the seats' match records, in seat order.
+pub(crate) fn column<T>(r: &Room, f: impl Fn(&RoomSeat) -> T) -> Vec<T> {
+    r.seats().iter().map(f).collect()
+}
+
+pub(crate) fn scores(r: &Room) -> Vec<i32> {
+    column(r, |s| s.score)
+}
+
+pub(crate) fn rounds_won(r: &Room) -> Vec<u32> {
+    column(r, |s| s.rounds_won)
+}
+
+pub(crate) fn lost_hand_totals(r: &Room) -> Vec<i32> {
+    column(r, |s| s.lost_hand_total)
+}
+
+pub(crate) fn retired_flags(r: &Room) -> Vec<bool> {
+    column(r, |s| s.retired)
+}
+
+/// Writes one value per seat into the seats' match records, as a test sets up
+/// a scoreboard.
+pub(crate) fn set_column<T: Copy>(r: &mut Room, values: &[T], f: impl Fn(&mut RoomSeat, T)) {
+    assert_eq!(values.len(), r.seat_count(), "one value per seat");
+    for (i, v) in values.iter().enumerate() {
+        f(r.seat_mut(i).expect("seated"), *v);
+    }
+}
+
+pub(crate) fn set_scores(r: &mut Room, values: &[i32]) {
+    set_column(r, values, |s, v| s.score = v);
+}
+
+pub(crate) fn set_rounds_won(r: &mut Room, values: &[u32]) {
+    set_column(r, values, |s, v| s.rounds_won = v);
+}
+
+pub(crate) fn set_lost_hand_totals(r: &mut Room, values: &[i32]) {
+    set_column(r, values, |s, v| s.lost_hand_total = v);
 }
 
 /// A deterministic source for a bot decision.

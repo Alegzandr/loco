@@ -32,18 +32,18 @@ fn forfeit_to_leaves_the_scoreboard_alone() {
     must_join(&mut r, "Alice");
     must_join(&mut r, "Bob");
     r.start(NOW).unwrap_or_else(|e| panic!("Start: {e}"));
-    r.scores[0] = 40;
-    let rounds = r.round_history.len();
+    r.seats[0].score = 40;
+    let rounds = r.round_history().len();
 
     r.forfeit_to(0, NOW)
         .unwrap_or_else(|e| panic!("ForfeitTo: {e}"));
 
-    assert_eq!(r.scores, vec![40, 0], "Scores, want [40 0] unchanged");
+    assert_eq!(scores(&r), vec![40, 0], "Scores, want [40 0] unchanged");
     assert_eq!(
-        r.round_history.len(),
+        r.round_history().len(),
         rounds,
         "RoundHistory grew to {} rows, want {rounds}",
-        r.round_history.len()
+        r.round_history().len()
     );
     assert!(
         !r.round_ended,
