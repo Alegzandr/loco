@@ -43,6 +43,16 @@ at decoding rather than in the handler. Case still does not matter for colours, 
 and an empty `chosen_color` still reads as `wild`, as Go's `parseColor` did. Stray fields are still
 ignored: Go accepted every field on every message, and so does serde.
 
+The refusal such a frame earns keeps Go's words, because the client maps them
+(`i18n/serverErrors.ts`): the Rust read pump (`loco-hub/src/wire.rs`, `decode_client`) answers an
+unknown type with `unknown message type`, a bad colour with `unknown color: "x"`, a bad kind with
+`unknown kind: "x"`, a bad format with `invalid match format "x": must be BO1, BO3, BO5, or BO7`, an
+unknown emote with `unknown emote`, and anything else that does not decode with `invalid message
+format`. One string moved: a bad `chosen_color` on a wild was `chosen_color required for wild:
+unknown color: "x"` in Go and is the plain `unknown color: "x"` now, since the frame never reaches
+the handler that added the prefix. Neither is mapped by the client (only a hand-built frame can
+send one), so both land on its generic refusal line.
+
 ### Parity fixtures
 
 `server-rs/crates/loco-protocol/tests/fixtures/server-go.jsonl` (196 frames, every server message
