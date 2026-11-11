@@ -22,7 +22,6 @@ pub mod dispatch;
 pub mod drain;
 pub mod emotes;
 pub mod gameplay;
-pub mod gotime;
 pub mod hub;
 pub mod ids;
 #[cfg(test)]

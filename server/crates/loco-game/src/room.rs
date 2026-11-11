@@ -1,11 +1,10 @@
-//! The room: lobby, match, rounds and every command a seat can issue
-//! (`server/game/room.go`).
+//! The room: lobby, match, rounds and every command a seat can issue.
 //!
 //! **One way in.** A `Room` is owned by exactly one table task, and every
 //! command is a `&mut self` method that validates first and mutates second: a
 //! command that returns `Err` has left the room exactly as it was (the
 //! proptests hold every command to that). The task reads what it needs to
-//! broadcast off the room afterwards, the way the Go hub did, so a command
+//! broadcast off the room afterwards, so a command
 //! returns only what the room cannot tell it later: whether a removed seat was
 //! the host, what a failed catch cost, when a lockout ends. There is no second,
 //! functional entry point: a clone of the room before the call is the
@@ -16,9 +15,8 @@
 //!
 //! **Randomness is the room's own.** A `Room` cannot exist without its
 //! `ChaCha12Rng`: `Room::new` takes the seed, and the drain snapshot
-//! (`SavedRoom`) is restored with a fresh one. Go seeded lazily
-//! (`ensureRNG`) because a decoded struct could arrive without a source; here
-//! that state is unrepresentable.
+//! (`SavedRoom`) is restored with a fresh one, so a room without a source is
+//! unrepresentable.
 
 use crate::card::{Card, Color, Kind, card_value};
 use crate::deck::Deck;
@@ -34,7 +32,7 @@ use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-/// The lifecycle state of a room. Go's `iota` integers in JSON.
+/// The lifecycle state of a room, an integer in the snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum Status {
@@ -45,7 +43,7 @@ pub enum Status {
 }
 
 impl Status {
-    /// Go's `Status.String()`.
+    /// Its name in lower case.
     pub const fn as_str(self) -> &'static str {
         match self {
             Status::Lobby => "lobby",
@@ -55,9 +53,8 @@ impl Status {
     }
 }
 
-/// How many rounds make up a match. Go kept it an `int` and refused bad values
-/// in `SetFormat`; here a bad value cannot be built, and the refusal (with
-/// Go's text) is the conversion's.
+/// How many rounds make up a match. A bad value cannot be built: the refusal
+/// (`invalid match format: N`) is the conversion's, from the wire's integer.
 #[derive(
     Debug,
     Clone,
@@ -135,9 +132,7 @@ pub const CATCH_NEAR_HAND: usize = 2;
 /// Per-player metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Player {
-    #[serde(rename = "Nickname")]
     pub nickname: String,
-    #[serde(rename = "Index")]
     pub index: Seat,
 }
 
@@ -252,7 +247,7 @@ impl Room {
         &mut self.rng
     }
 
-    /// The round being played, refusing like Go did when there is none.
+    /// The round being played, or `GameNotInProgress` when there is none.
     fn playing_state(&mut self) -> Result<&mut GameState, GameError> {
         if self.status != Status::Playing {
             return Err(GameError::GameNotInProgress);
@@ -262,7 +257,7 @@ impl Room {
 
     // --- Lobby -------------------------------------------------------------
 
-    /// Sets the match format (lobby only). (Go: `SetFormat`.)
+    /// Sets the match format (lobby only).
     pub fn set_format(&mut self, f: MatchFormat) -> Result<(), GameError> {
         if self.status != Status::Lobby {
             return Err(GameError::FormatLocked);
@@ -271,8 +266,7 @@ impl Room {
         Ok(())
     }
 
-    /// Sets the seat cap (lobby only; never below the seats taken). (Go:
-    /// `SetMaxPlayers`.)
+    /// Sets the seat cap (lobby only; never below the seats taken).
     pub fn set_max_players(&mut self, n: usize) -> Result<(), GameError> {
         if self.status != Status::Lobby {
             return Err(GameError::MaxPlayersLocked);
@@ -294,8 +288,7 @@ impl Room {
     }
 
     /// Exchanges two seats (lobby only), for `transfer_host`. A swap rather
-    /// than a move because it re-bases exactly two seats. (Go:
-    /// `SwapLobbyPlayers`.)
+    /// than a move because it re-bases exactly two seats.
     pub fn swap_lobby_players(&mut self, a: Seat, b: Seat) -> Result<(), GameError> {
         if self.status != Status::Lobby {
             return Err(GameError::ReorderOnlyInLobby);
@@ -311,7 +304,7 @@ impl Room {
 
     /// Removes a seat from the lobby (or a finished room), re-indexes the rest
     /// and re-bases everything the scoreboard is drawn from. Returns whether
-    /// the removed seat was the host. (Go: `RemoveLobbyPlayer`.)
+    /// the removed seat was the host.
     pub fn remove_lobby_player(&mut self, seat: Seat) -> Result<bool, GameError> {
         if self.status != Status::Lobby && self.status != Status::Finished {
             return Err(GameError::RemoveOnlyInLobby);
@@ -333,7 +326,7 @@ impl Room {
         Ok(seat == 0)
     }
 
-    /// Adds a player to the lobby. (Go: `Join`.)
+    /// Adds a player to the lobby.
     pub fn join(&mut self, nickname: &str) -> Result<(), GameError> {
         if self.status != Status::Lobby {
             return Err(GameError::GameAlreadyInProgress);
@@ -352,7 +345,7 @@ impl Room {
     }
 
     /// Begins the match: deals the first round, the opener drawn at random.
-    /// (Go: `Start`.)
+    ///
     pub fn start(&mut self, now: Millis) -> Result<(), GameError> {
         if self.status != Status::Lobby {
             return Err(GameError::GameAlreadyStarted);
@@ -382,7 +375,7 @@ impl Room {
 
     /// Sets up a fresh round. A retired seat is dealt nothing and keeps its
     /// index. The opening discard is always a Number, and the interrupt window
-    /// is open on it with nobody as its author. (Go: `dealRound`.)
+    /// is open on it with nobody as its author.
     pub(crate) fn deal_round(&mut self, opener: Seat, now: Millis) {
         let n = self.players.len();
         let mut deck = Deck::standard();
@@ -439,7 +432,7 @@ impl Room {
     // --- Plays -------------------------------------------------------------
 
     /// Plays one card from `seat`'s hand. `chosen_color` names the colour for
-    /// a wild; `target` is the Swap's other seat. (Go: `PlayCard`.)
+    /// a wild; `target` is the Swap's other seat.
     pub fn play_card(
         &mut self,
         seat: Seat,
@@ -494,8 +487,7 @@ impl Room {
     /// Plays a batch of identical cards on the seat's own turn. Effects stack
     /// (N DrawTwos add 2N, N Skips skip N seats, N Reverses flip N times);
     /// Swap and GlobalSwitch never batch. `declare_loco` is the call the
-    /// message carried, read only when the batch empties the hand. (Go:
-    /// `PlayCards`.)
+    /// message carried, read only when the batch empties the hand.
     pub fn play_cards(
         &mut self,
         seat: Seat,
@@ -566,7 +558,7 @@ impl Room {
 
     /// The one win path every hand-emptying play goes through: locks in the
     /// colour, closes the interrupt window, logs the finish, ends the round.
-    /// (Go: `finishRoundWin`.)
+    ///
     fn finish_round_win(&mut self, winner: Seat, active_color: Color, now: Millis) {
         if let Some(st) = self.state.as_mut() {
             st.set_active_color(active_color);
@@ -580,7 +572,7 @@ impl Room {
     /// everyone else scores 0 (their hand value goes to the tiebreak). Then the
     /// match stops if the lead can no longer be caught or the format has run
     /// out with somebody separable; otherwise the hub deals the next round.
-    /// (Go: `endRound`.)
+    ///
     pub(crate) fn end_round(&mut self, winner: Seat, now: Millis) {
         let Some(st) = self.state.as_mut() else {
             return;
@@ -622,7 +614,7 @@ impl Room {
     }
 
     /// Ends the match now and awards it to `winner`, leaving the scoreboard
-    /// exactly as it stood. (Go: `ForfeitTo`.)
+    /// exactly as it stood.
     pub fn forfeit_to(&mut self, winner: Seat, now: Millis) -> Result<(), GameError> {
         if self.status != Status::Playing {
             return Err(GameError::ForfeitNotPlaying);
@@ -640,14 +632,14 @@ impl Room {
     }
 
     /// Whether a seat has walked out of the match, read off the match-level
-    /// flags. (Go: `IsRetired`.)
+    /// flags.
     pub fn is_retired(&self, seat: Seat) -> bool {
         self.retired.get(seat).copied().unwrap_or(false)
     }
 
     /// Takes a seat out of the match for good: its hand goes back into the
     /// deck, the turn steps over it, its catch window shuts, and the
-    /// scoreboard is left exactly as it stood. (Go: `RetireSeat`.)
+    /// scoreboard is left exactly as it stood.
     pub fn retire_seat(&mut self, seat: Seat, now: Millis) -> Result<(), GameError> {
         let Self {
             status,
@@ -693,7 +685,7 @@ impl Room {
     }
 
     /// Deals the next round, opened by the biggest loser. The hub calls it
-    /// between `round_end` and `game_started`. (Go: `BeginNextRound`.)
+    /// between `round_end` and `game_started`.
     pub fn begin_next_round(&mut self, now: Millis) -> Result<(), GameError> {
         if self.match_over {
             return Err(GameError::NextRoundAfterMatchOver);
@@ -708,8 +700,7 @@ impl Room {
     }
 
     /// Returns a finished room to the lobby: roster and lobby config survive,
-    /// everything about the match is dropped, the map included. (Go:
-    /// `ResetForRematch`.)
+    /// everything about the match is dropped, the map included.
     pub fn reset_for_rematch(&mut self) -> Result<(), GameError> {
         if self.status != Status::Finished {
             return Err(GameError::RematchUnavailable);
@@ -734,7 +725,7 @@ impl Room {
 
     /// The seat whose lead in rounds won can no longer be caught. One
     /// expression for both endings: `remaining` is zero once the format is
-    /// exhausted. (Go: `decisiveLeader`.)
+    /// exhausted.
     pub(crate) fn decisive_leader(&self) -> Option<Seat> {
         let remaining = self.format.rounds().saturating_sub(self.round_number);
         let rw = &self.rounds_won;
@@ -743,7 +734,7 @@ impl Room {
 
     /// The seat with the lowest cumulative score, which opens the next round;
     /// ties go to the lowest index, retired seats are skipped. Deliberately on
-    /// points, not rounds won. (Go: `biggestLoser`.)
+    /// points, not rounds won.
     pub(crate) fn biggest_loser(&self) -> Seat {
         (0..self.scores.len())
             .filter(|&i| !self.is_retired(i))
@@ -752,8 +743,7 @@ impl Room {
     }
 
     /// The match winner by the tiebreak chain: most rounds won, then highest
-    /// score, then lowest lost-hand total. `None` means sudden death. (Go:
-    /// `determineMatchWinner`, which returned the nickname or "".)
+    /// score, then lowest lost-hand total. `None` means sudden death.
     pub(crate) fn determine_match_winner(&self) -> Option<Seat> {
         let mut c: Vec<Seat> = (0..self.players.len()).collect();
         let chain: [&dyn Fn(Seat) -> i64; 3] = [
@@ -774,7 +764,7 @@ impl Room {
 
     /// The seat at turn draws one card, or the whole pending stack. Either way
     /// it keeps the turn (rules.md §14.5). Never fails once validated: the
-    /// draw shrinks to what the piles hold. (Go: `DrawCard`.)
+    /// draw shrinks to what the piles hold.
     pub fn draw_card(&mut self, seat: Seat, now: Millis) -> Result<(), GameError> {
         let st = self.playing_state()?;
         if st.current_turn != seat || !st.has_seat(seat) {
@@ -800,7 +790,7 @@ impl Room {
         Ok(())
     }
 
-    /// Moves the turn on after a draw. (Go: `PassTurn`.)
+    /// Moves the turn on after a draw.
     pub fn pass_turn(&mut self, seat: Seat, now: Millis) -> Result<(), GameError> {
         let st = self.playing_state()?;
         if st.current_turn != seat {
@@ -818,7 +808,7 @@ impl Room {
 
     /// Records a seat calling LOCO! on its last card. A late call is always
     /// accepted while the hand is one card; a declaration is a one-shot until a
-    /// new window opens. (Go: `DeclareLastCard`.)
+    /// new window opens.
     pub fn declare_last_card(&mut self, seat: Seat, now: Millis) -> Result<(), GameError> {
         let st = self.playing_state()?;
         if !st.has_seat(seat) {
@@ -839,7 +829,7 @@ impl Room {
 
     /// Whether a Contre-LOCO! from `catcher` is a wager at `now`: whether any
     /// other seat is near enough the finish for the button to be live on an
-    /// honest screen. (Go: `CatchOffered`.)
+    /// honest screen.
     pub fn catch_offered(&self, catcher: Seat, now: Millis) -> bool {
         match &self.state {
             Some(st) if self.status == Status::Playing && st.has_seat(catcher) => {
@@ -850,18 +840,18 @@ impl Room {
     }
 
     /// When `catcher`'s lockout ends; `None` when it is not locked or the seat
-    /// is out of range. (Go: `CatchLockedAt`.)
+    /// is out of range.
     pub fn catch_locked_at(&self, catcher: Seat) -> Option<Millis> {
         self.state.as_ref()?.seats.get(catcher)?.catch_locked_until
     }
 
-    /// Whether `catcher` is inside its lockout at `now`. (Go: `CatchLocked`.)
+    /// Whether `catcher` is inside its lockout at `now`.
     pub fn catch_locked(&self, catcher: Seat, now: Millis) -> bool {
         self.catch_locked_at(catcher).is_some_and(|at| now < at)
     }
 
     /// Arms or re-arms `catcher`'s lockout and returns when it now ends.
-    /// Touches nothing else. (Go: `LockCatch`.)
+    /// Touches nothing else.
     pub fn lock_catch(&mut self, catcher: Seat, now: Millis) -> Option<Millis> {
         let seat = self.state.as_mut()?.seats.get_mut(catcher)?;
         let until = now + CATCH_LOCKOUT_MS;
@@ -871,7 +861,7 @@ impl Room {
 
     /// `catcher` penalises `target` for not declaring its last card. The catch
     /// lands on the instant it arrives; the penalty shrinks to what the piles
-    /// hold and the catch always stands. (Go: `CatchUndeclared`.)
+    /// hold and the catch always stands.
     pub fn catch_undeclared(
         &mut self,
         catcher: Seat,
@@ -920,7 +910,7 @@ impl Room {
 
     /// Charges `catcher` one card for a Contre-LOCO! that found nothing, at
     /// most once per offer and only while one is on the table. Touches nothing
-    /// but the caller's hand and ration. (Go: `PenalizeFailedCatch`.)
+    /// but the caller's hand and ration.
     pub fn penalize_failed_catch(&mut self, catcher: Seat, now: Millis) -> CatchCharge {
         // Inside its lockout a seat pays nothing: that press was paid for.
         if !self.catch_offered(catcher, now) || self.catch_locked(catcher, now) {
@@ -950,7 +940,7 @@ impl Room {
     /// Any seat takes the lead by slamming ONE card identical to the top
     /// discard. No deadline, nobody excluded; the first message to arrive
     /// wins. The list form exists so a batch off the wire is refused rather
-    /// than assumed. (Go: `InterruptPlayCards` / `InterruptPlay`.)
+    /// than assumed.
     pub fn interrupt_play(
         &mut self,
         seat: Seat,
@@ -1011,7 +1001,7 @@ impl Room {
     }
 
     /// The seat facing a pending draw passes it on with the same card: same
-    /// kind and same colour. (Go: `CounterDraw`.)
+    /// kind and same colour.
     pub fn counter_draw(
         &mut self,
         seat: Seat,
@@ -1066,7 +1056,7 @@ impl Room {
 
     /// Shuffles the discard (minus its top) back under the deck when fewer
     /// than `needed` cards are left, and hands back the round. Only called
-    /// with a round dealt. (Go: `ensureDeck`.)
+    /// with a round dealt.
     pub(crate) fn ensure_deck(&mut self, needed: usize) -> &mut GameState {
         let st = self.state.as_mut().expect("a round is dealt");
         if st.deck.cards.len() < needed && st.discard.len() > 1 {
@@ -1079,7 +1069,7 @@ impl Room {
 }
 
 /// Validates a Swap's other seat before anything moves. The interject path
-/// folds the "yourself" refusal into the bad-target one, as Go's did.
+/// folds the "yourself" refusal into the bad-target one.
 fn swap_target(
     st: &GameState,
     seat: Seat,
@@ -1131,50 +1121,44 @@ fn rearrange(st: &mut GameState, seat: Seat, card: Card, swap_with: Option<Seat>
 
 // --- The drain snapshot -------------------------------------------------------
 
-/// A room as the drain snapshot writes it: Go's `json.Marshal(game.Room)`,
-/// field for field (schema version 5), so a snapshot written by either server
-/// restores on the other. It carries no source of randomness, exactly as Go's
-/// unexported `rng` was never written: [`SavedRoom::restore`] takes a fresh
-/// seed, which is the only way back to a [`Room`].
+/// A room as the drain snapshot writes it: every field a match needs to go on,
+/// in plain serde. It carries no source of randomness: [`SavedRoom::restore`]
+/// takes a fresh seed, which is the only way back to a [`Room`], so a deal
+/// can never be replayed from a file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavedRoom {
-    #[serde(rename = "Code")]
     pub code: String,
-    #[serde(rename = "Status")]
     pub status: Status,
-    #[serde(rename = "Players", with = "crate::gojson::nil_when_empty")]
+    #[serde(default)]
     pub players: Vec<Player>,
-    #[serde(rename = "State")]
+    #[serde(default)]
     pub state: Option<GameState>,
-    #[serde(rename = "Winner")]
+    #[serde(default)]
     pub winner: String,
-    #[serde(rename = "Format")]
     pub format: MatchFormat,
-    #[serde(rename = "MaxPlayers")]
     pub max_players: usize,
-    #[serde(rename = "MapID", with = "crate::maps::empty_is_none")]
+    #[serde(default)]
     pub map_id: Option<MapId>,
-    #[serde(rename = "MapTime", with = "crate::maps::empty_is_none")]
+    #[serde(default)]
     pub map_time: Option<TimeOfDay>,
-    #[serde(rename = "MapWeather", with = "crate::maps::empty_is_none")]
+    #[serde(default)]
     pub map_weather: Option<Weather>,
-    #[serde(rename = "RoundNumber")]
     pub round_number: u32,
-    #[serde(rename = "Scores", with = "crate::gojson::nil_when_empty")]
+    #[serde(default)]
     pub scores: Vec<i32>,
-    #[serde(rename = "RoundsWon", with = "crate::gojson::nil_when_empty")]
+    #[serde(default)]
     pub rounds_won: Vec<u32>,
-    #[serde(rename = "LostHandTotal", with = "crate::gojson::nil_when_empty")]
+    #[serde(default)]
     pub lost_hand_total: Vec<i32>,
-    #[serde(rename = "Retired", with = "crate::gojson::nil_when_empty")]
+    #[serde(default)]
     pub retired: Vec<bool>,
-    #[serde(rename = "RoundHistory", with = "crate::gojson::nil_when_empty")]
+    #[serde(default)]
     pub round_history: Vec<Vec<i32>>,
-    #[serde(rename = "RoundEnded")]
+    #[serde(default)]
     pub round_ended: bool,
-    #[serde(rename = "MatchOver")]
+    #[serde(default)]
     pub match_over: bool,
-    #[serde(rename = "MatchWinner")]
+    #[serde(default)]
     pub match_winner: String,
 }
 

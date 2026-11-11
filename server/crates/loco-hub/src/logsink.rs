@@ -1,5 +1,5 @@
-//! The log, off the event loop. Port of `server/hub/logsink.go`, plus the
-//! `tracing` formatter that writes the lines the Go server's `log.Printf` did.
+//! The log, off the event loop, plus the `tracing` formatter that writes its
+//! lines.
 //!
 //! The number that matters here is not how slow a log line is, it is who
 //! decides. A write to a pipe whose reader has stalled does not get slower, it
@@ -14,7 +14,7 @@ use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields, FormattedFields, MakeWriter};
@@ -204,9 +204,41 @@ impl Writer_ {
         let _ = writeln!(
             self.out,
             "{} WARN log sink overflowed, {n} line(s) dropped",
-            crate::gotime::log_stamp(SystemTime::now())
+            log_stamp(SystemTime::now())
         );
     }
+}
+
+/// An instant as RFC 3339 in UTC, to the second: `2026-11-11T14:03:22Z`.
+/// Sortable as text, and unambiguous whatever zone the host runs in.
+pub fn log_stamp(t: SystemTime) -> String {
+    let secs = match t.duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_secs() as i64,
+        Err(e) => -(e.duration().as_secs_f64().ceil() as i64),
+    };
+    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
+    let s = secs.rem_euclid(86_400);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        s / 3600,
+        s % 3600 / 60,
+        s % 60
+    )
+}
+
+/// The proleptic Gregorian date `z` days after 1970-01-01 (Howard Hinnant's
+/// `civil_from_days`), so the stamp needs no date crate.
+fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 /// One event's worth of bytes, handed to the sink whole when `tracing` is done
@@ -244,14 +276,15 @@ impl<'a> MakeWriter<'a> for AsyncLog {
     }
 }
 
-/// The Go server's line, kept so the operator's greps keep working:
-/// `2006/01/02 15:04:05 [WARN ]message key=value …`, then the fields of every
-/// span the event is inside — which is how `conn=` reaches every line a
-/// connection's pumps write without each call site repeating it.
+/// One line per event: `2026-11-11T14:03:22Z [WARN |ERROR ]message key=value …`,
+/// then the fields of every span the event is inside — which is how `conn=`
+/// reaches every line a connection's pumps write without each call site
+/// repeating it. An info line carries no level: it is the ordinary case, and
+/// the two that are not are the ones an operator greps for.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct GoStyle;
+pub struct LineFormat;
 
-impl<S, N> FormatEvent<S, N> for GoStyle
+impl<S, N> FormatEvent<S, N> for LineFormat
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
     N: for<'a> FormatFields<'a> + 'static,
@@ -262,7 +295,7 @@ where
         mut w: Writer<'_>,
         event: &Event<'_>,
     ) -> fmt::Result {
-        write!(w, "{} ", crate::gotime::log_stamp(SystemTime::now()))?;
+        write!(w, "{} ", log_stamp(SystemTime::now()))?;
         match *event.metadata().level() {
             Level::ERROR => write!(w, "ERROR ")?,
             Level::WARN => write!(w, "WARN ")?,
@@ -283,14 +316,14 @@ where
     }
 }
 
-/// Installs `tracing` writing through `sink` in the Go format. `RUST_LOG` can
+/// Installs `tracing` writing through `sink` in [`LineFormat`]. `RUST_LOG` can
 /// narrow it; the default is `info`. Fails if a subscriber is already set.
 pub fn install(sink: &AsyncLog) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use tracing_subscriber::EnvFilter;
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_ansi(false)
-        .event_format(GoStyle)
+        .event_format(LineFormat)
         .with_writer(sink.clone())
         .with_env_filter(filter)
         .try_init()
@@ -327,8 +360,6 @@ mod tests {
     use super::*;
     use std::sync::mpsc::{Receiver as StdRx, SyncSender as StdTx};
     use std::time::Instant;
-
-    // Port of logsink_test.go.
 
     /// Collects whole writes. `entered` is signalled once per write, before
     /// blocking on `gate`, so a test can hold the writer thread inside the sink
@@ -536,19 +567,20 @@ mod tests {
         );
     }
 
-    // The formatter writes what the Go server's log.Printf did, and a span's
-    // fields ride every line inside it.
+    // The formatter's line: a stamp, the level when it is not info, the
+    // message and its fields, then a span's fields, which ride every line
+    // inside it.
     #[test]
-    fn lines_read_like_the_go_log() {
+    fn lines_carry_stamp_level_message_and_span_fields() {
         let sink = Recording::default();
         let a = AsyncLog::new(sink.clone(), 64);
         let sub = tracing_subscriber::fmt()
             .with_ansi(false)
-            .event_format(GoStyle)
+            .event_format(LineFormat)
             .with_writer(a.clone())
             .finish();
         tracing::subscriber::with_default(sub, || {
-            // `%` is how a call site gets Go's unquoted `key=value`.
+            // `%` is how a call site gets an unquoted `key=value`.
             let span = tracing::info_span!("ws", conn = %"a1b2c3d4");
             let _g = span.enter();
             tracing::warn!(addr = %"203.0.113.0/24", "slow client, force-closing");
@@ -562,11 +594,30 @@ mod tests {
             warn.contains(" WARN slow client, force-closing addr=203.0.113.0/24 conn=a1b2c3d4"),
             "{warn}"
         );
-        assert!(warn.as_bytes()[4] == b'/' && warn.ends_with('\n'), "{warn}");
+        let b = warn.as_bytes();
+        assert!(
+            b[4] == b'-' && b[10] == b'T' && b[19] == b'Z' && b[20] == b' ' && warn.ends_with('\n'),
+            "{warn}"
+        );
         assert!(
             !lines[1].contains("INFO"),
-            "an info line carries no level, like log.Printf: {}",
+            "an info line carries no level: {}",
             lines[1]
+        );
+    }
+
+    #[test]
+    fn the_stamp_is_rfc_3339_utc() {
+        let at = |secs: u64| log_stamp(UNIX_EPOCH + Duration::from_secs(secs));
+        assert_eq!(at(0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(1_762_869_802), "2025-11-11T14:03:22Z");
+        // A leap day, and the last second of a year.
+        assert_eq!(at(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(at(1_798_761_599), "2026-12-31T23:59:59Z");
+        // Sub-second digits are cut, never rounded up into the next second.
+        assert_eq!(
+            log_stamp(UNIX_EPOCH + Duration::from_millis(1_762_869_802_999)),
+            "2025-11-11T14:03:22Z"
         );
     }
 }

@@ -29,7 +29,7 @@ const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(90);
 /// nothing left to protect.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
-/// Reads `LOCO_DRAIN_TIMEOUT`: a Go duration (`90s`, `15m`) or bare seconds.
+/// Reads `LOCO_DRAIN_TIMEOUT`: a duration with a unit (`90s`, `15m`) or bare seconds.
 /// Zero is the one answer this may never give — a typo must not turn a
 /// graceful deploy back into the abrupt one it replaced.
 fn parse_drain_timeout(raw: &str) -> Duration {
@@ -37,7 +37,7 @@ fn parse_drain_timeout(raw: &str) -> Duration {
     if raw.is_empty() {
         return DEFAULT_DRAIN_TIMEOUT;
     }
-    if let Some(d) = loco_twitch::parse_go_duration(raw).filter(|d| !d.is_zero()) {
+    if let Some(d) = loco_twitch::parse_duration(raw).filter(|d| !d.is_zero()) {
         return d;
     }
     if let Ok(secs) = raw.parse::<u64>()
@@ -261,8 +261,9 @@ async fn serve(sink: &AsyncLog) -> std::process::ExitCode {
     tracing::info!("loco server listening on :{}", addr.port());
 
     let (close_http, http_closing) = tokio::sync::oneshot::channel::<()>();
-    // Our own accept loop rather than axum::serve: Go's ReadHeaderTimeout has
-    // to be reproduced, and axum::serve exposes no such knob. See http.rs.
+    // Our own accept loop rather than axum::serve: the header-read timeout is
+    // what bounds a slow client, and axum::serve exposes no such knob. See
+    // http.rs.
     let server = tokio::spawn(http::serve(
         listener,
         app(hub.clone(), poller),
@@ -310,12 +311,12 @@ mod tests {
     use super::*;
     use loco_hub::testkit;
 
-    // Port of main_test.go: zero is the one answer this may never give.
+    // Zero is the one answer this may never give.
     #[test]
     fn parse_drain_timeout_cases() {
         let cases = [
             ("unset", "", DEFAULT_DRAIN_TIMEOUT),
-            ("go duration", "90s", Duration::from_secs(90)),
+            ("with a unit", "90s", Duration::from_secs(90)),
             ("minutes", "15m", Duration::from_secs(15 * 60)),
             ("bare seconds", "120", Duration::from_secs(120)),
             ("nonsense falls back", "soon", DEFAULT_DRAIN_TIMEOUT),
@@ -455,8 +456,8 @@ mod tests {
         drain_and_snapshot(&hub, Duration::from_millis(100), &path).await;
         let snap: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(snap["schema_version"], 5);
-        assert_eq!(snap["rooms"][0]["room"]["Code"], "PLAYIN");
+        assert_eq!(snap["schema_version"], loco_hub::SNAPSHOT_SCHEMA_VERSION);
+        assert_eq!(snap["rooms"][0]["room"]["code"], "PLAYIN");
         hub.stop().await;
         let _ = std::fs::remove_dir_all(dir);
     }

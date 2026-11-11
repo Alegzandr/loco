@@ -1,5 +1,3 @@
-//! Port of `server/hub/drain_test.go`.
-//!
 //! Draining is what a deploy does to a server people are playing on. These
 //! tests pin both halves of the contract: nothing new starts, and nothing
 //! already running is disturbed.
@@ -21,7 +19,7 @@ async fn expect_error(ws: &mut Ws, want: &str) {
     );
 }
 
-/// `debug_set_state` is reachable: Go's `t.Setenv("LOCO_E2E", "1")`.
+/// A hub with the debug handlers on, so `debug_set_state` is reachable.
 fn e2e() -> HubConfig {
     let mut c = HubConfig::default();
     c.debug_mode = true;
@@ -46,7 +44,7 @@ async fn metric_of(th: &TestHub, name: &str) -> String {
         .unwrap_or_else(|| panic!("no {name} on /metrics:\n{body}"))
 }
 
-/// Go's `winMatchFromHostTurn`: the host is handed one card on its own turn
+/// Ends the match: the host is handed one card on its own turn
 /// and plays it, after the LOCO! call it owes.
 async fn win_match_from_host_turn(host: &mut Ws, others: &mut [&mut Ws]) {
     send_msg(
@@ -352,7 +350,7 @@ async fn drain_reported_on_health_and_metrics() {
 
     th.hub.begin_drain();
     // The drain is begun on the loop; one round trip through it orders the
-    // reads below after it, where Go's BeginDrain was synchronous.
+    // reads below after it.
     th.hub.on_loop(|_| ()).await;
 
     assert_eq!(

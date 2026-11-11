@@ -1,7 +1,7 @@
 //! The snapshot: what lets a deploy replace this process without ending the
-//! matches on it. Port of `server/hub/snapshot.go`.
+//! matches on it.
 //!
-//! Three deliberate limits, unchanged:
+//! Three deliberate limits:
 //!   - **Only matches in flight travel.** A lobby has nothing to lose.
 //!   - **A snapshot is never replayed.** The file is removed as it is read.
 //!   - **The schema version is a hard gate, not a merge.**
@@ -9,6 +9,11 @@
 //! **The file is the one secret this stack writes down**: every session token
 //! and every hand of every interrupted match. Created `0600` in a `0700`
 //! directory, and short-lived by construction.
+//!
+//! The shape is plain serde: field names as the structs spell them, instants
+//! as integer milliseconds (`Millis` inside the room, Unix milliseconds for the
+//! two wall-clock stamps here), "never" and "nobody" as `null`, and one record
+//! per seat rather than maps keyed by seat number.
 
 use crate::Hub;
 use crate::hub::{Control, HubCore};
@@ -17,16 +22,17 @@ use crate::room::Status;
 use crate::table::{MatchRecord, Occupant, Table};
 use loco_game::SavedRoom;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::SystemTime;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 /// Bumped by hand whenever the shape written below changes, the room's
-/// included. A restore refuses anything else. **5, as Go wrote it**: a file the
-/// Go server saved on its way out is one this server must be able to read.
-pub const SNAPSHOT_SCHEMA_VERSION: i64 = 5;
+/// included. A restore drops a file of any other version whole, unread: a room
+/// shaped by another build is not a room this one can play, and guessing is
+/// worse than dropping it. 6 is the first plain-serde shape; a version-5 file
+/// is refused by this gate like any other.
+pub const SNAPSHOT_SCHEMA_VERSION: i64 = 6;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotError {
@@ -41,67 +47,84 @@ pub enum SnapshotError {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SnapshotFile {
     pub schema_version: i64,
-    #[serde(with = "crate::gotime::opt")]
+    /// When the file was written, in Unix milliseconds. A file that does not
+    /// say is as good as too old.
+    #[serde(with = "unix_ms", default)]
     pub saved_at: Option<SystemTime>,
     #[serde(default)]
     pub rooms: Vec<RoomSnapshot>,
 }
 
-/// One match plus the hub-side bookkeeping that makes it playable. JSON names
-/// are Go's; map keys are seats written as strings, as `encoding/json` did.
+/// The one field a restore reads before it trusts anything else, so a file
+/// from another build is dropped by its version, whatever its shape.
+#[derive(Deserialize)]
+struct SnapshotHeader {
+    schema_version: i64,
+}
+
+/// One match plus the hub-side bookkeeping that makes it playable.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomSnapshot {
-    /// The domain's room, in Go's JSON: a Go snapshot deserialises into it.
-    /// It carries no RNG; the restore draws a fresh seed.
+    /// The domain's room. It carries no RNG; the restore draws a fresh seed.
     pub room: SavedRoom,
-    /// What lets the returning client prove it owns the seat, with the token
-    /// it has had since it joined.
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "null_as_default"
-    )]
-    pub session_tokens: BTreeMap<usize, SessionToken>,
-    #[serde(
-        default,
-        skip_serializing_if = "Vec::is_empty",
-        deserialize_with = "null_as_default"
-    )]
-    pub bot_slots: Vec<usize>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// One record per seat, indexed like the room's players.
+    #[serde(default)]
+    pub seats: Vec<SeatSnapshot>,
+    #[serde(default)]
     pub matchmade: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default)]
     pub solo: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default)]
     pub streamer_mode: bool,
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "null_as_default"
-    )]
-    pub afk_timeouts: BTreeMap<usize, i64>,
-    #[serde(
-        default,
-        skip_serializing_if = "Vec::is_empty",
-        deserialize_with = "null_as_default"
-    )]
+    #[serde(default)]
     pub match_history: Vec<MatchRecord>,
-    #[serde(with = "crate::gotime::opt", default)]
+    /// When the match opened, in Unix milliseconds, so a deploy does not
+    /// restart the clock its duration is measured on.
+    #[serde(with = "unix_ms", default)]
     pub match_started_at: Option<SystemTime>,
 }
 
-fn is_false(b: &bool) -> bool {
-    !*b
+/// What the hub keeps about one seat beyond the room's own record of it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SeatSnapshot {
+    /// What lets the returning client prove it owns the seat, with the token
+    /// it has had since it joined. `None` for a bot or a seat never claimed.
+    pub token: Option<SessionToken>,
+    /// Played by the server: it comes back seated, not held.
+    pub bot: bool,
+    /// Turn timeouts in a row, toward the AFK threshold.
+    pub afk: i64,
 }
 
-/// A snapshot written by an older process may carry a `null` where this now
-/// keeps a map.
-fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Default + Deserialize<'de>,
-{
-    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+/// `Option<SystemTime>` as integer Unix milliseconds, `null` for none.
+mod unix_ms {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    pub fn serialize<S: Serializer>(v: &Option<SystemTime>, s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            Some(t) => {
+                let ms = match t.duration_since(UNIX_EPOCH) {
+                    Ok(d) => i64::try_from(d.as_millis()).unwrap_or(i64::MAX),
+                    Err(e) => -i64::try_from(e.duration().as_millis()).unwrap_or(i64::MAX),
+                };
+                s.serialize_i64(ms)
+            }
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<SystemTime>, D::Error> {
+        Ok(Option::<i64>::deserialize(d)?.map(|ms| {
+            let abs = Duration::from_millis(ms.unsigned_abs());
+            if ms >= 0 {
+                UNIX_EPOCH + abs
+            } else {
+                UNIX_EPOCH - abs
+            }
+        }))
+    }
 }
 
 impl RoomSnapshot {
@@ -109,12 +132,10 @@ impl RoomSnapshot {
     pub fn new(room: SavedRoom) -> RoomSnapshot {
         RoomSnapshot {
             room,
-            session_tokens: BTreeMap::new(),
-            bot_slots: Vec::new(),
+            seats: Vec::new(),
             matchmade: false,
             solo: false,
             streamer_mode: false,
-            afk_timeouts: BTreeMap::new(),
             match_history: Vec::new(),
             match_started_at: None,
         }
@@ -128,23 +149,16 @@ impl RoomSnapshot {
         }
         Some(RoomSnapshot {
             room: SavedRoom::from(&t.room),
-            session_tokens: t
-                .seats
-                .iter()
-                .enumerate()
-                .filter_map(|(i, s)| s.token.clone().map(|tok| (i, tok)))
+            seats: (0..t.seats.len())
+                .map(|i| SeatSnapshot {
+                    token: t.seats[i].token.clone(),
+                    bot: t.is_bot(i),
+                    afk: t.seats[i].afk,
+                })
                 .collect(),
-            bot_slots: t.bot_seats(),
             matchmade: t.is_matchmade(),
             solo: t.solo,
             streamer_mode: t.streamer_mode,
-            afk_timeouts: t
-                .seats
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| s.afk > 0)
-                .map(|(i, s)| (i, s.afk))
-                .collect(),
             match_history: t.match_history.clone(),
             match_started_at: t.match_started_at,
         })
@@ -221,6 +235,23 @@ impl HubCore {
         if let Err(e) = std::fs::remove_file(path) {
             tracing::warn!(path = %path.display(), "snapshot could not be removed err={e}");
         }
+        // The version first, alone: a file from another build is dropped by
+        // it, never half-read through a shape it was not written in.
+        let header: SnapshotHeader = match serde_json::from_slice(&data) {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), "snapshot malformed, starting empty err={e}");
+                return Ok(());
+            }
+        };
+        if header.schema_version != SNAPSHOT_SCHEMA_VERSION {
+            tracing::warn!(
+                schema = header.schema_version,
+                want = SNAPSHOT_SCHEMA_VERSION,
+                "snapshot from another build discarded"
+            );
+            return Ok(());
+        }
         let snap: SnapshotFile = match serde_json::from_slice(&data) {
             Ok(s) => s,
             Err(e) => {
@@ -228,15 +259,6 @@ impl HubCore {
                 return Ok(());
             }
         };
-        if snap.schema_version != SNAPSHOT_SCHEMA_VERSION {
-            tracing::warn!(
-                schema = snap.schema_version,
-                want = SNAPSHOT_SCHEMA_VERSION,
-                rooms = snap.rooms.len(),
-                "snapshot from another build discarded"
-            );
-            return Ok(());
-        }
         let max_age = self.hub.config().timings.snapshot_max_age;
         let age = snap
             .saved_at
@@ -290,14 +312,15 @@ impl HubCore {
         // server's — exactly as if its player had just dropped.
         let now = Instant::now();
         for seat in 0..players {
-            let occupant = if rs.bot_slots.contains(&seat) {
+            let saved = rs.seats.get(seat).cloned().unwrap_or_default();
+            let occupant = if saved.bot {
                 Occupant::Bot
             } else {
                 Occupant::Held { since: now }
             };
             t.set_occupant(seat, occupant);
-            t.seats[seat].token = rs.session_tokens.get(&seat).cloned();
-            t.seats[seat].afk = rs.afk_timeouts.get(&seat).copied().unwrap_or(0);
+            t.seats[seat].token = saved.token;
+            t.seats[seat].afk = saved.afk;
         }
         t.match_history = rs.match_history;
         t.match_started_at = rs.match_started_at;

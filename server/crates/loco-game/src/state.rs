@@ -1,5 +1,5 @@
 //! One round's state: the hands, the piles, the turn, and what each seat owes
-//! or is owed by the LOCO! mechanic (`GameState` in `server/game/room.go`).
+//! or is owed by the LOCO! mechanic.
 
 use crate::card::{Card, Color, Kind};
 use crate::deck::Deck;
@@ -13,36 +13,36 @@ use std::fmt::Write as _;
 
 /// What one seat owes the table, and is owed, in the current round.
 ///
-/// Go kept these as six parallel slices indexed by seat. They are one record
-/// here because they are one seat's: they move together when a seat retires,
+/// They are one record because they are one seat's: they move together when a seat retires,
 /// and nothing ever reads one without the seat's others at hand. The hands are
 /// deliberately *not* in it: a Swap or a GlobalSwitch moves hands between
 /// seats while every obligation below stays with the chair.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SeatState {
     /// The seat has left the match (copied from `Room::retired` at the deal):
     /// it holds no cards, takes no turns, and is never a target.
     pub retired: bool,
-    /// Its current single card has been called (Go: `LastCardDeclared`). A
-    /// one-shot: it stays true until a new window opens on the seat.
+    /// Its current single card has been called. A one-shot: it stays true
+    /// until a new window opens on the seat.
     pub declared: bool,
-    /// When its catch window opened; `None` = closed (Go: `LastCardAt`).
+    /// When its catch window opened; `None` = closed.
     pub last_card_at: Option<Millis>,
     /// The offer (`GameState::catch_offer_key`) it last paid a card for with a
-    /// Contre-LOCO! that found nothing; empty = never (Go: `CatchPaidFor`).
+    /// Contre-LOCO! that found nothing; empty = never.
     pub catch_paid_for: String,
-    /// The instant it may press Contre-LOCO! again (Go: `CatchLockedUntil`).
+    /// The instant it may press Contre-LOCO! again.
     pub catch_locked_until: Option<Millis>,
-    /// When its hand last grew out of `CATCH_NEAR_HAND` cards (Go: `NearLeftAt`).
+    /// When its hand last grew out of `CATCH_NEAR_HAND` cards.
     pub near_left_at: Option<Millis>,
 }
 
 /// The authoritative state of one round.
 ///
-/// Its JSON is Go's (`GameStateJson`): the drain snapshot carries it inside
-/// the room, and a snapshot written by the Go server must restore here.
+/// The drain snapshot carries it inside the room, in plain serde: the seat
+/// records as one array of records, instants as `Millis`, nobody as `null`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(into = "GameStateJson", from = "GameStateJson")]
+#[serde(default)]
 pub struct GameState {
     pub hands: Vec<Hand>,
     pub deck: Deck,
@@ -252,10 +252,8 @@ impl GameState {
                 continue;
             }
             match self.seats[i].last_card_at {
-                // Go wrote UnixNano; the millisecond times a million keeps the
-                // shape, so a key written by Go before a restore reads alike.
                 Some(at) if self.catch_race_recent(i, now) => {
-                    let _ = write!(key, "{i}@{};", at.saturating_mul(1_000_000));
+                    let _ = write!(key, "{i}@{at};");
                 }
                 _ => {
                     let _ = write!(key, "{i}:{CATCH_NEAR_HAND};");
@@ -317,138 +315,5 @@ impl GameState {
             chosen_color,
             at,
         });
-    }
-}
-
-/// `GameState` as Go's `json.Marshal` wrote it: the per-seat records as six
-/// parallel arrays, seats as Go ints (-1 for nobody), instants as RFC 3339.
-#[derive(Clone, Serialize, Deserialize)]
-struct GameStateJson {
-    #[serde(
-        rename = "Hands",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
-    hands: Vec<Hand>,
-    #[serde(rename = "Deck", deserialize_with = "deck_or_empty")]
-    deck: Deck,
-    #[serde(
-        rename = "Discard",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
-    discard: Vec<Card>,
-    #[serde(rename = "CurrentTurn")]
-    current_turn: Seat,
-    #[serde(rename = "Direction")]
-    direction: i32,
-    #[serde(rename = "ActiveColor")]
-    active_color: Color,
-    #[serde(rename = "PendingDraw")]
-    pending_draw: u32,
-    #[serde(rename = "HasDrawn")]
-    has_drawn: bool,
-    #[serde(
-        rename = "LastCardDeclared",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
-    last_card_declared: Vec<bool>,
-    #[serde(rename = "LastCardAt", with = "crate::gojson::opt_vec")]
-    last_card_at: Vec<Option<Millis>>,
-    #[serde(
-        rename = "CatchPaidFor",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
-    catch_paid_for: Vec<String>,
-    #[serde(rename = "CatchLockedUntil", with = "crate::gojson::opt_vec")]
-    catch_locked_until: Vec<Option<Millis>>,
-    #[serde(rename = "NearLeftAt", with = "crate::gojson::opt_vec")]
-    near_left_at: Vec<Option<Millis>>,
-    #[serde(
-        rename = "Retired",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
-    retired: Vec<bool>,
-    #[serde(
-        rename = "EventLog",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
-    event_log: Vec<GameEvent>,
-    #[serde(rename = "InterruptOpen")]
-    interrupt_open: bool,
-    #[serde(rename = "LastPlayBy", with = "crate::gojson::opt_seat")]
-    last_play_by: Option<Seat>,
-    #[serde(rename = "LastPlayAt", with = "crate::gojson::opt")]
-    last_play_at: Option<Millis>,
-}
-
-fn deck_or_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Deck, D::Error> {
-    Ok(Option::<Deck>::deserialize(d)?.unwrap_or_default())
-}
-
-impl From<GameState> for GameStateJson {
-    fn from(s: GameState) -> Self {
-        let col = |f: fn(&SeatState) -> _| s.seats.iter().map(f).collect();
-        GameStateJson {
-            last_card_declared: s.seats.iter().map(|x| x.declared).collect(),
-            last_card_at: col(|x| x.last_card_at),
-            catch_paid_for: s.seats.iter().map(|x| x.catch_paid_for.clone()).collect(),
-            catch_locked_until: col(|x| x.catch_locked_until),
-            near_left_at: col(|x| x.near_left_at),
-            retired: s.seats.iter().map(|x| x.retired).collect(),
-            hands: s.hands,
-            deck: s.deck,
-            discard: s.discard,
-            current_turn: s.current_turn,
-            direction: s.direction,
-            active_color: s.active_color,
-            pending_draw: s.pending_draw,
-            has_drawn: s.has_drawn,
-            event_log: s.event_log,
-            interrupt_open: s.interrupt_open,
-            last_play_by: s.last_play_by,
-            last_play_at: s.last_play_at,
-        }
-    }
-}
-
-impl From<GameStateJson> for GameState {
-    fn from(j: GameStateJson) -> Self {
-        // Go sized every slice at the deal; a hand-written fixture may not have.
-        let n = [
-            j.hands.len(),
-            j.last_card_declared.len(),
-            j.last_card_at.len(),
-            j.catch_paid_for.len(),
-            j.catch_locked_until.len(),
-            j.near_left_at.len(),
-            j.retired.len(),
-        ]
-        .into_iter()
-        .max()
-        .unwrap_or(0);
-        let seats = (0..n)
-            .map(|i| SeatState {
-                retired: j.retired.get(i).copied().unwrap_or(false),
-                declared: j.last_card_declared.get(i).copied().unwrap_or(false),
-                last_card_at: j.last_card_at.get(i).copied().flatten(),
-                catch_paid_for: j.catch_paid_for.get(i).cloned().unwrap_or_default(),
-                catch_locked_until: j.catch_locked_until.get(i).copied().flatten(),
-                near_left_at: j.near_left_at.get(i).copied().flatten(),
-            })
-            .collect();
-        GameState {
-            hands: j.hands,
-            deck: j.deck,
-            discard: j.discard,
-            current_turn: j.current_turn,
-            direction: j.direction,
-            active_color: j.active_color,
-            pending_draw: j.pending_draw,
-            has_drawn: j.has_drawn,
-            seats,
-            event_log: j.event_log,
-            interrupt_open: j.interrupt_open,
-            last_play_by: j.last_play_by,
-            last_play_at: j.last_play_at,
-        }
     }
 }

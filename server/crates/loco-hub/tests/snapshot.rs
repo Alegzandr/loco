@@ -1,5 +1,3 @@
-//! Port of `server/hub/snapshot_test.go`.
-//!
 //! A snapshot is what turns a deploy from "everybody loses their match" into
 //! a reconnect the client already knows how to do. These tests exercise the
 //! whole round trip through real sockets rather than the marshalling alone:
@@ -14,8 +12,8 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// A path in a fresh temp dir that no snapshot has written yet. Go's
-/// `snapshotPath`; the directory is removed by the guard.
+/// A path in a fresh temp dir that no snapshot has written yet; the directory
+/// is removed by the guard.
 struct TempPath {
     dir: PathBuf,
     path: PathBuf,
@@ -37,7 +35,7 @@ fn snapshot_path(name: &str) -> TempPath {
     TempPath { dir, path }
 }
 
-/// `debug_set_state` is reachable: Go's `t.Setenv("LOCO_E2E", "1")`.
+/// A hub with the debug handlers on, so `debug_set_state` is reachable.
 fn e2e() -> HubConfig {
     let mut c = HubConfig::default();
     c.debug_mode = true;
@@ -97,7 +95,7 @@ async fn setup_game_keeping_state(th: &TestHub) -> Kept {
     }
 }
 
-/// Dials and asks for a seat back. Go's `reconnectAs`.
+/// Dials and asks for a seat back.
 async fn reconnect_as(th: &TestHub, code: &str, nickname: &str, token: &str) -> Ws {
     let mut ws = dial_ws(th).await;
     send_msg(
@@ -135,7 +133,7 @@ fn assert_same_state(who: &str, want: &Value, got: &Value) {
     );
 }
 
-/// Go's `winMatchReturningEnd`: the host is handed one card on its own turn
+/// Ends the match: the host is handed one card on its own turn
 /// and plays it, after the LOCO! call it owes.
 async fn win_match_returning_end(host: &mut Ws, others: &mut [&mut Ws]) -> Value {
     send_msg(
@@ -171,7 +169,11 @@ fn write_snapshot_file(path: &Path, raw: &Value) {
 
 fn backdate_snapshot(path: &Path, by: Duration) {
     let mut raw = read_snapshot_file(path);
-    raw["saved_at"] = json!(loco_hub::gotime::format_rfc3339(SystemTime::now() - by));
+    let at = (SystemTime::now() - by)
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    raw["saved_at"] = json!(at);
     write_snapshot_file(path, &raw);
 }
 

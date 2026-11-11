@@ -1,4 +1,4 @@
-//! Port of `server/twitch/twitch_test.go`, test for test.
+//! The live-streams feature: configuration, Helix, the poller and the preview cache.
 
 use crate::config::*;
 use crate::helix::*;
@@ -201,14 +201,14 @@ fn config_from_env_a_malformed_poll_period_keeps_the_shipped_one() {
 }
 
 #[test]
-fn parse_go_duration_reads_what_an_env_file_carries() {
-    assert_eq!(parse_go_duration("90s"), Some(Duration::from_secs(90)));
-    assert_eq!(parse_go_duration("1m30s"), Some(Duration::from_secs(90)));
-    assert_eq!(parse_go_duration("1.5h"), Some(Duration::from_secs(5400)));
-    assert_eq!(parse_go_duration("250ms"), Some(Duration::from_millis(250)));
-    assert_eq!(parse_go_duration("-5m"), None);
-    assert_eq!(parse_go_duration("soon"), None);
-    assert_eq!(parse_go_duration("120"), None, "Go wants a unit");
+fn parse_duration_reads_what_an_env_file_carries() {
+    assert_eq!(parse_duration("90s"), Some(Duration::from_secs(90)));
+    assert_eq!(parse_duration("1m30s"), Some(Duration::from_secs(90)));
+    assert_eq!(parse_duration("1.5h"), Some(Duration::from_secs(5400)));
+    assert_eq!(parse_duration("250ms"), Some(Duration::from_millis(250)));
+    assert_eq!(parse_duration("-5m"), None);
+    assert_eq!(parse_duration("soon"), None);
+    assert_eq!(parse_duration("120"), None, "a bare number needs a unit");
 }
 
 // The failure mode that matters most in this whole crate: /streams with no
@@ -425,8 +425,7 @@ async fn run_resolves_once_then_stops_with_the_context() {
         })
     };
 
-    // Go's unbuffered send waited for Run to take the tick. With one slot, the
-    // second send is the one that waits: it returns once the first is taken,
+    // With one slot, the second send is the one that waits: it returns once the first is taken,
     // which is after the resolution and the first poll.
     tick_tx.send(()).await.unwrap();
     tick_tx.send(()).await.unwrap();
@@ -630,7 +629,7 @@ async fn a_missing_poller_still_answers() {
 }
 
 #[test]
-fn the_wire_shape_is_the_go_one() {
+fn the_wire_shape_omits_empty_lang_and_thumb() {
     let row = LiveStream {
         login: "k".into(),
         name: "K".into(),
@@ -639,7 +638,7 @@ fn the_wire_shape_is_the_go_one() {
         thumb: String::new(),
     };
     // No omitempty on viewers: zero is a live channel. lang and thumb drop out
-    // when empty, exactly as Go's omitempty did.
+    // when empty.
     assert_eq!(
         serde_json::to_string(&row).unwrap(),
         r#"{"login":"k","name":"K","viewers":0}"#

@@ -1,10 +1,8 @@
-//! The foundation through real sockets: admission, the endpoints, the pumps,
-//! the actor, the drain and the snapshot. Ports the parts of hub_test.go,
-//! hardening_test.go, actor_test.go, drain_test.go, snapshot_test.go,
-//! online_test.go and live_test.go that stand without a game; the rest come
-//! with the handler port, on the same harness. The Go-named ports of those
-//! files are `drain.rs`, `snapshot.rs`, `online.rs`, `live.rs`, `actor.rs`;
-//! what stays here are the structural checks they do not repeat.
+//! The foundation through real sockets (admission, the endpoints, the pumps,
+//! the actor, the drain and the snapshot): the structural checks that stand
+//! without a game. The behaviour through a played match is in `drain.rs`,
+//! `snapshot.rs`, `online.rs`, `live.rs` and `actor.rs`; what stays here are
+//! the checks they do not repeat.
 
 use loco_game::SavedRoom;
 use loco_hub::actor::{DeadlineKey, Phase, TableJob};
@@ -71,7 +69,7 @@ async fn health_endpoint_counts_rooms_and_clients() {
 
 // The E2E helpers read matchmaking_queue off this page as text now.
 #[tokio::test]
-async fn metrics_endpoint_is_prometheus_text_under_the_go_names() {
+async fn metrics_endpoint_is_prometheus_text() {
     let mut c = cfg();
     c.debug_mode = true;
     let th = new_test_hub_with(c).await;
@@ -554,9 +552,17 @@ async fn snapshot_match_survives_a_restart() {
         "a lobby was saved: {raw}"
     );
     assert_eq!(
-        raw["rooms"][0]["session_tokens"],
-        json!({"0": "tok-0", "2": "tok-2"})
+        raw["rooms"][0]["seats"],
+        json!([
+            {"token": "tok-0", "bot": false, "afk": 0},
+            {"token": null, "bot": true, "afk": 0},
+            {"token": "tok-2", "bot": false, "afk": 1},
+        ])
     );
+    // Instants are integers, and the match's open travels to the millisecond.
+    let ms = |t: SystemTime| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    assert!(raw["saved_at"].is_i64(), "{raw}");
+    assert_eq!(raw["rooms"][0]["match_started_at"], json!(ms(started)));
 
     let second = Hub::start(cfg());
     second.load_snapshot(&path).await.expect("load");
@@ -681,19 +687,18 @@ async fn snapshot_disabled_when_no_path_is_configured() {
     hub.stop().await;
 }
 
-// A file the Go server wrote on its way out: local offset, nanoseconds, the
-// zero time, and nulls where this keeps maps. It must load.
+// A version-5 file: the shape before this one, PascalCase room and RFC 3339
+// instants. The version gate drops it whole, unread, and removes it.
 #[tokio::test]
-async fn snapshot_written_by_go_loads() {
-    let dir = tempdir("gofile");
+async fn snapshot_of_schema_5_is_dropped() {
+    let dir = tempdir("v5file");
     let path = snap_path(&dir);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let saved = loco_hub::gotime::format_rfc3339(SystemTime::now()).replace('Z', "+00:00");
     let body = json!({
         "schema_version": 5,
-        "saved_at": saved,
+        "saved_at": "2026-11-11T14:03:22.123456789+00:00",
         "rooms": [{
-            "room": serde_json::to_value(SavedRoom::from(&playing_room("GOGOGO", 2))).unwrap(),
+            "room": {"Code": "OLDOLD", "Status": 1, "State": null},
             "session_tokens": {"0": "abc", "1": "def"},
             "bot_slots": null,
             "afk_timeouts": null,
@@ -703,8 +708,11 @@ async fn snapshot_written_by_go_loads() {
     });
     std::fs::write(&path, body.to_string()).unwrap();
     let hub = Hub::start(cfg());
-    hub.load_snapshot(&path).await.unwrap();
-    assert_eq!(hub.health().rooms, 1, "a Go snapshot was not restored");
+    hub.load_snapshot(&path)
+        .await
+        .expect("an old file refused the boot");
+    assert_eq!(hub.health().rooms, 0, "a version-5 snapshot was restored");
+    assert!(!path.exists(), "a refused snapshot was left on disk");
     hub.stop().await;
     let _ = std::fs::remove_dir_all(dir);
 }
