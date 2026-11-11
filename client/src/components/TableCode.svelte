@@ -43,7 +43,8 @@
    * host stopping their stream must not uncover it for a player who wanted it
    * hidden for their own.
    *
-   * `game.current` is replaced whole on every message. See state/live.svelte.ts.
+   * `game.current.tableStreamer` depends on that field alone
+   * (state/gameStore.svelte.ts).
    */
   const hidden = $derived(streamer.current || game.current.tableStreamer)
   const t = $derived(i18n.t)

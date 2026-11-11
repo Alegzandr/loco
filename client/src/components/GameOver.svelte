@@ -122,8 +122,8 @@
   // the recap is the match that just ended. Null when the server could not
   // time it, and then the line is simply not there.
   const duration = $derived(formatMatchDuration(lastMatchDurationMs(matchHistory), t))
-  // Read through a $derived rather than out of the snapshot inside the markup:
-  // `game.current` is replaced whole on every message. See state/live.svelte.ts.
+  // Each field of `game.current` is its own signal (state/gameStore.svelte.ts),
+  // so these depend on their own field and nothing else.
   const serverUpdating = $derived(game.current.serverUpdating)
   const emotes = $derived(game.current.emotes)
   const nameOf = $derived((s: number) => players.find((p) => p.index === s)?.nickname ?? '')

@@ -152,8 +152,8 @@
     if (isNaN(n) || n < minAllowed || n > MAX_PLAYERS) maxInput = String(maxPlayers)
   }
 
-  // Read through a $derived rather than out of the snapshot inside the markup:
-  // `game.current` is replaced whole on every message. See state/live.svelte.ts.
+  // Each field of `game.current` is its own signal (state/gameStore.svelte.ts),
+  // so this depends on `serverUpdating` and nothing else.
   const serverUpdating = $derived(game.current.serverUpdating)
 </script>
 

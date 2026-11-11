@@ -230,11 +230,9 @@
   // handed to it has to go null with it, otherwise the effect would not re-run
   // when the element finally appears, and the bar would never arm.
   //
-  // The three deadlines below are `$derived` for the same reason every hook in
-  // `state/` reads its arguments through `live()`: `g` is one snapshot replaced
-  // on every message, so an effect reading `g.turnDeadline` straight out of it
-  // depends on the whole match and re-arms its timer on every card anybody
-  // plays. A derivation is compared, so what changes here is the deadline.
+  // The deadlines below are `$derived`, so an effect reading one re-arms its
+  // timer only when that deadline moves; `catchDeadline` is computed from two
+  // fields, and a derivation is compared (`state/live.svelte.ts`).
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
   // Whether the centre button is pressable at all — a looser question than
   // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
@@ -302,9 +300,8 @@
     const end = catchWindowEnd
     if (end === null) return
     const remaining = end - Date.now()
-    // The action is read off the store, never off `g`: the snapshot is replaced
-    // on every message, and reading it here re-armed this timer several times a
-    // second for a deadline that had not moved.
+    // The action is read off the store, never off `g`: an action read through
+    // the window would make this effect depend on it, for nothing.
     const prune = gameStore.getState().pruneCatchWindows
     if (remaining <= 0) {
       prune()
@@ -543,7 +540,7 @@
       // Name the seat: several players can owe a declaration at once after a Swap
       // or a GlobalSwitch, and the button offers the most urgent one.
       guardDoubleTap(`catch:${g.catchTarget}`, () => {
-        // Read once, into a local. `g` is a live snapshot, and the call below
+        // Read once, into a local. `g` is a live view of the store, and the call below
         // retires this window — so reading `g.catchTarget` a second time would
         // name the *next* seat on the hook and catch the wrong player.
         const target = g.catchTarget

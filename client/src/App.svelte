@@ -30,11 +30,8 @@
 
   const t = $derived(i18n.t)
   const g = $derived(game.current)
-  // The one field the effects below turn on, derived rather than read out of `g`
-  // inside them. `g` is a single snapshot replaced on every message, so an effect
-  // reading it depends on the whole match and re-runs several times a second —
-  // see `state/live.svelte.ts`, which is the same rule for everything under
-  // `state/`.
+  // The one field the effects below turn on. Each field of `g` is its own
+  // signal (`state/gameStore.svelte.ts`), so this depends on `screen` alone.
   const screen = $derived(g.screen)
 
   // Single owner of every sound in the game: one store subscription, no
