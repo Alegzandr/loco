@@ -457,7 +457,8 @@ describe('the mobile menu', () => {
     // same box either way — the closed sheet's <details> took the body's line
     // box and made the home bar 8px taller until it was a flex box itself.
     expect(block('.siteFooter')).toMatch(/view-transition-name:\s*site-footer/)
-    expect(block('.siteFooter.onHome')).toMatch(/position:\s*relative/)
+    expect(block('.siteFooter.onHome')).toMatch(/position:\s*static/)
+    expect(block('.siteFooter.onHome'), 'never above the game panels').toMatch(/z-index:\s*auto/)
     const gameCss = readFileSync(path.join(layouts, 'GamePage.css'), 'utf8')
     expect(gameCss).toMatch(/\.homeSheet:not\(\[open\]\)\s*\{\s*display:\s*flex/)
     // And no glass: DESIGN.md keeps backdrop blur for the modal scrim alone.

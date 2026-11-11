@@ -378,7 +378,9 @@ both layouts. What each page needs at the left-hand end is passed in — `Play` 
 on `/` — and everything else is the same object: the destinations, **privacy at the right-hand end in
 `.footerEnd` beside the globe** (where the far end of the bar is settings rather than empty space),
 the hairline, the opaque canvas. On a content page it is `position: fixed`; on `/` it is in the flow
-(`.onHome`), closing the one viewport. **The two are one height** — the closed sheet's `<details>`
+(`.onHome`), closing the one viewport, and unpositioned there, so the game's own panels always open
+above it (with a stacking order of its own it once painted over an open modal while the screen under
+it was arriving). **The two are one height** — the closed sheet's `<details>`
 took the body's line box and made the home bar 8px taller until it was made a flex box itself — and
 the bar carries `view-transition-name: site-footer`, so the router's cross-fade
 (`routes/+layout.svelte`) leaves it exactly where it was. The two jobs the home copy had are a class

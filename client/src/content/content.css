@@ -1040,8 +1040,14 @@ html[data-scroll="smooth"]:has(body.doc) {
 
 /* On `/` the bar closes the one viewport rather than floating over a page that
    scrolls: the game takes what is left above it (GamePage.css). */
+/* Unpositioned, and no z-index of its own: the game's panels (the rules, the
+   preferences) open from inside #root, above it in the document, and a bar
+   with a stacking order of its own painted over an open modal while the screen
+   under it was still arriving. The footer row this bar replaced was
+   unpositioned for exactly that reason. */
 .siteFooter.onHome {
-  position: relative;
+  position: static;
+  z-index: auto;
   flex: 0 0 auto;
 }
 
