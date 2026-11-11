@@ -204,7 +204,7 @@ impl Writer_ {
         let _ = writeln!(
             self.out,
             "{} WARN log sink overflowed, {n} line(s) dropped",
-            crate::gotime::log_stamp(SystemTime::now())
+            crate::ops::gotime::log_stamp(SystemTime::now())
         );
     }
 }
@@ -262,7 +262,7 @@ where
         mut w: Writer<'_>,
         event: &Event<'_>,
     ) -> fmt::Result {
-        write!(w, "{} ", crate::gotime::log_stamp(SystemTime::now()))?;
+        write!(w, "{} ", crate::ops::gotime::log_stamp(SystemTime::now()))?;
         match *event.metadata().level() {
             Level::ERROR => write!(w, "ERROR ")?,
             Level::WARN => write!(w, "WARN ")?,

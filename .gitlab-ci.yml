@@ -410,7 +410,7 @@ e2e_test:
       # written to LOCO_SNAPSHOT_PATH and picked up by the next process, so
       # the players get the "Reconnexion" overlay a dropped wifi frame
       # already produces instead of losing the match. See
-      # server/crates/loco-hub/src/snapshot.rs.
+      # server/crates/loco-hub/src/ops/snapshot.rs.
       #
       # The server first, the client second, and never one `up -d` over both.
       #

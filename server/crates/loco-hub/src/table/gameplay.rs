@@ -2,11 +2,11 @@
 //! `server/hub/gameplay.go`. Every handler here runs on its table's task, past
 //! the gameplay gate in `dispatch.rs`.
 
-use crate::actor::TableCtx;
-use crate::client::Client;
-use crate::clock;
-use crate::convert::dto_to_card;
+use crate::net::client::Client;
+use crate::ops::clock;
 use crate::table::Table;
+use crate::table::actor::TableCtx;
+use crate::table::convert::dto_to_card;
 use loco_game::{Card, CatchCharge, Color, ErrorKind, GameError, Kind, Millis};
 use loco_protocol::{
     CardColor, CardDTO, CatchLockedMsg, CounterDrawMsg, GameStartedMsg, MatchEndMsg, RoundEndMsg,
@@ -31,7 +31,7 @@ impl Table {
                 // Not a domain error in Go either: a hub-level refusal, and it
                 // counts towards suspicion like any refusal that is not a race.
                 let text = format!("batch of {} cards exceeds the hand", play_cards.len());
-                c.refuse(crate::refusal::Refusal::Other(text.clone()));
+                c.refuse(crate::table::refusal::Refusal::Other(text.clone()));
                 c.note_suspect(&text);
                 return None;
             }
@@ -47,7 +47,7 @@ impl Table {
             return Some((cards, chosen_color));
         }
         let Some(dto) = card else {
-            c.refuse(crate::refusal::Refusal::CardRequired);
+            c.refuse(crate::table::refusal::Refusal::CardRequired);
             return None;
         };
         let (card, cc) = dto_to_card(dto, chosen);
@@ -135,7 +135,7 @@ impl Table {
             tracing::info!(
                 winner = %self.room.match_winner,
                 round = self.room.round_number,
-                of = crate::convert::match_format_string(self.room.format).as_str(),
+                of = crate::table::convert::match_format_string(self.room.format).as_str(),
                 "match finished"
             );
             self.record_finished_match(clock::system_now());
@@ -317,7 +317,7 @@ impl Table {
         msg: &CounterDrawMsg,
     ) {
         let Some(dto) = msg.card.as_ref() else {
-            c.refuse(crate::refusal::Refusal::CardRequired);
+            c.refuse(crate::table::refusal::Refusal::CardRequired);
             return;
         };
         let (card, chosen) = dto_to_card(dto, msg.chosen_color);

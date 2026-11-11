@@ -1,6 +1,6 @@
 //! Port of `server/hub/bottiming_internal_test.go`.
 
-use crate::config::{BotTimings, HubConfig};
+use crate::ops::config::{BotTimings, HubConfig};
 use std::collections::HashMap;
 use std::time::Duration;
 

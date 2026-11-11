@@ -1,10 +1,10 @@
 //! Port of `server/hub/botrecover_internal_test.go`.
 
-use crate::actor::TableCtx;
-use crate::client::Client;
-use crate::clock;
-use crate::config::HubConfig;
-use crate::hub::Hub;
+use crate::net::client::Client;
+use crate::ops::clock;
+use crate::ops::config::HubConfig;
+use crate::router::hub::Hub;
+use crate::table::actor::TableCtx;
 use crate::table::{MapLoadState, Table};
 use loco_game::Room;
 use std::collections::BTreeSet;

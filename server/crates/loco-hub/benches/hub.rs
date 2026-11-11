@@ -6,10 +6,10 @@
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use loco_game::{Card, Color, Kind};
-use loco_hub::actor::DeadlineKey;
-use loco_hub::room::new_room;
-use loco_hub::wire::ClientMsg;
-use loco_hub::wire::msg;
+use loco_hub::net::wire::ClientMsg;
+use loco_hub::net::wire::msg;
+use loco_hub::table::actor::DeadlineKey;
+use loco_hub::table::room::new_room;
 use loco_hub::{AsyncLog, Client, Hub, HubConfig, Table};
 use std::hint::black_box;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ fn benches(c: &mut Criterion) {
     let hub = Hub::start(HubConfig::default());
 
     // Go: 0.15 µs through the sink, 0.9–7.3 µs straight to stderr.
-    let log = AsyncLog::new(std::io::sink(), loco_hub::logsink::LOG_QUEUE_DEPTH);
+    let log = AsyncLog::new(std::io::sink(), loco_hub::ops::logsink::LOG_QUEUE_DEPTH);
     c.bench_function("log line through the async sink", |b| {
         b.iter(|| {
             log.write_line(black_box(
@@ -97,7 +97,7 @@ fn bench_table(
         clients.push(c);
         rxs.push(rx);
     }
-    t.room.start(loco_hub::clock::now_ms()).expect("start");
+    t.room.start(loco_hub::ops::clock::now_ms()).expect("start");
     (t, loco_hub::TableCtx::detached(hub, code), clients, rxs)
 }
 

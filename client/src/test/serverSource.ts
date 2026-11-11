@@ -24,9 +24,33 @@ export type ServerPackage = 'game' | 'hub'
 
 const CRATE: Record<ServerPackage, string> = { game: 'loco-game', hub: 'loco-hub' }
 
-/** One file of the server, named by its package and its stem (`room`, `deck`). */
+/** Every `.rs` file under `dir`, at any depth. */
+function rustFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const abs = path.join(dir, name)
+    if (statSync(abs).isDirectory()) return rustFiles(abs)
+    return name.endsWith('.rs') ? [abs] : []
+  })
+}
+
+/** A file's stem as a module path names it: `table/mod.rs` is `table`. */
+const stemOf = (file: string) =>
+  path.basename(file) === 'mod.rs' ? path.basename(path.dirname(file)) : path.basename(file, '.rs')
+
+/**
+ * One file of the server, named by its package and its stem (`room`, `deck`).
+ * The crates group their modules in directories, so the stem is looked up
+ * anywhere under `src/`: a caller names the module, not where it lives. A stem
+ * that names no file, or two, fails here rather than reading the wrong one.
+ */
 export function serverPath(pkg: ServerPackage, stem: string): string {
-  return path.join(REPO, 'server', 'crates', CRATE[pkg], 'src', `${stem}.rs`)
+  const src = path.join(REPO, 'server', 'crates', CRATE[pkg], 'src')
+  const found = rustFiles(src).filter((f) => stemOf(f) === stem)
+  if (found.length !== 1) {
+    const where = found.map((f) => path.relative(REPO, f)).join(', ')
+    throw new Error(`${CRATE[pkg]} has ${found.length} files for the stem "${stem}"${where ? `: ${where}` : ''}`)
+  }
+  return found[0]
 }
 
 /** Repo-relative, for a failure message that says where to look. */
@@ -179,10 +203,13 @@ export function serverMapWeathers(src: string): Record<string, string[]> | undef
  */
 export function serverHubSources(): { file: string; src: string }[] {
   const dir = path.join(REPO, 'server', 'crates', 'loco-hub', 'src')
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.rs') && f !== 'privacy.rs')
-    .filter((f) => statSync(path.join(dir, f)).isFile())
-    .map((f) => ({ file: f, src: readFileSync(path.join(dir, f), 'utf8') }))
+  const files = rustFiles(dir)
+    .map((abs) => path.relative(dir, abs).replace(/\\/g, '/'))
+    .filter((f) => !f.startsWith('internal_tests/') && path.basename(f) !== 'privacy.rs')
+  // An empty list would let every scan over it pass, so the walk has to reach
+  // at least one module inside a group directory.
+  if (!files.includes('table/mod.rs')) throw new Error(`the hub's sources were not found under ${dir}`)
+  return files.map((f) => ({ file: f, src: readFileSync(path.join(dir, f), 'utf8') }))
 }
 
 /** A read of the peer's full address: `remote_addr` / `peer_addr()`. */

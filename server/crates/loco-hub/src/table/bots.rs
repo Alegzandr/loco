@@ -6,11 +6,11 @@
 //! human's message goes through. Every delay but think and jitter is a
 //! reaction window somebody is meant to be able to win.
 
-use crate::actor::{DeadlineKey, TableCtx};
-use crate::clock;
-use crate::config::BotTimings;
-use crate::convert::card_dtos;
+use crate::ops::clock;
+use crate::ops::config::BotTimings;
 use crate::table::Table;
+use crate::table::actor::{DeadlineKey, TableCtx};
+use crate::table::convert::card_dtos;
 use loco_game::{
     BotAction, BotActionKind, BotInterruptAction, GameState, Kind, Millis, Room, Status,
 };
@@ -134,11 +134,11 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.refuse(crate::refusal::Refusal::OwnerOnlyBots);
+            c.refuse(crate::table::refusal::Refusal::OwnerOnlyBots);
             return;
         }
         if self.room.status != Status::Lobby {
-            c.refuse(crate::refusal::Refusal::BotsLobbyOnly);
+            c.refuse(crate::table::refusal::Refusal::BotsLobbyOnly);
             return;
         }
         let nickname = next_bot_name(&self.room);

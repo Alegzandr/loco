@@ -137,7 +137,7 @@ fn parse_unix(s: &str) -> Option<(i64, u32)> {
 }
 
 /// Serde for an optional instant written the Go way, the zero time standing
-/// for `None`. Use with `#[serde(with = "crate::gotime::opt")]`.
+/// for `None`. Use with `#[serde(with = "crate::ops::gotime::opt")]`.
 pub mod opt {
     use super::*;
 

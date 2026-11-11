@@ -1,8 +1,8 @@
 //! Port of `server/hub/botcatch_internal_test.go`.
 
-use crate::bots::bot_catch_attempt;
-use crate::clock;
-use crate::config::BotTimings;
+use crate::ops::clock;
+use crate::ops::config::BotTimings;
+use crate::table::bots::bot_catch_attempt;
 use loco_game::{Millis, Room};
 use std::collections::HashSet;
 use std::time::Duration;

@@ -873,7 +873,7 @@ async fn turn_timer_starts_at_match_ready_not_game_started() {
             n + 1
         );
         assert!(
-            dl > loco_hub::wire::now_ms(),
+            dl > loco_hub::net::wire::now_ms(),
             "conn{}: turn_deadline {dl} should be in the future",
             n + 1
         );

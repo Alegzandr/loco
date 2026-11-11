@@ -7,10 +7,10 @@
 //! what stays here are the structural checks they do not repeat.
 
 use loco_game::SavedRoom;
-use loco_hub::actor::{DeadlineKey, Phase, TableJob};
-use loco_hub::room::{Room, Status, new_room};
-use loco_hub::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};
+use loco_hub::ops::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};
 use loco_hub::table::MatchRecord;
+use loco_hub::table::actor::{DeadlineKey, Phase, TableJob};
+use loco_hub::table::room::{Room, Status, new_room};
 use loco_hub::testkit::*;
 use loco_hub::{Client, DRAIN_REFUSAL, Hub, HubConfig, Table};
 use serde_json::{Value, json};
@@ -28,7 +28,7 @@ fn playing_room(code: &str, players: usize) -> Room {
     for i in 0..players {
         r.join(&format!("Joueur{i}")).expect("join");
     }
-    r.start(loco_hub::wire::now_ms()).expect("start");
+    r.start(loco_hub::net::wire::now_ms()).expect("start");
     assert_eq!(r.status, Status::Playing);
     r
 }
@@ -450,11 +450,12 @@ async fn drain_notifies_every_table_and_empties_the_queue() {
     let q = queued.clone();
     th.hub
         .on_loop(move |core| {
-            core.queue.push(loco_hub::matchmaking::QueuedPlayer {
-                client: q,
-                nickname: "Q".into(),
-                since: tokio::time::Instant::now(),
-            })
+            core.queue
+                .push(loco_hub::router::matchmaking::QueuedPlayer {
+                    client: q,
+                    nickname: "Q".into(),
+                    since: tokio::time::Instant::now(),
+                })
         })
         .await;
 
@@ -616,7 +617,7 @@ fn write_snapshot(path: &std::path::Path, schema: i64, saved_at: SystemTime) {
             "PLAYIN", 2,
         )))],
     };
-    loco_hub::snapshot::write_atomic(path, &file).unwrap();
+    loco_hub::ops::snapshot::write_atomic(path, &file).unwrap();
 }
 
 #[tokio::test]
@@ -688,7 +689,7 @@ async fn snapshot_written_by_go_loads() {
     let dir = tempdir("gofile");
     let path = snap_path(&dir);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let saved = loco_hub::gotime::format_rfc3339(SystemTime::now()).replace('Z', "+00:00");
+    let saved = loco_hub::ops::gotime::format_rfc3339(SystemTime::now()).replace('Z', "+00:00");
     let body = json!({
         "schema_version": 5,
         "saved_at": saved,

@@ -6,8 +6,8 @@
 //! starts while somebody's table is still a grey rectangle is a head start in a
 //! game decided by arrival order. Per match, not per round.
 
-use crate::actor::{DeadlineKey, TableCtx};
-use crate::clock;
+use crate::ops::clock;
+use crate::table::actor::{DeadlineKey, TableCtx};
 use crate::table::{MapLoadState, Table};
 use loco_game::Status;
 use loco_protocol::{ClientMsg, MatchLoadingMsg, MatchReadyMsg, ServerMsg};

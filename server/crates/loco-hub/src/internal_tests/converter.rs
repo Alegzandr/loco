@@ -7,8 +7,8 @@
 //! values the wire types cannot hold ("purple", "BO2", ""), and refusing those
 //! is the whole job under test.
 
-use crate::convert;
-use crate::rooms::ROOM_CODE_CHARS;
+use crate::router::rooms::ROOM_CODE_CHARS;
+use crate::table::convert;
 use loco_protocol::{CardColor, CardKind, MatchFormat};
 use serde::de::DeserializeOwned;
 

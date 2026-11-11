@@ -1,10 +1,10 @@
 //! Port of `server/hub/table_internal_test.go`.
 
 use crate::HubConfig;
-use crate::actor::TableJob;
-use crate::client::Client;
-use crate::hub::Hub;
-use crate::room::new_room;
+use crate::net::client::Client;
+use crate::router::hub::Hub;
+use crate::table::actor::TableJob;
+use crate::table::room::new_room;
 use crate::table::{MapLoadState, Table};
 use crate::testkit::eventually;
 use std::sync::Arc;

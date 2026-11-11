@@ -1,9 +1,9 @@
 //! One WebSocket connection: its send queue, its two pumps, its token bucket,
 //! its latency probe and the seat it holds. Port of `server/hub/client.go`.
 
-use crate::hub::{Inbound, Shared};
 use crate::ids::RoomCode;
-use crate::wire::{Outgoing, decode_client, msg, now_ms};
+use crate::net::wire::{Outgoing, decode_client, msg, now_ms};
+use crate::router::hub::{Inbound, Shared};
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
@@ -119,7 +119,7 @@ pub struct Client {
     suspect: Mutex<(u32, Option<Instant>)>,
     /// When this socket was last handed a stale-state correction.
     last_resync_at: Mutex<Option<Instant>>,
-    slot: Option<crate::serve::AdmissionSlot>,
+    slot: Option<crate::net::serve::AdmissionSlot>,
 }
 
 impl std::fmt::Debug for Client {
@@ -135,7 +135,7 @@ impl Client {
     pub(crate) fn new(
         shared: Arc<Shared>,
         net_key: String,
-        slot: Option<crate::serve::AdmissionSlot>,
+        slot: Option<crate::net::serve::AdmissionSlot>,
     ) -> (Arc<Client>, mpsc::Receiver<Utf8Bytes>) {
         let (out, rx) = mpsc::channel(SEND_BUFFER);
         let (kill, _) = watch::channel(false);
@@ -248,7 +248,7 @@ impl Client {
 
     /// Refuses something. The single funnel every refusal goes through, which
     /// is what lets the dispatch boundary count them.
-    pub fn refuse(&self, r: impl Into<crate::refusal::Refusal>) {
+    pub fn refuse(&self, r: impl Into<crate::table::refusal::Refusal>) {
         self.refusals.fetch_add(1, Ordering::Relaxed);
         self.send(msg::error(&r.into().to_string()));
     }
@@ -431,7 +431,7 @@ impl Client {
                     .messages_rate_limited
                     .fetch_add(1, Ordering::Relaxed);
                 if limiter.should_notify(now) {
-                    self.refuse(crate::refusal::Refusal::RateLimited);
+                    self.refuse(crate::table::refusal::Refusal::RateLimited);
                 }
                 continue;
             }
@@ -441,7 +441,7 @@ impl Client {
                     if refusal == "unknown emote" {
                         self.note_suspect("unknown emote");
                     }
-                    self.refuse(crate::refusal::Refusal::Other(refusal));
+                    self.refuse(crate::table::refusal::Refusal::Other(refusal));
                     continue;
                 }
             };
@@ -458,7 +458,7 @@ impl Client {
                         .messages_dropped_busy
                         .fetch_add(1, Ordering::Relaxed);
                     tracing::info!("inbound channel full, dropping message");
-                    self.refuse(crate::refusal::Refusal::ServerBusy);
+                    self.refuse(crate::table::refusal::Refusal::ServerBusy);
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => break "hub stopped".into(),
             }
@@ -637,7 +637,7 @@ mod tests {
     async fn every_refusal_is_counted_and_stamped() {
         let hub = crate::Hub::start(Default::default());
         let (c, mut rx) = Client::detached(&hub);
-        c.refuse(crate::refusal::Refusal::Other("nope".into()));
+        c.refuse(crate::table::refusal::Refusal::Other("nope".into()));
         c.refuse_silently();
         assert_eq!(c.refusals(), 2);
         let got: serde_json::Value =

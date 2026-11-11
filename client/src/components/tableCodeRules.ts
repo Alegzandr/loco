@@ -1,5 +1,5 @@
 /**
- * The table code's shape, mirrored from `server/crates/loco-hub/src/rooms.rs` (`ROOM_CODE_CHARS`, `ROOM_CODE_LEN`)
+ * The table code's shape, mirrored from `server/crates/loco-hub/src/router/rooms.rs` (`ROOM_CODE_CHARS`, `ROOM_CODE_LEN`)
  * and `server/crates/loco-hub/src/tokens.rs` (the alphabet codes are drawn from), so the lobby
  * can refuse an impossible code without a round trip.
  *

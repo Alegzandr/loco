@@ -9,10 +9,10 @@
 //! timeout does not finish.
 
 use crate::Hub;
-use crate::actor::Phase;
-use crate::client::Client;
-use crate::hub::{Control, HubCore};
-use crate::wire::msg;
+use crate::net::client::Client;
+use crate::net::wire::msg;
+use crate::router::hub::{Control, HubCore};
+use crate::table::actor::Phase;
 use std::sync::atomic::Ordering;
 
 /// The wire string every drained-away action answers with. The client maps it
@@ -62,7 +62,7 @@ impl HubCore {
         shared.metrics.matchmaking_queue.store(0, Ordering::Relaxed);
         for q in queued {
             let c = q.client;
-            c.refuse(crate::refusal::Refusal::Draining);
+            c.refuse(crate::table::refusal::Refusal::Draining);
             c.send(msg::matchmaking_cancelled());
         }
 
@@ -87,7 +87,7 @@ impl HubCore {
         if !self.hub.draining() {
             return false;
         }
-        c.refuse(crate::refusal::Refusal::Draining);
+        c.refuse(crate::table::refusal::Refusal::Draining);
         true
     }
 

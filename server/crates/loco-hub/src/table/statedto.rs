@@ -1,9 +1,9 @@
 //! What a client is handed: the player list, the scoreboard, the personalised
 //! state. Port of `server/hub/statedto.go`.
 
-use crate::clock;
-use crate::convert::{card_to_dto, color_name, match_format_string};
+use crate::ops::clock;
 use crate::table::Table;
+use crate::table::convert::{card_to_dto, color_name, match_format_string};
 use loco_game::{GameState, Status};
 use loco_protocol::{
     CardColor, CardDTO, CardKind, CatchSeatDTO, GameEventDTO, GameStateDTO, MatchRecordDTO,

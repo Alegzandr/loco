@@ -13,12 +13,30 @@
 //! `Vec::swap`, and there is nothing to forget. Who is in the chair is an
 //! [`Occupant`], so a seat cannot be at once held and seated, or a bot with a
 //! socket.
+//!
+//! The modules under this one are the table's task and one module per kind of
+//! message it handles; every one of them runs on the table's own task.
 
-use crate::actor::{Deadlines, Phase};
-use crate::client::Client;
+pub mod actor;
+pub mod bots;
+pub mod broadcast;
+pub mod convert;
+pub mod debug;
+pub mod emotes;
+pub mod gameplay;
+pub mod maploading;
+pub mod presence;
+pub mod refusal;
+pub mod rematch;
+pub mod room;
+pub mod statedto;
+pub mod turntimer;
+
 use crate::ids::{RoomCode, SessionToken};
-use crate::room::{Room, Status};
-use crate::wire::{LatencyEntry, msg};
+use crate::net::client::Client;
+use crate::net::wire::{LatencyEntry, msg};
+use crate::table::actor::{Deadlines, Phase};
+use crate::table::room::{Room, Status};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -119,7 +137,7 @@ pub struct Table {
     pub loading: Option<MapLoadState>,
 
     /// The clocks this table runs on: the hub's, copied in when it opens.
-    pub timings: Arc<crate::config::Timings>,
+    pub timings: Arc<crate::ops::config::Timings>,
 
     /// Every deadline this table has armed. See `actor.rs`.
     pub deadlines: Deadlines,
@@ -161,7 +179,7 @@ impl Table {
             solo: false,
             streamer_mode: false,
             loading: None,
-            timings: Arc::new(crate::config::Timings::default()),
+            timings: Arc::new(crate::ops::config::Timings::default()),
             deadlines: Deadlines::default(),
             next_key: 0,
         }
@@ -309,7 +327,7 @@ impl Table {
         self.seats[id].occupant = Occupant::Human(c.clone());
         c.sit_at(&self.code, id);
         // Somebody is here: the empty-room cleanup stops counting.
-        self.deadlines.disarm(crate::rooms::CLEANUP);
+        self.deadlines.disarm(crate::router::rooms::CLEANUP);
     }
 
     /// Empties a seat without removing it: the player has the reconnect window
@@ -406,9 +424,9 @@ impl Table {
     }
 
     /// A key for a deadline that must never replace another of its kind.
-    pub fn unique_key(&mut self, kind: &'static str) -> crate::actor::DeadlineKey {
+    pub fn unique_key(&mut self, kind: &'static str) -> crate::table::actor::DeadlineKey {
         self.next_key = self.next_key.wrapping_add(1);
-        crate::actor::DeadlineKey {
+        crate::table::actor::DeadlineKey {
             kind,
             seat: self.next_key,
         }

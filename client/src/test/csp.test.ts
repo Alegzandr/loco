@@ -309,7 +309,7 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
 
 /**
  * The player's address is what every per-network ceiling in the server is
- * keyed on (loco-hub/src/privacy.rs: client_net; serve.rs: admit; the wrong-code budget in rooms.rs), and this proxy
+ * keyed on (loco-hub/src/net/privacy.rs: client_net; serve.rs: admit; the wrong-code budget in rooms.rs), and this proxy
  * is the only thing that decides what the server gets to believe about it.
  *
  * The hole this pins shut: `ws.` is grey-clouded on purpose, so Cloudflare is

@@ -4,8 +4,8 @@
 //! `src/logsink.rs`, `src/client.rs` and `src/metrics.rs`.
 
 use loco_hub::Hub;
-use loco_hub::config::HubConfig;
-use loco_hub::privacy::split_list;
+use loco_hub::net::privacy::split_list;
+use loco_hub::ops::config::HubConfig;
 use std::io::{self, Write};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};

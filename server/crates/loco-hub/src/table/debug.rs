@@ -2,10 +2,10 @@
 //! Port of `server/hub/debug.go`. Answered only with `LOCO_E2E=1`, which must
 //! never be set in production (`debug_mode_active` on `/metrics` says so).
 
-use crate::actor::TableCtx;
-use crate::client::Client;
-use crate::convert::{color_of, kind_of};
+use crate::net::client::Client;
 use crate::table::Table;
+use crate::table::actor::TableCtx;
+use crate::table::convert::{color_of, kind_of};
 use loco_game::{Card, Color, Hand, Status};
 use loco_protocol::{CardDTO, DebugStateDTO, GameStateMsg, ServerMsg};
 use std::sync::Arc;
@@ -32,17 +32,17 @@ impl Table {
         d: Option<DebugStateDTO>,
     ) {
         if !cx.hub.config().debug_mode {
-            c.refuse(crate::refusal::Refusal::DebugDisabled);
+            c.refuse(crate::table::refusal::Refusal::DebugDisabled);
             return;
         }
         if self.room.status != Status::Playing {
-            c.refuse(crate::refusal::Refusal::DebugNeedsActiveGame);
+            c.refuse(crate::table::refusal::Refusal::DebugNeedsActiveGame);
             return;
         }
         let d = d.unwrap_or_default();
         let seat = c.player_id();
         let Some(state) = self.room.state.as_mut() else {
-            c.refuse(crate::refusal::Refusal::DebugNeedsActiveGame);
+            c.refuse(crate::table::refusal::Refusal::DebugNeedsActiveGame);
             return;
         };
         if !d.hand.is_empty() && seat < state.hands.len() {
@@ -50,7 +50,7 @@ impl Table {
         }
         for o in &d.hands {
             if o.player_index < 0 || o.player_index as usize >= state.hands.len() {
-                c.refuse(crate::refusal::Refusal::Other(format!(
+                c.refuse(crate::table::refusal::Refusal::Other(format!(
                     "debug.hands: invalid player_index {}",
                     o.player_index
                 )));
@@ -79,7 +79,7 @@ impl Table {
         }
         if let Some(dir) = d.direction {
             if dir != 1 && dir != -1 {
-                c.refuse(crate::refusal::Refusal::Other(format!(
+                c.refuse(crate::table::refusal::Refusal::Other(format!(
                     "debug.direction: must be 1 or -1, got {dir}"
                 )));
                 return;
@@ -88,7 +88,7 @@ impl Table {
         }
         if let Some(turn) = d.current_turn {
             if turn < 0 || turn as usize >= state.hands.len() {
-                c.refuse(crate::refusal::Refusal::Other(format!(
+                c.refuse(crate::table::refusal::Refusal::Other(format!(
                     "debug.current_turn: invalid index {turn}"
                 )));
                 return;

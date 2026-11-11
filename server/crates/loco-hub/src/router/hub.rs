@@ -7,14 +7,14 @@
 //! [`Hub`] is the handle anybody may hold; [`HubCore`] is the state only the
 //! loop touches, which is why none of it is locked.
 
-use crate::actor::TableHandle;
-use crate::client::Client;
-use crate::config::HubConfig;
-use crate::logsink::AsyncLog;
-use crate::metrics::{Exporter, HealthStats, HubMetrics, LiveStats, MetricsStats};
-use crate::privacy::{HasNetPolicy, NetPolicy};
-use crate::serve::Admission;
-use crate::wire::ClientMsg;
+use crate::net::client::Client;
+use crate::net::privacy::{HasNetPolicy, NetPolicy};
+use crate::net::serve::Admission;
+use crate::net::wire::ClientMsg;
+use crate::ops::config::HubConfig;
+use crate::ops::logsink::AsyncLog;
+use crate::ops::metrics::{Exporter, HealthStats, HubMetrics, LiveStats, MetricsStats};
+use crate::table::actor::TableHandle;
 use axum::extract::ws::Utf8Bytes;
 use std::collections::HashMap;
 use std::future::Future;
@@ -60,11 +60,11 @@ pub(crate) enum Control {
     Drain,
     Save(
         PathBuf,
-        oneshot::Sender<Result<(), crate::snapshot::SnapshotError>>,
+        oneshot::Sender<Result<(), crate::ops::snapshot::SnapshotError>>,
     ),
     Load(
         PathBuf,
-        oneshot::Sender<Result<(), crate::snapshot::SnapshotError>>,
+        oneshot::Sender<Result<(), crate::ops::snapshot::SnapshotError>>,
     ),
     #[cfg(any(test, feature = "testkit"))]
     Run(Box<dyn FnOnce(&mut HubCore) + Send>),
@@ -379,9 +379,9 @@ pub struct HubCore {
     /// The 1v1 queue, oldest wait first. Its length is a metric and nothing
     /// else.
     ///
-    pub queue: Vec<crate::matchmaking::QueuedPlayer>,
+    pub queue: Vec<crate::router::matchmaking::QueuedPlayer>,
     /// How many table codes each network has got wrong recently.
-    pub(crate) join_budgets: HashMap<String, crate::rooms::JoinBudget>,
+    pub(crate) join_budgets: HashMap<String, crate::router::rooms::JoinBudget>,
     pub(crate) live_bytes: Option<Utf8Bytes>,
     pub(crate) live_version: u64,
     pub(crate) drained_closed: bool,
@@ -452,7 +452,7 @@ impl HubCore {
                     }
                 }
                 Event::Inbound(Inbound { client, msg }) => {
-                    crate::dispatch::dispatch(&mut self, &client, msg)
+                    crate::router::dispatch::dispatch(&mut self, &client, msg)
                 }
                 Event::Router(job) => job(&mut self),
             }
@@ -496,7 +496,7 @@ impl HubCore {
     pub fn open_table_with(
         &mut self,
         mut table: crate::table::Table,
-        first: Option<crate::actor::TableJob>,
+        first: Option<crate::table::actor::TableJob>,
     ) -> &TableHandle {
         table.timings = Arc::new(self.hub.config().timings.clone());
         let code = table.code.clone();
@@ -507,7 +507,7 @@ impl HubCore {
     }
 
     /// A table built on this hub's clocks, not yet started.
-    pub fn new_table(&self, code: &str, room: crate::room::Room) -> crate::table::Table {
+    pub fn new_table(&self, code: &str, room: crate::table::room::Room) -> crate::table::Table {
         let mut t = crate::table::Table::new(code, room);
         t.timings = Arc::new(self.hub.config().timings.clone());
         t

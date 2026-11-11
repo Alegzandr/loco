@@ -5,9 +5,9 @@
 //! kept per socket**, which is what makes a player coming back from a match
 //! pick the number up on the next tick. The count is the client's to floor.
 
-use crate::client::Client;
-use crate::hub::HubCore;
-use crate::wire::msg;
+use crate::net::client::Client;
+use crate::net::wire::msg;
+use crate::router::hub::HubCore;
 use std::sync::atomic::Ordering;
 
 impl HubCore {

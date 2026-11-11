@@ -1,9 +1,9 @@
 //! Port of `server/hub/live_test.go`.
 
 use futures_util::StreamExt;
-use loco_hub::live::LIVE_WIRE_MAX;
+use loco_hub::net::wire::LiveStream;
+use loco_hub::router::live::LIVE_WIRE_MAX;
 use loco_hub::testkit::*;
-use loco_hub::wire::LiveStream;
 use serde_json::Value;
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;

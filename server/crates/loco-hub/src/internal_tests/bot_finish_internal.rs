@@ -1,7 +1,7 @@
 //! Port of `server/hub/bot_finish_internal_test.go`.
 
-use crate::bots::bot_finish_due;
-use crate::config::BotTimings;
+use crate::ops::config::BotTimings;
+use crate::table::bots::bot_finish_due;
 use loco_game::{Card, Color, GameState, Hand, Kind, Millis, SeatState};
 use std::collections::HashSet;
 use std::time::Duration;

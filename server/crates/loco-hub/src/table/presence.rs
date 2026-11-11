@@ -2,10 +2,10 @@
 //! and at one that has not, the hold, and the reclaim. Port of
 //! `server/hub/presence.go`.
 
-use crate::actor::TableCtx;
-use crate::client::Client;
-use crate::hub::HubCore;
+use crate::net::client::Client;
+use crate::router::hub::HubCore;
 use crate::table::Table;
+use crate::table::actor::TableCtx;
 use loco_game::Status;
 use loco_protocol::{
     MatchLoadingMsg, PlayerDisconnectedMsg, PlayerLeftMsg, PlayerReconnectedMsg, ServerMsg,
@@ -64,7 +64,7 @@ impl Table {
         if !self.is_matchmade() {
             return 0;
         }
-        crate::clock::ms_of(disconnected_at + self.timings.matchmaking.reconnect_timeout)
+        crate::ops::clock::ms_of(disconnected_at + self.timings.matchmaking.reconnect_timeout)
     }
 
     pub(crate) fn disconnect_at_table(&mut self, cx: &TableCtx, c: &Arc<Client>) {
@@ -231,7 +231,7 @@ impl Table {
         if self.connected() == 0 && self.held_seats().is_empty() {
             return;
         }
-        if self.playable_seats() >= crate::matchmaking::WALK_OUT_FLOOR {
+        if self.playable_seats() >= crate::router::matchmaking::WALK_OUT_FLOOR {
             self.retire_absent_seat(cx, seat);
             return;
         }

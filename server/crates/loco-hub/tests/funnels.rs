@@ -4,20 +4,32 @@
 
 use std::path::Path;
 
-/// Every `.rs` file of the crate's own source, tests excluded.
+/// Every `.rs` file of the crate's own source, at any depth, tests excluded,
+/// named by its path under `src/` (`table/broadcast.rs`).
 fn sources() -> Vec<(String, String)> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut out = Vec::new();
-    for entry in std::fs::read_dir(&dir).expect("read src") {
-        let path = entry.expect("entry").path();
-        if path.extension().is_some_and(|e| e == "rs") {
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let src = std::fs::read_to_string(&path)
-                .expect("read")
-                .replace("\r\n", "\n");
-            out.push((name, src));
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
+        for entry in std::fs::read_dir(dir).expect("read src") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n != "internal_tests") {
+                    walk(root, &path, out);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let name = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let src = std::fs::read_to_string(&path)
+                    .expect("read")
+                    .replace("\r\n", "\n");
+                out.push((name, src));
+            }
         }
     }
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut out = Vec::new();
+    walk(&dir, &dir, &mut out);
     assert!(out.len() > 20, "read only {} files from {dir:?}", out.len());
     out
 }
@@ -35,7 +47,7 @@ fn card_drawn_is_built_in_one_place() {
         .collect();
     assert_eq!(
         builders,
-        vec!["broadcast.rs".to_owned()],
+        vec!["table/broadcast.rs".to_owned()],
         "card_drawn is built outside the funnel"
     );
 }

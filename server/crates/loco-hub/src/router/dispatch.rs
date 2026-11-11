@@ -6,12 +6,12 @@
 //! replayed message fails the moment the state has moved past it. Identity
 //! (the seat, the table) is server-assigned and never read from the message.
 
-use crate::actor::{TableCtx, TableJob};
-use crate::client::Client;
-use crate::hub::HubCore;
-use crate::logsink::panic_message;
-use crate::maploading::is_gameplay_msg;
+use crate::net::client::Client;
+use crate::ops::logsink::panic_message;
+use crate::router::hub::HubCore;
 use crate::table::Table;
+use crate::table::actor::{TableCtx, TableJob};
+use crate::table::maploading::is_gameplay_msg;
 use loco_game::Status;
 use loco_protocol::ClientMsg;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -79,7 +79,7 @@ pub(crate) fn dispatch(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
             panic = %panic_message(p.as_ref()),
             "handler panic recovered"
         );
-        c.refuse(crate::refusal::Refusal::ServerError);
+        c.refuse(crate::table::refusal::Refusal::ServerError);
     }
 }
 
@@ -105,7 +105,7 @@ fn route(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
         ClientMsg::PlayBot(m) => core.handle_play_bot(c, &m.nickname),
         ClientMsg::CancelMatchmaking => core.handle_cancel_matchmaking(c),
         ClientMsg::LeaveRoom => core.handle_leave_room(c),
-        _ => c.refuse(crate::refusal::Refusal::UnknownMessageType),
+        _ => c.refuse(crate::table::refusal::Refusal::UnknownMessageType),
     }
 }
 
@@ -113,11 +113,11 @@ fn route(core: &mut HubCore, c: &Arc<Client>, msg: ClientMsg) {
 /// that one table is behind, and only its own players are told so.
 pub fn post_to_table(core: &HubCore, c: &Arc<Client>, job: TableJob) -> bool {
     let Some(code) = c.room_code() else {
-        c.refuse(crate::refusal::Refusal::NotInRoom);
+        c.refuse(crate::table::refusal::Refusal::NotInRoom);
         return false;
     };
     let Some(t) = core.tables.get(&code) else {
-        c.refuse(crate::refusal::Refusal::RoomNotFound);
+        c.refuse(crate::table::refusal::Refusal::RoomNotFound);
         return false;
     };
     let what = job.what.clone();
@@ -127,7 +127,7 @@ pub fn post_to_table(core: &HubCore, c: &Arc<Client>, job: TableJob) -> bool {
             .messages_dropped_busy
             .fetch_add(1, Ordering::Relaxed);
         tracing::info!(r#type = %what, conn = %c.conn_id, code = %code, "table box full, dropping message");
-        c.refuse(crate::refusal::Refusal::ServerBusy);
+        c.refuse(crate::table::refusal::Refusal::ServerBusy);
         return false;
     }
     true
@@ -146,15 +146,15 @@ impl Table {
             // A gameplay message only means something at a table that has
             // dealt, from a seat the deal has a hand for, past the gate.
             let Some(state) = self.room.state.as_ref() else {
-                c.refuse(crate::refusal::Refusal::GameNotInProgress);
+                c.refuse(crate::table::refusal::Refusal::GameNotInProgress);
                 return;
             };
             if self.room.status != Status::Playing || c.player_id() >= state.hands.len() {
-                c.refuse(crate::refusal::Refusal::GameNotInProgress);
+                c.refuse(crate::table::refusal::Refusal::GameNotInProgress);
                 return;
             }
             if self.is_loading() {
-                c.refuse(crate::refusal::Refusal::TableLoading);
+                c.refuse(crate::table::refusal::Refusal::TableLoading);
                 return;
             }
         }

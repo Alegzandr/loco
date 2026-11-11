@@ -2,14 +2,14 @@
 //! the bookkeeping that frees a seat or deletes an empty room. Port of
 //! `server/hub/rooms.go`.
 
-use crate::actor::{DeadlineKey, TableCtx, TableJob};
-use crate::client::Client;
-use crate::clock;
-use crate::convert::{match_format_of, match_format_string};
-use crate::hub::HubCore;
 use crate::ids::{RoomCode, SessionToken};
-use crate::room::new_room;
+use crate::net::client::Client;
+use crate::ops::clock;
+use crate::router::hub::HubCore;
 use crate::table::Table;
+use crate::table::actor::{DeadlineKey, TableCtx, TableJob};
+use crate::table::convert::{match_format_of, match_format_string};
+use crate::table::room::new_room;
 use loco_game::Status;
 use loco_protocol::{
     GameStartedMsg, HostChangedMsg, JoinRoomMsg, LobbyConfigChangedMsg, MatchFormat as WireFormat,
@@ -51,7 +51,7 @@ impl HubCore {
             Ok(n) => Some(n),
             Err(e) => {
                 tracing::info!(conn = %c.conn_id, reason = %e, "nickname refused");
-                c.refuse(crate::refusal::Refusal::NicknameRejected);
+                c.refuse(crate::table::refusal::Refusal::NicknameRejected);
                 None
             }
         }
@@ -128,7 +128,7 @@ impl HubCore {
             return;
         }
         if self.already_seated(c) {
-            c.refuse(crate::refusal::Refusal::AlreadyInRoom);
+            c.refuse(crate::table::refusal::Refusal::AlreadyInRoom);
             return;
         }
         let Some(nickname) = Self::validate_nickname(c, nickname) else {
@@ -137,7 +137,7 @@ impl HubCore {
         let max_rooms = self.hub.config().limits.max_rooms;
         if self.tables.len() >= max_rooms {
             tracing::warn!(rooms = self.tables.len(), conn = %c.conn_id, "room cap reached");
-            c.refuse(crate::refusal::Refusal::ServerFull);
+            c.refuse(crate::table::refusal::Refusal::ServerFull);
             return;
         }
         let code = self.generate_code();
@@ -170,7 +170,7 @@ impl HubCore {
 
     pub(crate) fn handle_join_room(&mut self, c: &Arc<Client>, msg: JoinRoomMsg) {
         if self.already_seated(c) {
-            c.refuse(crate::refusal::Refusal::AlreadyInRoom);
+            c.refuse(crate::table::refusal::Refusal::AlreadyInRoom);
             return;
         }
         let Some(nickname) = Self::validate_nickname(c, &msg.nickname) else {
@@ -178,7 +178,7 @@ impl HubCore {
         };
         let Ok(code) = RoomCode::parse(&msg.room_code) else {
             self.note_failed_join(c);
-            c.refuse(crate::refusal::Refusal::InvalidRoomCode);
+            c.refuse(crate::table::refusal::Refusal::InvalidRoomCode);
             return;
         };
         // A sweep is refused before the lookup, so a throttled network learns
@@ -188,7 +188,7 @@ impl HubCore {
                 .metrics()
                 .joins_throttled
                 .fetch_add(1, Ordering::Relaxed);
-            c.refuse(crate::refusal::Refusal::TooManyAttempts);
+            c.refuse(crate::table::refusal::Refusal::TooManyAttempts);
             return;
         }
         let Some(t) = self.tables.get(&code) else {
@@ -198,7 +198,7 @@ impl HubCore {
                 return;
             }
             self.note_failed_join(c);
-            c.refuse(crate::refusal::Refusal::RoomNotFound);
+            c.refuse(crate::table::refusal::Refusal::RoomNotFound);
             return;
         };
         // The rest of a join is the table's, which also makes two people
@@ -210,7 +210,7 @@ impl HubCore {
         })
         .from_client(c.clone());
         if t.post(job).is_err() {
-            c.refuse(crate::refusal::Refusal::ServerBusy);
+            c.refuse(crate::table::refusal::Refusal::ServerBusy);
         }
     }
 }
@@ -252,7 +252,7 @@ impl Table {
             let c2 = c.clone();
             cx.hub
                 .post_to_router("failed_join", move |core| core.note_failed_join(&c2));
-            c.refuse(crate::refusal::Refusal::GameAlreadyInProgress);
+            c.refuse(crate::table::refusal::Refusal::GameAlreadyInProgress);
             return;
         }
         if let Err(e) = self.room.join(nickname) {
@@ -290,20 +290,20 @@ impl Table {
         if !self.hostless() {
             return false;
         }
-        c.refuse(crate::refusal::Refusal::Hostless);
+        c.refuse(crate::table::refusal::Refusal::Hostless);
         true
     }
 
     pub(crate) fn handle_start_game(&mut self, cx: &TableCtx, c: &Arc<Client>) {
         if cx.hub.draining() {
-            c.refuse(crate::refusal::Refusal::Draining);
+            c.refuse(crate::table::refusal::Refusal::Draining);
             return;
         }
         if self.refuse_without_host(c) {
             return;
         }
         if c.player_id() != 0 {
-            c.refuse(crate::refusal::Refusal::OwnerOnlyStart);
+            c.refuse(crate::table::refusal::Refusal::OwnerOnlyStart);
             return;
         }
         if let Err(e) = self.room.start(clock::now_ms()) {
@@ -354,11 +354,11 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.refuse(crate::refusal::Refusal::HostOnlyFormat);
+            c.refuse(crate::table::refusal::Refusal::HostOnlyFormat);
             return;
         }
         let Some(f) = f else {
-            c.refuse(crate::refusal::Refusal::Other(
+            c.refuse(crate::table::refusal::Refusal::Other(
                 r#"invalid match format "": must be BO1, BO3, BO5, or BO7"#.into(),
             ));
             return;
@@ -375,7 +375,7 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.refuse(crate::refusal::Refusal::HostOnlyMaxPlayers);
+            c.refuse(crate::table::refusal::Refusal::HostOnlyMaxPlayers);
             return;
         }
         if let Err(e) = self.room.set_max_players(usize::try_from(n).unwrap_or(0)) {
@@ -393,7 +393,7 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.refuse(crate::refusal::Refusal::HostOnlyStreamerMode);
+            c.refuse(crate::table::refusal::Refusal::HostOnlyStreamerMode);
             return;
         }
         if self.streamer_mode == on {
@@ -426,15 +426,15 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.refuse(crate::refusal::Refusal::OwnerOnlyKick);
+            c.refuse(crate::table::refusal::Refusal::OwnerOnlyKick);
             return;
         }
         if self.room.status != Status::Lobby {
-            c.refuse(crate::refusal::Refusal::KickLobbyOnly);
+            c.refuse(crate::table::refusal::Refusal::KickLobbyOnly);
             return;
         }
         let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.players.len()) else {
-            c.refuse(crate::refusal::Refusal::InvalidPlayerIndex);
+            c.refuse(crate::table::refusal::Refusal::InvalidPlayerIndex);
             return;
         };
         let seat = seat as usize;
@@ -460,20 +460,20 @@ impl Table {
             return;
         }
         if c.player_id() != 0 {
-            c.refuse(crate::refusal::Refusal::OwnerOnlyTransfer);
+            c.refuse(crate::table::refusal::Refusal::OwnerOnlyTransfer);
             return;
         }
         if self.room.status != Status::Lobby {
-            c.refuse(crate::refusal::Refusal::TransferLobbyOnly);
+            c.refuse(crate::table::refusal::Refusal::TransferLobbyOnly);
             return;
         }
         let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.players.len()) else {
-            c.refuse(crate::refusal::Refusal::InvalidPlayerIndex);
+            c.refuse(crate::table::refusal::Refusal::InvalidPlayerIndex);
             return;
         };
         let seat = seat as usize;
         if self.is_bot(seat) {
-            c.refuse(crate::refusal::Refusal::BotCannotHost);
+            c.refuse(crate::table::refusal::Refusal::BotCannotHost);
             return;
         }
         let nickname = self.room.players[seat].nickname.clone();

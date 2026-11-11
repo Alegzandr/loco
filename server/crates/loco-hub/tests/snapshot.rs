@@ -171,7 +171,9 @@ fn write_snapshot_file(path: &Path, raw: &Value) {
 
 fn backdate_snapshot(path: &Path, by: Duration) {
     let mut raw = read_snapshot_file(path);
-    raw["saved_at"] = json!(loco_hub::gotime::format_rfc3339(SystemTime::now() - by));
+    raw["saved_at"] = json!(loco_hub::ops::gotime::format_rfc3339(
+        SystemTime::now() - by
+    ));
     write_snapshot_file(path, &raw);
 }
 

@@ -25,7 +25,7 @@ impl Outgoing for ServerMsg {
 
 /// Unix milliseconds now: what `server_now` carries.
 pub fn now_ms() -> i64 {
-    crate::clock::now_ms()
+    crate::ops::clock::now_ms()
 }
 
 /// The messages the hub writes on its own account.

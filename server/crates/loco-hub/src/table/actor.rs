@@ -21,8 +21,8 @@
 //! reads its mailbox.
 
 use crate::Hub;
-use crate::client::Client;
-use crate::logsink::panic_message;
+use crate::net::client::Client;
+use crate::ops::logsink::panic_message;
 use crate::table::Table;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -378,7 +378,7 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
             "handler panic recovered"
         );
         if let Some(c) = client {
-            c.refuse(crate::refusal::Refusal::ServerError);
+            c.refuse(crate::table::refusal::Refusal::ServerError);
         }
     }
 }

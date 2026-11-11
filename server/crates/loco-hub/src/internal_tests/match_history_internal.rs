@@ -5,7 +5,7 @@
 //! cannot reach cheaply: a swap (transfer_host in the lobby a rematch reopened)
 //! and the reset that must NOT touch it.
 
-use crate::room::new_room;
+use crate::table::room::new_room;
 use crate::table::{MatchRecord, Table, match_duration_ms};
 use std::time::{Duration, SystemTime};
 

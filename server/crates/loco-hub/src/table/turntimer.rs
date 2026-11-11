@@ -5,9 +5,9 @@
 //! replaces the old one, and the fire re-checks the turn and its start stamp
 //! anyway, exactly as Go's did.
 
-use crate::actor::{DeadlineKey, TableCtx};
-use crate::clock;
+use crate::ops::clock;
 use crate::table::Table;
+use crate::table::actor::{DeadlineKey, TableCtx};
 use loco_game::Status;
 use loco_protocol::{ErrorMsg, ServerMsg};
 use tokio::time::Instant;

@@ -1,13 +1,13 @@
 //! Sending: the fan-out, `send_hand_growth`, `refuse_action`, the
 //! personalised state. Port of `server/hub/broadcast.go`.
 
-use crate::actor::TableCtx;
-use crate::client::Client;
-use crate::clock;
-use crate::convert::{card_dtos, card_to_dto, color_name};
-use crate::statedto::catch_seats;
+use crate::net::client::Client;
+use crate::net::wire::Outgoing;
+use crate::ops::clock;
 use crate::table::Table;
-use crate::wire::Outgoing;
+use crate::table::actor::TableCtx;
+use crate::table::convert::{card_dtos, card_to_dto, color_name};
+use crate::table::statedto::catch_seats;
 use axum::extract::ws::Utf8Bytes;
 use loco_game::{Card, ErrorKind, GameError, Kind, Seat};
 use loco_protocol::{CardDrawnMsg, CardPlayedMsg, GameStateMsg, ServerMsg, TurnChangedMsg};

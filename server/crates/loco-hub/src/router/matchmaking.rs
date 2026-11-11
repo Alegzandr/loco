@@ -6,13 +6,13 @@
 //! `leave_room` are split down the middle, the two halves ordered rather than
 //! raced.
 
-use crate::actor::{DeadlineKey, TableCtx, TableJob};
-use crate::client::Client;
-use crate::clock;
-use crate::convert::match_format_string;
-use crate::hub::HubCore;
-use crate::room::new_room;
+use crate::net::client::Client;
+use crate::ops::clock;
+use crate::router::hub::HubCore;
 use crate::table::Table;
+use crate::table::actor::{DeadlineKey, TableCtx, TableJob};
+use crate::table::convert::match_format_string;
+use crate::table::room::new_room;
 use loco_game::{Room, Status, room::MatchFormat};
 use loco_protocol::{MatchEndMsg, MatchFoundMsg, PlayerLeftMsg, ServerMsg};
 use std::sync::Arc;
@@ -86,7 +86,7 @@ impl HubCore {
             let c2 = c.clone();
             let job = TableJob::new("find_match_release", move |t: &mut Table, cx: &TableCtx| {
                 if t.room.status == Status::Playing {
-                    c2.refuse(crate::refusal::Refusal::AlreadyInRoom);
+                    c2.refuse(crate::table::refusal::Refusal::AlreadyInRoom);
                     return;
                 }
                 t.release_seat(cx, &c2);
@@ -96,7 +96,7 @@ impl HubCore {
             })
             .from_client(c.clone());
             if t.post(job).is_err() {
-                c.refuse(crate::refusal::Refusal::ServerBusy);
+                c.refuse(crate::table::refusal::Refusal::ServerBusy);
             }
             return;
         }
@@ -105,7 +105,7 @@ impl HubCore {
 
     pub(crate) fn enqueue_and_pair(&mut self, c: &Arc<Client>, nickname: String) {
         if self.queue_index(c).is_some() {
-            c.refuse(crate::refusal::Refusal::AlreadySearching);
+            c.refuse(crate::table::refusal::Refusal::AlreadySearching);
             return;
         }
         self.enqueue(c, nickname);
@@ -193,7 +193,7 @@ impl HubCore {
         })
         .from_client(c.clone());
         if t.post(job).is_err() {
-            c.refuse(crate::refusal::Refusal::ServerBusy);
+            c.refuse(crate::table::refusal::Refusal::ServerBusy);
         }
     }
 }
@@ -452,7 +452,8 @@ impl Table {
         // table rather than the match stays — the cleanup, and the holds of
         // seats still away, which settle those seats after the match.
         self.deadlines.retain(|k| {
-            k.kind == crate::rooms::CLEANUP.kind || k.kind == crate::presence::RECONNECT_EXPIRY
+            k.kind == crate::router::rooms::CLEANUP.kind
+                || k.kind == crate::table::presence::RECONNECT_EXPIRY
         });
         cx.hub
             .metrics()

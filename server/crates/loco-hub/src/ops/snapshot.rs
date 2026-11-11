@@ -11,9 +11,9 @@
 //! directory, and short-lived by construction.
 
 use crate::Hub;
-use crate::hub::{Control, HubCore};
 use crate::ids::{RoomCode, SessionToken};
-use crate::room::Status;
+use crate::router::hub::{Control, HubCore};
+use crate::table::room::Status;
 use crate::table::{MatchRecord, Occupant, Table};
 use loco_game::SavedRoom;
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ pub enum SnapshotError {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SnapshotFile {
     pub schema_version: i64,
-    #[serde(with = "crate::gotime::opt")]
+    #[serde(with = "crate::ops::gotime::opt")]
     pub saved_at: Option<SystemTime>,
     #[serde(default)]
     pub rooms: Vec<RoomSnapshot>,
@@ -86,7 +86,7 @@ pub struct RoomSnapshot {
         deserialize_with = "null_as_default"
     )]
     pub match_history: Vec<MatchRecord>,
-    #[serde(with = "crate::gotime::opt", default)]
+    #[serde(with = "crate::ops::gotime::opt", default)]
     pub match_started_at: Option<SystemTime>,
 }
 
@@ -275,7 +275,7 @@ impl HubCore {
         }
         // The RNG never travels: the restored room is seeded from the OS, as
         // every new one is.
-        let room = crate::room::restore_room(saved);
+        let room = crate::table::room::restore_room(saved);
         let code = RoomCode::from_trusted(room.code.clone());
         if self.tables.contains_key(&code) {
             tracing::warn!(

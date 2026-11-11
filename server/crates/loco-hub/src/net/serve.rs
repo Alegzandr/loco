@@ -4,9 +4,9 @@
 //! `server/hub/serve.go`, plus the two operator endpoints `main.go` served.
 
 use crate::Hub;
-use crate::client::{Client, MAX_MSG_SIZE};
-use crate::hub::{Register, Shared};
-use crate::privacy::ClientNet;
+use crate::net::client::{Client, MAX_MSG_SIZE};
+use crate::net::privacy::ClientNet;
+use crate::router::hub::{Register, Shared};
 use axum::Router;
 use axum::extract::State;
 use axum::extract::ws::WebSocketUpgrade;

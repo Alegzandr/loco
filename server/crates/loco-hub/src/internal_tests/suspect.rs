@@ -1,6 +1,6 @@
 //! Port of `server/hub/suspect_test.go`.
 
-use crate::client::SUSPECT_THRESHOLD;
+use crate::net::client::SUSPECT_THRESHOLD;
 use crate::{Client, Hub, HubConfig};
 use loco_game::GameError;
 use std::sync::atomic::Ordering;

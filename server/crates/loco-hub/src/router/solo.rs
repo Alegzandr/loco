@@ -2,12 +2,12 @@
 //! Port of `server/hub/solo.go`. No code, no waiting room, nothing to
 //! configure, BO1, and it touches nothing the queue owns.
 
-use crate::actor::{TableCtx, TableJob};
-use crate::bots::next_bot_name;
-use crate::client::Client;
-use crate::hub::HubCore;
-use crate::room::new_room;
+use crate::net::client::Client;
+use crate::router::hub::HubCore;
 use crate::table::Table;
+use crate::table::actor::{TableCtx, TableJob};
+use crate::table::bots::next_bot_name;
+use crate::table::room::new_room;
 use loco_game::{Status, room::MatchFormat};
 use loco_protocol::{GameStartedMsg, ServerMsg};
 use std::sync::Arc;
@@ -32,7 +32,7 @@ impl HubCore {
             let c2 = c.clone();
             let job = TableJob::new("play_bot_release", move |t: &mut Table, cx: &TableCtx| {
                 if t.room.status == Status::Playing {
-                    c2.refuse(crate::refusal::Refusal::AlreadyInRoom);
+                    c2.refuse(crate::table::refusal::Refusal::AlreadyInRoom);
                     return;
                 }
                 t.release_seat(cx, &c2);
@@ -43,7 +43,7 @@ impl HubCore {
             })
             .from_client(c.clone());
             if t.post(job).is_err() {
-                c.refuse(crate::refusal::Refusal::ServerBusy);
+                c.refuse(crate::table::refusal::Refusal::ServerBusy);
             }
             return;
         }
@@ -54,7 +54,7 @@ impl HubCore {
         let max_rooms = self.hub.config().limits.max_rooms;
         if self.tables.len() >= max_rooms {
             tracing::warn!(rooms = self.tables.len(), conn = %c.conn_id, "room cap reached");
-            c.refuse(crate::refusal::Refusal::ServerFull);
+            c.refuse(crate::table::refusal::Refusal::ServerFull);
             return;
         }
         let code = self.generate_code();
@@ -74,7 +74,7 @@ impl HubCore {
             c.refuse(e);
             return;
         }
-        if let Err(e) = room.start(crate::clock::now_ms()) {
+        if let Err(e) = room.start(crate::ops::clock::now_ms()) {
             tracing::warn!(code = %code, "solo start failed err={e}");
             c.refuse(e);
             return;

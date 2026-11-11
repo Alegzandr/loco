@@ -5,10 +5,10 @@
 //! deal the next match at any size (bots are not asked), and nobody is
 //! dropped by that. The reopened table is hosted by somebody who asked.
 
-use crate::actor::TableCtx;
-use crate::client::Client;
-use crate::convert::match_format_string;
+use crate::net::client::Client;
 use crate::table::Table;
+use crate::table::actor::TableCtx;
+use crate::table::convert::match_format_string;
 use loco_game::Status;
 use loco_protocol::{RematchOfferedMsg, RematchStartedMsg, ServerMsg};
 use std::sync::Arc;
@@ -19,19 +19,19 @@ pub const REMATCH_QUORUM: usize = 2;
 impl Table {
     pub(crate) fn handle_rematch(&mut self, cx: &TableCtx, c: &Arc<Client>) {
         if cx.hub.draining() {
-            c.refuse(crate::refusal::Refusal::Draining);
+            c.refuse(crate::table::refusal::Refusal::Draining);
             return;
         }
         if self.room.status != Status::Finished {
-            c.refuse(crate::refusal::Refusal::RematchUnavailable);
+            c.refuse(crate::table::refusal::Refusal::RematchUnavailable);
             return;
         }
         if self.solo {
-            c.refuse(crate::refusal::Refusal::Hostless);
+            c.refuse(crate::table::refusal::Refusal::Hostless);
             return;
         }
         if self.is_matchmade() && (self.room.players.len() < 2 || self.connected() < 2) {
-            c.refuse(crate::refusal::Refusal::OpponentLeft);
+            c.refuse(crate::table::refusal::Refusal::OpponentLeft);
             return;
         }
         let seat = c.player_id();

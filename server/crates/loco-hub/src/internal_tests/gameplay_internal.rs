@@ -1,6 +1,6 @@
 //! Port of `server/hub/gameplay_internal_test.go`.
 
-use crate::clock::now_ms;
+use crate::ops::clock::now_ms;
 use crate::{Client, Hub, HubConfig, Table};
 use loco_game::{Card, CatchCharge, Color, Hand, Room};
 

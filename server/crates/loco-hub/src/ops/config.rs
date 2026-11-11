@@ -2,7 +2,7 @@
 //! tests narrowed and restored; here they are one value handed to the hub, so
 //! two tests running at once can each have their own. Defaults are Go's.
 
-use crate::privacy::{NetPolicy, split_list};
+use crate::net::privacy::{NetPolicy, split_list};
 use std::time::Duration;
 
 /// The ceilings. Deliberately generous: they make the abusive case terminate,

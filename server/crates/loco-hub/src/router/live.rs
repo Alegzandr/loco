@@ -2,9 +2,9 @@
 //! of `server/hub/live.go`: the live-streams strip's one crossing into the loop.
 
 use crate::Hub;
-use crate::client::Client;
-use crate::hub::HubCore;
-use crate::wire::{LiveStream, msg};
+use crate::net::client::Client;
+use crate::net::wire::{LiveStream, msg};
+use crate::router::hub::HubCore;
 use axum::extract::ws::Utf8Bytes;
 use std::sync::atomic::Ordering;
 

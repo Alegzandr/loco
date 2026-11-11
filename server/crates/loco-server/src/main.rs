@@ -183,11 +183,11 @@ async fn main() -> std::process::ExitCode {
 
     // First, before anything has a line to write: from here on a log line is
     // a queue push, and a slow reader of stderr cannot stall a table.
-    let sink = AsyncLog::new(std::io::stderr(), loco_hub::logsink::LOG_QUEUE_DEPTH);
-    if let Err(e) = loco_hub::logsink::install(&sink) {
+    let sink = AsyncLog::new(std::io::stderr(), loco_hub::ops::logsink::LOG_QUEUE_DEPTH);
+    if let Err(e) = loco_hub::ops::logsink::install(&sink) {
         eprintln!("installing the log failed: {e}");
     }
-    loco_hub::logsink::install_panic_hook();
+    loco_hub::ops::logsink::install_panic_hook();
 
     let code = serve(&sink).await;
     let _ = sink.close();
@@ -445,7 +445,7 @@ mod tests {
         let mut room = loco_game::Room::from_u64_seed("PLAYIN", 1);
         room.join("Alice").unwrap();
         room.join("Bob").unwrap();
-        room.start(loco_hub::wire::now_ms()).unwrap();
+        room.start(loco_hub::net::wire::now_ms()).unwrap();
         let table = loco_hub::Table::new("PLAYIN", room);
         hub.on_loop(move |core| {
             core.open_table(table);
