@@ -1,0 +1,62 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>devops/stacks/renovate-bot"],
+  "baseBranches": ["develop"],
+  "schedule": ["before 6am on monday"],
+  "prBodyNotes": [
+    "Before merging: run `make csp` (a dependency can break the CSP without touching our sources) and, for anything under `client/`, `make build-client`."
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "PLAYWRIGHT_VERSION in the CI must equal @playwright/test in e2e/package.json",
+      "fileMatch": ["^\\.gitlab-ci\\.yml$"],
+      "matchStrings": ["PLAYWRIGHT_VERSION: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "@playwright/test",
+      "datasourceTemplate": "npm"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Playwright is one decision: the npm package and the CI image move together, pinned exactly",
+      "matchPackageNames": ["@playwright/test", "mcr.microsoft.com/playwright"],
+      "groupName": "playwright",
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "svelte-check and SvelteKit refuse TypeScript 7",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
+      "description": "The Rust toolchain: CI images and the server's builder image together",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["rust"],
+      "groupName": "rust toolchain"
+    },
+    {
+      "description": "Node: CI image and the client's builder image together",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node"],
+      "groupName": "node"
+    },
+    {
+      "description": "Routine server crates, one PR",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "server crates (non-major)"
+    },
+    {
+      "description": "Routine client packages, one PR",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["client/package.json"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "client packages (non-major)"
+    },
+    {
+      "description": "dprint-plugin-typescript is pinned exactly for protocolgen's output; a bump changes the generated client types",
+      "matchPackageNames": ["dprint-plugin-typescript"],
+      "groupName": "protocol generator"
+    }
+  ]
+}

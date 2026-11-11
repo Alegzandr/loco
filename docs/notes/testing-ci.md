@@ -315,7 +315,9 @@ Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`. Pipeline and dep
 - **No `playwright install`.** The image ships only the browsers its own Playwright needs, so the
   image tag and `e2e/package-lock.json` are one decision: the dependency is pinned **exactly**, and
   `PLAYWRIGHT_VERSION` is declared once in `e2e_test`, interpolated into the image tag and asserted
-  against `npx playwright --version` before the suite runs. Bump both together and commit the lockfile.
+  against `npx playwright --version` before the suite runs. Bump both together and commit the lockfile;
+  Renovate does (`renovate.json`: a regex manager reads `PLAYWRIGHT_VERSION` and the `playwright`
+  group moves it with `@playwright/test`).
 - **Caches.** `CARGO_HOME` (`.cargo`), `CARGO_TARGET_DIR` (`server/target`) and npm's cache live under
   `$CI_PROJECT_DIR` because GitLab caches only paths inside the project. Rust jobs key on
   `server/Cargo.lock`; the lint job also keeps `.cargo/bin` so `cargo-deny` is installed once. **Every

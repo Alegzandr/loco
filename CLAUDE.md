@@ -1259,6 +1259,9 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 - `PLAYWRIGHT_VERSION` and `e2e/package.json` are one decision: the dependency is pinned exactly and
   asserted against the image before the suite runs. There is no `playwright install` step.
 - Run `make csp` after touching `nginx.conf` **or bumping a dependency**.
+- **Dependencies are bumped by Renovate** (`renovate.json`, the org preset plus this repo's rules):
+  weekly, against `develop`, the two Playwright pins in one PR, TypeScript held under 7, the toolchain
+  images grouped. Its PRs carry the `make csp` reminder; the CI is what accepts them.
 
 ## Docker
 Production path: Traefik to nginx (:80) to `loco-server` (:8080, internal only); **nginx proxies
