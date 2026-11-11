@@ -664,10 +664,10 @@ seen from the table, and the table is CSS drawn from the room's own materials. A
 in the rain and one at noon in the same room are two rooms, which is what "the maps dictate the
 mood" asks for.
 
-- **The draw is server-side and per match, and it is three ids.** `game/maps.go` (`MapID`,
-  `TimeOfDay`, `Weather`, `MapWeathers`; `Room.pickMap` / `pickTime` / `pickWeather`); `Room.Start()`
-  writes `MapID`, `MapTime` and `MapWeather`, `BeginNextRound` keeps all three (rain does not stop
-  between two rounds), `ResetForRematch` clears them so the next match gets a new room. Exported as
+- **The draw is server-side and per match, and it is three ids.** `loco-game/src/maps.rs` (`MapId`,
+  `TimeOfDay`, `Weather`, `MAP_IDS`, `MAP_WEATHERS`; the room's `pick_map` / `pick_time` /
+  `pick_weather`); `Room::start` writes `map_id`, `map_time` and `map_weather`, `begin_next_round`
+  keeps all three (rain does not stop between two rounds), `reset_for_rematch` clears them so the next match gets a new room. Exported as
   `GameStateDTO.map_id` / `time_of_day` / `weather` on **every** snapshot, not just `game_started`,
   so a reconnecting player rebuilds the same room as everybody else. All three are bare strings on
   the wire, for the reason `map_id` always was: a value this client does not know degrades to a
@@ -677,8 +677,8 @@ mood" asks for.
     describing two different tables to a viewer is a table that does not exist, and a clip cut
     between two seats would jump between two rooms. Hashing the room code client-side would agree
     just as well but would freeze a room's map forever, and a rematch is meant to feel new.
-  - **`maps.test.ts` pins the client's three lists and every per-map weather list to the Go source**,
-    in order. A map, an hour or a sky on one side and not the other is a match dealt into a room this
+  - **`maps.test.ts` pins the client's three lists and every per-map weather list to the domain's source**
+    (`loco-game/src/maps.rs`, read through `src/test/serverSource.ts`), in order. A map, an hour or a sky on one side and not the other is a match dealt into a room this
     client cannot draw, and it fails as a plain felt, silently.
 - **`tableRect()` remains the single authority on the board's geometry.** A scene replaces how the
   felt is *painted*, never where anything is: piles, seats, direction ring and every animation
@@ -1892,7 +1892,7 @@ of 2026-09 found five of them, every one on the surfaces a reaction is aimed at:
   The pickers and the rules modal keep their blur: up for a decision, not held open over a read.
 
 ### Card rarity & the throw (`cardTheme.ts`)
-Presentation-only tiering, invented here and never consulted by `game/`. `cardRarity(card)` follows
+Presentation-only tiering, invented here and never consulted by the domain (`loco-game`). `cardRarity(card)` follows
 scarcity in the deck: number = `common` (72 cards), coloured action = `rare` (28), any wild =
 `legendary` (12). A number is two thirds of every hand — dressing up the routine play leaves nothing
 to escalate to when a wild drops, which is the whole reason the tiers exist.
