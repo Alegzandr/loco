@@ -14,16 +14,16 @@ Both are now what their names say, and the work sits beside the other work of it
 
 | Module | What it owns |
 | --- | --- |
-| `hooks/serverMessages.ts` | every inbound message, applied to the store. `App` builds it once |
-| `hooks/gameStore.ts` | the assembly, and the re-exports every screen imports from |
-| `hooks/live.svelte.ts` | the narrowing every effect below watches one field through. Three lines, and the reason they exist is the section under this table |
-| `hooks/gameStore.svelte.ts` | the one reactive snapshot of it, which is what a component reads. Framework-free store, reactive mirror — the same split the theme and the preferences have |
-| `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
-| `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; rendering the room while the table is shut, then answering `map_ready` |
-| `hooks/viewEffects.svelte.ts` | a piece of table news that takes itself off screen; the held key; the reconnect overlay's own clock; the ticks over the last seconds of our own turn |
-| `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands; the host's streamer mode reaching the table |
+| `state/serverMessages.ts` | every inbound message, applied to the store. `App` builds it once |
+| `state/gameStore.ts` | the assembly, and the re-exports every screen imports from |
+| `state/live.svelte.ts` | the narrowing every effect below watches one field through. Three lines, and the reason they exist is the section under this table |
+| `state/gameStore.svelte.ts` | the one reactive snapshot of it, which is what a component reads. Framework-free store, reactive mirror — the same split the theme and the preferences have |
+| `state/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
+| `state/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; rendering the room while the table is shut, then answering `map_ready` |
+| `state/viewEffects.svelte.ts` | a piece of table news that takes itself off screen; the held key; the reconnect overlay's own clock; the ticks over the last seconds of our own turn |
+| `state/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands; the host's streamer mode reaching the table |
 | `dev/e2eBridge.svelte.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
-| `components/swapNoticeText.ts` | the line a Swap or a GlobalSwitch puts on screen |
+| `game/swapNoticeText.ts` | the line a Swap or a GlobalSwitch puts on screen |
 
 ### One snapshot, and what that costs an effect
 
@@ -34,7 +34,7 @@ state back unchanged" into a fresh object, so every no-op — a prune with nothi
 `player_left` naming no seat, a `clearOpponentAway` for a seat that was not away — became a full-app
 invalidation. `patch === state` is returned as `state`; `storeNoOp.test.ts` counts the notifications.
 
-`hooks/gameStore.svelte.ts` holds the whole store in a single `$state.raw` and replaces it on every
+`state/gameStore.svelte.ts` holds the whole store in a single `$state.raw` and replaces it on every
 write. That is the right shape for reading — the board is props off one object, and a deep proxy
 would clone its identity on every read for nothing — and it is a trap for *watching*. Svelte tracks
 the signal that was read, not the value: an effect reading `g.errorMsg` through a getter subscribes
@@ -58,7 +58,7 @@ while the table is busy. It shipped as four symptoms that look unrelated and are
   onwards, since `lastPlay` is set from then on and the effect that closes a stale prompt re-ran on
   everything.
 
-`hooks/live.svelte.ts` is the answer and it is three lines: wrap the getter in a `$derived`, which
+`state/live.svelte.ts` is the answer and it is three lines: wrap the getter in a `$derived`, which
 Svelte compares, and hand the effect the accessor. The derivation re-evaluates whenever the snapshot
 moves and notifies nothing when the field came back equal, which is the dependency React gave for
 free. Every hook that takes a `Live<T>` now reads it that way — it also replaced the three private
@@ -223,7 +223,7 @@ document and one socket throughout (`e2e/tests/shell.spec.ts`). Under the first 
 `entry.ts: attachGame` moving a hand-`mount()`ed element between the page and a holder on `<body>`;
 it is a `{#if}` and a class now.
 
-While parked the game releases what it does to the document (`hooks/gameShown.svelte.ts`, written by
+While parked the game releases what it does to the document (`state/gameShown.svelte.ts`, written by
 the root layout): `data-seated`, which costs a page its pinch and its text selection (`App.svelte`
 writes it only while shown; `setTabSeated` still answers the other tab's question about the seat),
 and the TAB key the scoreboard holds (`heldKey` stands down).
@@ -348,13 +348,13 @@ extension under `src/`.
 What the crossing left behind is worth keeping, because it is what made it survivable:
 
 - **The state that two frameworks had to share is still framework-free.** The language
-  (`i18n/store.ts`), the game state (`hooks/store/createStore.ts`) and
-  every on/off preference (`hooks/prefStore.ts`) are plain modules with a subscription, read through
-  `createSubscriber` (`i18n/i18n.svelte.ts`, `hooks/prefs.svelte.ts`). They left React first
+  (`i18n/store.ts`), the game state (`state/store/createStore.ts`) and
+  every on/off preference (`state/prefStore.ts`) are plain modules with a subscription, read through
+  `createSubscriber` (`i18n/i18n.svelte.ts`, `state/prefs.svelte.ts`). They left React first
   *because* a Svelte component could not read a React context, and they stay where they are for a
   reason that outlived that one: a content page mounts nothing and still has to know the language
   and the theme. Two copies of the current language is how a document ends up half translated.
-- **`hooks/` is split along the same line.** `.svelte.ts` for anything owning reactive state or an
+- **`state/` is split along the same line.** `.svelte.ts` for anything owning reactive state or an
   effect, plain `.ts` for everything else, and the plain half is the half a page with no application
   on it can import. The `use` prefix those files carried went with React: none of them is a hook,
   they are constants, pure functions and plain stores, and **nothing in them may reach for a rune**.
@@ -393,8 +393,8 @@ paths — is passed to `sveltekit({...})` in `vite.config.ts`, and svelte-check 
 universal-hooks path is pointed at a file that does not exist on purpose: SvelteKit's default,
 `src/hooks`, is our directory of the same name.
 
-**The store is ours** (`hooks/store/createStore.ts`, ~40 lines). It replaced Zustand, and not for
-weight: the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, which
+**The store is ours** (`state/store/createStore.ts`, ~40 lines). It replaced Zustand, and not for
+weight: the board is read by three modules that render nothing (`state/appEffects.svelte.ts`, which
 is where the sound subscription lives, `sessionRestore`, the E2E bridge) and, during the crossing, by
 two frameworks at once. What the
 dependency actually provided was `getState`, `setState`, `subscribe` and a middleware slot — four
@@ -488,7 +488,7 @@ polish.
   against a state the server had already replaced. Being asked for a swap target and *then* refused
   is the one rejection in this game that reads as a broken promise rather than as an illegal card.
 - **The handling has a hand in it**: `sfx.ts` detunes and softens the card sounds a little per hit
-  (`humanVariation`), and `hooks/haptics.ts` answers the same cue list with one vibration pattern per
+  (`humanVariation`), and `state/haptics.ts` answers the same cue list with one vibration pattern per
   moment. Both live beside the sounds so the three can never disagree about what happened.
 - **Every board control acts on the press, not on the release** (`components/press.ts`,
   `use:pressToAct` on `Card`, `Deck` and the four buttons of the action bar). `click` is dispatched
@@ -545,7 +545,7 @@ polish.
   (`game.ErrInterruptBatch`) so none of this is a client-side courtesy.
   `interjectSingle.test.ts`, `locoFinish.test.ts`.
 - **Contre-LOCO! is pressable before the server has named anybody**
-  (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`). A control that only unlocks on the
+  (`game/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`). A control that only unlocks on the
   server's cue can be *answered* and never *anticipated*, and the window it answers is five seconds:
   by the time the cue has crossed the wire and the eye has found the button, the press is a
   reflex to a stimulus rather than a read of the table. So the button goes live on what this client
@@ -659,7 +659,7 @@ capsule stayed up after the server's window had closed, and the press it invited
 is latency, and no amount of it explains what the player saw.
 
 - The server stamps every message with `server_now` (`Client.Send`, `broadcastToRoom`).
-- `hooks/serverClock.ts` keeps the last `CLOCK_SAMPLES` values of `server_now - Date.now()` and reads
+- `state/serverClock.ts` keeps the last `CLOCK_SAMPLES` values of `server_now - Date.now()` and reads
   the **largest** as the offset: a sample undershoots the true offset by exactly that message's
   one-way latency, so the largest is the closest and errs towards a window shown a few tens of
   milliseconds longer than it is. Clock skew was seconds either way. A sliding window rather than an
@@ -745,7 +745,7 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
   the flush rather than replayed onto a board that has moved on (`keepPendingIntent`, above).
 - Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
   (250ms, 500ms, 1s, 2s, 4s, 8s, 15s, then held), `attempts` resets on `onopen`. The
-  schedule and the `WsStatus` vocabulary live apart from the socket, in `hooks/webSocketPolicy.ts`:
+  schedule and the `WsStatus` vocabulary live apart from the socket, in `state/webSocketPolicy.ts`:
   a backoff curve belongs to no framework and a component that only needs the status should not
   import the transport to get it.
   **The first retry is deliberately almost immediate.** Most drops are a single lost connection
@@ -787,7 +787,7 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
   long the wrong number stays on screen after the truth changes.
 - `getReconnectMsg` is `reconnectMessageFor`; see "session persistence" below for what each screen
   sends.
-- **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.
+- **Everything the server can say lives in `state/serverMessages.ts`**, not in `App`.
   `createServerMessageHandler(unoTimer)` is built once, during App's setup, and takes its store
   snapshot at creation: the action functions are created once by the store factory and are stable for
   the life of the app, so closing over them costs nothing. Branches needing CURRENT store *values*
@@ -813,7 +813,7 @@ or a phone killing a backgrounded page threw all of that away, and the player la
 while the server held their hand and their score for another minute with nobody able to claim it.
 That is the disconnect people actually have, and it was the one that could not be undone.
 
-- `hooks/sessionPersistence.ts` owns the record (`loco_session`) and `reconnectMessageFor(state)`.
+- `state/sessionPersistence.ts` owns the record (`loco_session`) and `reconnectMessageFor(state)`.
   **One pure function builds the rejoin for every case**, so a reclaim cannot mean two different
   things depending on how the connection was lost.
 - **It used to answer three screens out of six, and the other three each failed silently and
@@ -881,7 +881,7 @@ That is the disconnect people actually have, and it was the one that could not b
   player recognises it and offers the way out; scenes `reconnecting-game` / `reconnecting-room`.
 
 ## One tab at a time
-`hooks/tabLock.ts` elects one tab to hold the game; `Root.svelte` mounts the app in that one and
+`state/tabLock.ts` elects one tab to hold the game; `Root.svelte` mounts the app in that one and
 `<TabTaken />` in the others. Scenes `tab-taken` / `tab-taken-seated`.
 
 **What was wrong.** Every tab was a session of its own, and that half is deliberate — the section
@@ -946,7 +946,7 @@ self-pairing in the queue. The server-side fix is not free: refusing to pair two
 knowingly.
 
 ## Remembering the nickname
-A returning player should not retype their name on every visit, so `hooks/nicknameMemory.ts` keeps the
+A returning player should not retype their name on every visit, so `state/nicknameMemory.ts` keeps the
 last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mount.
 
 - **`localStorage` here, not `sessionStorage`**, which is the exact opposite of the choice above and
@@ -965,7 +965,7 @@ last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mo
   the name when it is not, which is the only thing a returning player still has to type.
 
 ## Answering a nickname as it is typed
-`components/nicknameRules.ts`, used by `<Lobby />` on every keystroke and again on submit. It mirrors
+`game/nicknameRules.ts`, used by `<Lobby />` on every keystroke and again on submit. It mirrors
 the **shape** half of `loco-game/src/nickname.rs`: 20 characters counted as characters, the Latin /
 Greek / Cyrillic allowlist, `-_.'` and one space, at most one combining mark per letter, at least one
 letter or digit.
@@ -1005,7 +1005,7 @@ the press whose entire outcome was an error line under a form nobody had finishe
   is not the disabled attribute, on this field for the same reason it is not on the table code.
 
 ## Answering a table code the same way
-`components/tableCodeRules.ts`, the same idea applied to the join form's second field. It mirrors
+`game/tableCodeRules.ts`, the same idea applied to the join form's second field. It mirrors
 `hub.roomCodeRe` and the alphabet `hub.generateRoomCode` draws from: six characters of `A-Z2-9`,
 minus `I`, `O`, `0` and `1`.
 
@@ -1026,7 +1026,7 @@ minus `I`, `O`, `0` and `1`.
   unacceptable name sendable.
 
 ## The link a table is shared with
-`hooks/tableInvite.ts`. The waiting room's code is a button, and what the press copies is a URL
+`state/tableInvite.ts`. The waiting room's code is a button, and what the press copies is a URL
 carrying the code (`tableInviteUrl`), not the six characters. On the other end, `initTableInvite`
 reads that code off the URL before the first render and `App` acts on it. The URL is `/i/CODE`, a
 page of its own, and `src/routes/i/+page.svelte` plus `seo/meta.ts`'s `INVITE` are the other half of
@@ -1248,7 +1248,7 @@ is: there is no board to draw behind either of them.
 
 ## The count of connected players
 A small plate opposite the chip row, saying how many players are connected. `players_online` off the
-wire, `store.playersOnline`, `components/playersOnline.ts` for the one rule about drawing it, and a
+wire, `store.playersOnline`, `game/playersOnline.ts` for the one rule about drawing it, and a
 `role="status"` line in `Lobby.svelte` and `Searching.svelte` — nothing here is pressable and
 nothing here decides anything.
 
@@ -1652,7 +1652,7 @@ the board. It holds the language chooser (`LanguageSwitcher`, a child), the grap
 switches: streamer mode, colour shapes, reduced motion.
 
 Each on/off preference is a `createBooleanPref` module store over `localStorage`, and vibrations
-are the same shape on a touch screen that can vibrate (`hooks/haptics.ts`, one pattern per moment and
+are the same shape on a touch screen that can vibrate (`state/haptics.ts`, one pattern per moment and
 never a chain, decided beside the sounds so the two cannot disagree about what happened). The
 icons are drawn SVG, never a font character, like every other glyph a player sees.
 
@@ -1684,7 +1684,7 @@ with Escape is offered "Full screen" again and never a button that thinks it is 
   name following the document, the French name, the 46rem rule and that every row with a gear has it.
 
 - **The graphics tier is the one preference that decides how much a render may cost**
-  (`hooks/graphicsPref.ts`, `components/scene/quality.ts`, `sceneQuality.test.ts`): `auto` / high /
+  (`state/graphicsPref.ts`, `components/scene/quality.ts`, `sceneQuality.test.ts`): `auto` / high /
   medium / light, a segmented row of four with the hint naming what `auto` resolved to on this
   device. Framework-free like the other preference modules, read by the renderer through
   `resolveGraphics()` and by Svelte through `uiPrefs.svelte.ts`; part of the scene cache's key, so
@@ -1740,7 +1740,7 @@ with Escape is offered "Full screen" again and never a button that thinks it is 
   on every platform, and the first attempt here (a small circle with eight long spokes) read as a
   sun, which in a row that used to toggle the theme is the wrong word entirely. Teeth are short thick
   stubs on a large ring.
-- **The on/off preferences share one store factory** (`hooks/prefStore.ts`). Three copies of the same
+- **The on/off preferences share one store factory** (`state/prefStore.ts`). Three copies of the same
   subscribe/persist boilerplate is how they drift.
 - **Streamer mode blurs the table code.** Six characters read off a stream is an open table, and the
   waiting room — the one screen a streamer is guaranteed to sit on while friends join — prints them
@@ -1751,7 +1751,7 @@ with Escape is offered "Full screen" again and never a button that thinks it is 
   leaves it.** A table code is a single string shared by everybody who can see it: a host streaming
   their own screen is exposed by the friend who joined and left the waiting room up on a second
   monitor, and by the seat that reads the code out. Blurring only the host's copy protects the one
-  screen that was already being careful. So `hostStreamerSync` (`hooks/appEffects.svelte.ts`) sends
+  screen that was already being careful. So `hostStreamerSync` (`state/appEffects.svelte.ts`) sends
   `set_streamer_mode`, the server keeps one answer per table and broadcasts it, and the client keeps
   it in `store.tableStreamer`, **ORed** with the local preference and never merged into it — a guest
   who wants the code hidden for their own stream must not be uncovered by the host stopping theirs.
@@ -1868,7 +1868,7 @@ hue for that reason, but "survives" is not "reads".
 - Off by default: the card face is the brand and this adds a mark to it.
 
 ## Reduced motion
-The setting has three values (`auto` / `reduce` / `full`, `hooks/motionPref.ts`) and the UI shows
+The setting has three values (`auto` / `reduce` / `full`, `state/motionPref.ts`) and the UI shows
 two, because `auto` is what the switch reads before it is ever touched.
 
 - **`:root[data-motion="reduce"]` is the single source of truth in CSS**, written by `initMotion()`
@@ -2104,9 +2104,9 @@ no way not to aim at them.
   those handlers changes.
 
 Three global key listeners exist and no fourth may be added: `heldKey` in
-`hooks/viewEffects.svelte.ts` (the score table, held on TAB — a read-only panel that moves
-nothing on the board), `hooks/escapeKey.svelte.ts` (the one Escape hook, below), and the audio
-unlock in `hooks/appEffects.svelte.ts`, which listens for a key press as evidence a human is
+`state/viewEffects.svelte.ts` (the score table, held on TAB — a read-only panel that moves
+nothing on the board), `state/escapeKey.svelte.ts` (the one Escape hook, below), and the audio
+unlock in `state/appEffects.svelte.ts`, which listens for a key press as evidence a human is
 there and reads no key at all. Anywhere else, a global key listener may read `Escape` and nothing
 else — the panels that own their own lifetime (the gear, the mixer, the leave confirmation, the
 home sheet) do exactly that. `src/test/noKeyboardShortcuts.test.ts` holds the whole rule,
@@ -2178,7 +2178,7 @@ force a style recalc after every frame's writes. Reduced motion lifts the one ca
 
 Two ways out, on everything that opens over the board, and they are not interchangeable:
 
-- **Escape**, through `hooks/escapeKey.svelte.ts`. One `document` listener rather than one effect
+- **Escape**, through `state/escapeKey.svelte.ts`. One `document` listener rather than one effect
   per panel, which is how the wild colour picker and the swap target picker ended up with a scrim, a
   ✕ and nothing on the keyboard while the rules modal, the legal modal, the gear, the mixer and the
   waiting room's leave confirmation all answered it. The panels do not take focus — a picker opens
@@ -2252,7 +2252,7 @@ problem. They arrive holding a model of a card game of colours and symbols, that
 Skip, Reverse and +2, and it has no slot at all for the two cards this game adds. A bullet naming a
 card asks somebody to picture it; the face is the thing that makes it recognisable.
 
-So the second tab draws the deck: `components/cardCatalogue.ts` is the faces — one kind per entry,
+So the second tab draws the deck: `game/cardCatalogue.ts` is the faces — one kind per entry,
 `<Card />` itself rather than a picture of one, each coloured kind in a different suit so all four
 colours appear once — and the copy is `t.cardNames` plus `t.cardBriefs`, one line each. The lede is
 the only place the four suits are stated, because a catalogue that drew all four of every coloured

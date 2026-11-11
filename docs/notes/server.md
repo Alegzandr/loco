@@ -887,7 +887,7 @@ from an ordinary room's on purpose (`config::MatchmakingTimings`).
   only when the count moves, and only to sockets that are not at a table. The two are not in tension
   — one is "are the lights on", which is worth answering on a home screen, the other is "how long
   until I am paired", which no honest number answers and which a queue size gets read as. The floor
-  that keeps the first from turning into the second is the client's (`components/playersOnline.ts`,
+  that keeps the first from turning into the second is the client's (`game/playersOnline.ts`,
   two players), because it is a rule about what a screen draws rather than about what is true.
   - **The watermark is per socket, not per hub** (`Client::online_sent`). A hub-wide "last sent" would
     skip a player who has just left a table — they were seated while the count moved, so the number
@@ -1690,7 +1690,7 @@ to "has drawn" is what produced a seat that could neither draw (button disabled)
 `you must draw a card before passing`) until the turn timer auto-acted for it.
 
 **Shrinking a hand has the mirror rule.** `removePlayedCards(hand, card, targetSize)` (in
-`hooks/store/helpers.ts`, re-exported from `gameStore.ts`, called by `applyCardPlayed`) drops
+`state/store/helpers.ts`, re-exported from `gameStore.ts`, called by `applyCardPlayed`) drops
 copies of the played card until the local hand
 matches the `hand_size` the server sent in the same message, because one `card_played` can represent
 several discards — a turn batch (`Room::play_cards`) puts down N identical copies at once. An

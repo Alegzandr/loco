@@ -25,6 +25,7 @@ shaped the way it is and what breaks if you reshape it. Update both in the same 
 
 | Note | Covers |
 | --- | --- |
+| [`docs/notes/architecture.md`](docs/notes/architecture.md) | the target architecture from first principles, where the code stands against it, and the road between |
 | [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md) | `server/crates/loco-game/`: deck, scoring, draw stacks, LOCO!/catch windows, interrupts, rematch, lobby |
 | [`docs/notes/server.md`](docs/notes/server.md) | `server/crates/loco-hub/` and the binary: anti-cheat, bots, sessions, rate limiting, map-loading gate, drain, metrics, logging |
 | [`docs/notes/client.md`](docs/notes/client.md) | realtime path, transport, session restore, protocol validation, i18n, the voice |
@@ -195,7 +196,7 @@ header's script hashes out of the build.
   `CoverCard.svelte` (`make cover`) + `RoomStill.svelte` (the rooms page's stills, `make rooms`) +
   `e2eBridge.svelte.ts` (the whole `window.__LOCO_E2E__` surface in one file) + `lookPanel.ts` (the
   lil-gui panel over `scene/look.ts`, mounted by `?look=1`), all behind `import.meta.env.DEV`
-- `src/hooks/` splits in two, and the split is the point. **`.svelte.ts` is anything that owns
+- `src/state/` splits in two, and the split is the point. **`.svelte.ts` is anything that owns
   reactive state or an effect** — a rune is only compiled in a `.svelte` or `.svelte.ts` file, so the
   extension is the declaration: `webSocket`, `gameStore` (the snapshot every component reads),
   `appEffects` (audio, session persistence, the host's streamer mode going out on the wire, the
@@ -393,7 +394,7 @@ every entry point: `server/crates/loco-game/API.md`.
 - **Each record says how long its match was played** (`duration_ms`, from `Table.match_started_at`
   stamped at `match_ready` — the gate is a wait, not the game). **Zero is "cannot say" and stays off
   the wire**, so a played match is rounded up to at least 1 ms. The client words it
-  (`components/matchDuration.ts`) **to the second, units written out** — `12 min 34 s`, never
+  (`game/matchDuration.ts`) **to the second, units written out** — `12 min 34 s`, never
   `12:34`, which reads as a clock.
 
 ## Server
@@ -673,7 +674,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   page** — never in `hooks.client.ts` or on a content page, where `initTabLock` would elect a tab
   holding no game — and keeps `#root` rendered but `.parked` (inert, hidden) while a content page is
   up, so the socket, the bed and a match survive. While parked it releases `data-seated` and TAB
-  (`hooks/gameShown.svelte.ts`).
+  (`state/gameShown.svelte.ts`).
 - **`make csp` belongs after a dependency bump too**: a dependency can break the CSP without
   appearing in our sources. The validator is Valibot, not Zod, whose JIT reached for `Function()`.
 - **`vite.config.ts` names the `VITE_` env prefix** (Astro once narrowed it away; `wsEnv.test.ts`).
@@ -690,7 +691,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   wire shape goes in `server/crates/loco-protocol/`, then `make protocol`; CI's `protocol_check` undoes a hand edit.
 
 **State and effects**
-- **The store is ours** (`hooks/store/createStore.ts`, ~40 lines, Zustand's semantics, pinned by
+- **The store is ours** (`state/store/createStore.ts`, ~40 lines, Zustand's semantics, pinned by
   `storeCore.test.ts`). It must publish the property the creator mutated, never a copy.
 - **Derived state in the store is completed by the store, never by the actions**
   (`store/deriveCatchMiddleware.ts`, `catchDerivation.test.ts`).
@@ -698,7 +699,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   may be held and replayed. The round summary is an overlay; `pendingMatchEnd` is the one exception,
   because nothing follows a match end.
 - **An effect that watches one field of the store reads it through `live()`**
-  (`hooks/live.svelte.ts`), or a `$derived` when it is written in a component. `game.current` is one
+  (`state/live.svelte.ts`), or a `$derived` when it is written in a component. `game.current` is one
   `$state.raw` replaced whole, so a bare `g.x` depends on the entire match. `liveDeps.test.ts`.
 - **A child gets no narrowing either: reading a prop is not depending on its value.** So an animation
   effect guards on its trigger's **timestamp**, a timer effect works to an **absolute deadline**
@@ -730,7 +731,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   server refuses the batch rather than trusting either** (`GameError::InterruptBatch`). Batch play
   survives on your **own turn** (`Room::play_cards`), where nothing is being raced.
 - **Contre-LOCO! is pressable before the server has named anybody**
-  (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`): any *other* seat on exactly two
+  (`game/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`): any *other* seat on exactly two
   cards, or a window still running — the server's end plus `CATCH_LATE_GRACE_MS` (2s), deliberately
   under the server's `CATCH_GRACE_MS` (3s) by the width of the wire. `serverMirrors.test.ts` pins the
   inequality, not a number. **Hand sizes, our own seat and the clock decide it, and nothing else
@@ -749,7 +750,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   (`class:armed={catchArmed && !catchLocked}`). Scene `game-catch-locked`.
 - **The press is acknowledged on the frame it lands, and the verdict is still the server's**
   (`store.catchPending`, `ActionBar`'s `.called`). It presumes nothing and disables nothing.
-- **Every deadline is read on the server's clock** (`hooks/serverClock.ts`): `turn_deadline`,
+- **Every deadline is read on the server's clock** (`state/serverClock.ts`): `turn_deadline`,
   `catch_seats[].ends_at`, `catch_locked_until`, `forfeit_deadline` and the snapshot's are absolute
   server instants, moved onto our clock by `localizeDeadlines` in one place. `serverClock.test.ts`.
 
@@ -765,13 +766,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The socket does not survive the page being frozen** (`pagehide` drops it, `pageshow` asks back on
   `persisted`). Playwright runs with the bfcache off, so `wsFreeze.test.ts` is the only guard.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`).
-- **One tab holds the game and the others open no socket** (`hooks/tabLock.ts`, `Root.svelte`,
+- **One tab holds the game and the others open no socket** (`state/tabLock.ts`, `Root.svelte`,
   `TabTaken.svelte`): a second tab was a second player and could be paired against the first. The
   election is **one synchronous `localStorage` read before the first paint**, the record a
   **heartbeat**, and **in every doubt the tab owns the game**. It is not mounted inside `App.svelte`,
   which is the only reason `Root.svelte` exists. **Its curtain does not close on `Escape`** — the
   documented exception. Two browsers or a private window bypass all of it.
-- **A table is shared as a link** (`hooks/tableInvite.ts`): `/i/?t=CODE`, carrying no language, spent
+- **A table is shared as a link** (`state/tableInvite.ts`): `/i/?t=CODE`, carrying no language, spent
   on arrival before the first render. **A link carries a table, never a player.** The parameter is
   read on `/i/` only.
 - **`/i/` is a page of its own because a link preview is served HTML**: `noindex`, absent from
@@ -796,7 +797,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   (`heldKey`). **Shift+TAB is never taken** and is the keyboard's whole way around the board. Inside
   a dialog TAB belongs to the dialog (`components/dialogFocus.ts`).
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control**
-  (`hooks/escapeKey.svelte.ts`). A dropdown anchored to its own opener is the one exception.
+  (`state/escapeKey.svelte.ts`). A dropdown anchored to its own opener is the one exception.
   `escapeClose.test.ts`.
 - **The browser's own menu stops at the seat** (`contextGuard.ts`, gated on `data-seated`, bubble
   phase). **The landings keep it.** `contextGuard.test.ts`.
@@ -907,7 +908,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **Both mirrors are pinned to the server's source** (`serverMirrors.test.ts`, reading through
   `src/test/serverSource.ts`): a mirror drifts most quietly by going *stricter* than the server.
 - **The count of connected players is drawn from two up and absent below it**
-  (`components/playersOnline.ts`, absolute so it reserves nothing; below 46rem at the foot of the
+  (`game/playersOnline.ts`, absolute so it reserves nothing; below 46rem at the foot of the
   screen, centred, on both screens that draw it). **Never rounded, never padded, never reworded.** It
   says *connected*, never *searching* — **a queue-flavoured wording would be the queue size in
   disguise**, which is off the wire on purpose. `setPlayersOnline` stays out of `resetToHome`.
@@ -916,7 +917,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   screen only**, and **never at a table**. **The order is the server's, which is Twitch's**:
   `topLiveStreams` cuts and never sorts. Every `<img>` carries `width`/`height`; **no Twitch logo is
   drawn anywhere**.
-- **An external address is named in one module and assembled there** (`components/twitchLinks.ts`),
+- **An external address is named in one module and assembled there** (`game/twitchLinks.ts`),
   and **nothing it produces is ever a `src`**. Every outgoing link carries `noopener noreferrer external`.
 - **The searching screen times its own wait, and no copy of it may imply the queue is empty**
   (`searchStage`). Entered optimistically; `endSearch` is guarded on the screen. **A forfeit never
@@ -1372,7 +1373,7 @@ stated at the top of `styles/tokens.css`:
     float render target (`floatTargets`) never starts the chain (`sceneQuality.test.ts`). **The
     sprites go through the same tone curve and grade** (`makeSpriteGrader`) and the air as fog —
     never the vignette, fringe or focus — and cast no shadow. **The tier is the player's**
-    (`hooks/graphicsPref.ts`), it says how large the shadow map is and which passes run, and **is
+    (`state/graphicsPref.ts`), it says how large the shadow map is and which passes run, and **is
     part of the cache key**.
   - **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`, a vertex
     attribute; `kit.ts: litMaterial`). The sky is an environment for **reflection only**, so gloss 0
@@ -1510,7 +1511,7 @@ stated at the top of `styles/tokens.css`:
 - **No painted ambience behind a screen: no glowing blobs, no floating silhouettes.** The canvas is
   the designed gradient and the objects on it carry the life. **A hand is dealt off the deck card by
   card** (`DEAL_FLIGHT_MS`, keyed on `roundNumber`), **numbers are counted** (`countUp.ts`) and
-  **every screen arrives** (`hooks/screenIn.ts`, in only, never out).
+  **every screen arrives** (`state/screenIn.ts`, in only, never out).
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).
@@ -1521,7 +1522,7 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 **Sound effects**
 - **Every sound effect is synthesised at runtime; the music is not.** No sample library, and the bed
   is nineteen MP3 loops under `client/public/music/`, served from this origin and never a CDN.
-- **The board plays nothing; one subscription does.** `gameAudio()` in `hooks/appEffects.svelte.ts`
+- **The board plays nothing; one subscription does.** `gameAudio()` in `state/appEffects.svelte.ts`
   is the only place a game sound is played, and what to play is decided by `soundsForTransition` in
   `audio/gameSounds.ts` — pure, snapshot-diffing, unit-tested. A component calling `playSfx` directly
   is only ever a UI tap (`uiTap`, `uiBack`), never a game event.
@@ -1616,7 +1617,7 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   **brakes** it (`brake()`: slowed like a record, quiet for `BRAKE_REST_MS`, the recap's piece
   rising over `REENTER_FADE_S`), a round's **ducks** it, a LOCO! or a Contre-LOCO! **dips** its top
   end. The cues are played first, so a fanfare is struck in the key it was earned in.
-- **Something read over the table muffles the bed and never stops it** (`hooks/bedMuffle.svelte.ts`,
+- **Something read over the table muffles the bed and never stops it** (`state/bedMuffle.svelte.ts`,
   counted): the rules and the preferences. **Not the audio panel** — somebody setting the music's
   volume is listening to it.
 - **A loop's title is a name and its blurb is copy, and only one of the two is translated.** The

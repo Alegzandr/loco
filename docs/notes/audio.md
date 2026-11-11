@@ -414,7 +414,7 @@ a bar ahead does not move the cues before the new piece is heard.
 - **A LOCO! or a Contre-LOCO! dips it** (`dip()`): the bed's own low-pass shuts to 520 Hz for 0.7 s
   and opens again. The duck makes room by level; this makes room by colour, so the shout owns the
   top of the spectrum and the groove underneath never stops.
-- **Something read over the table muffles it** (`setMuffled`, `hooks/bedMuffle.svelte.ts`): the
+- **Something read over the table muffles it** (`setMuffled`, `state/bedMuffle.svelte.ts`): the
   rules and the preferences put the bed behind a door (900 Hz) until they close, counted so two
   panels open at once do not reopen it early. **Not the audio panel**: somebody setting the music's
   volume is listening to it.
@@ -555,7 +555,7 @@ here. The files are served from this origin and never a CDN, which is what keeps
 
 - `audio/gameSounds.ts` — **decides**, and plays nothing. `soundsForTransition` is a pure function
   of two store snapshots, which is what makes it a unit test rather than a listening exercise.
-- `hooks/appEffects.svelte.ts` — `gameAudio()`, **the only place a game sound is played**. One store
+- `state/appEffects.svelte.ts` — `gameAudio()`, **the only place a game sound is played**. One store
   subscription feeding the list above, instead of audio calls scattered through components: every
   sound stays in one readable list and cannot double-fire. A component calling `playSfx` directly is
   a UI tap (`uiTap`, `uiBack`) and never a game event.
@@ -647,7 +647,7 @@ here. The files are served from this origin and never a CDN, which is what keeps
   copies of one sample a round is the sound of a machine. The cues that *mean* something (a call, a
   catch, a fanfare) stay exact: those are the vocabulary, and a word is not pronounced differently
   each time. `haptics.test.ts` pins the range.
-- **The phone answers the same list** (`hooks/haptics.ts`): `hapticsFor` reads the cues
+- **The phone answers the same list** (`state/haptics.ts`): `hapticsFor` reads the cues
   `soundsForTransition` produced and picks one pattern per moment, the strongest cue's, never a
   chain; `gameAudio()` plays it right after the sounds. Presentation only, off by one switch in the
   preferences (stored inverted, `loco_haptics_off`, so a fresh install buzzes), and a no-op — with

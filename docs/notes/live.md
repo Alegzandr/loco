@@ -247,7 +247,7 @@ written by a stranger.
 
 ## The outgoing links
 
-`components/twitchLinks.ts` is the only module in the client that names Twitch's address, and it
+`game/twitchLinks.ts` is the only module in the client that names Twitch's address, and it
 assembles it rather than writing it down.
 
 Why that is not a way around `csp.test.ts`: what the policy protects is that the browser **fetches**

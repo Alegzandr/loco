@@ -746,7 +746,7 @@ The bar disappears the moment a seat is taken, and the burger with it. That is n
 it is the page's markup — so `App.svelte` writes `data-seated` on `<html>` and `GamePage.css` hides
 both: at a seat the board is the board, with no site chrome over the table. (While the game is
 parked behind a content page, `App.svelte` writes no `data-seated` at all — see
-`hooks/gameShown.svelte.ts` in `client.md`.) The body no longer needs
+`state/gameShown.svelte.ts` in `client.md`.) The body no longer needs
 `overflow: hidden` restoring, because it never lost it: a board that can be scrolled off-screen
 mid-match is a bug, and now so is a lobby that can. `appSubscription.test.ts` owns the attribute,
 `seo.spec.ts` owns the CSS and the no-scroll guarantee.
@@ -810,7 +810,7 @@ no better, it is still an invitation to leave the table. `rulesModal.test.ts` as
 What the deck page would have been reached *for* is drawn in the modal's own Cards tab instead; see
 "Two halves" in [`client.md`](client.md).
 
-The registry is still imported from the browser, by `hooks/tableInvite.ts` (`HOME`, `DEFAULT_LANG`),
+The registry is still imported from the browser, by `state/tableInvite.ts` (`HOME`, `DEFAULT_LANG`),
 which is why `meta.ts` reads `process.env` through a `typeof` guard: a bare access throws "process is
 not defined" in a browser, and hardcoding a path beside the registry is exactly the drift the
 registry exists to stop.

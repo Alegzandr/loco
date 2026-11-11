@@ -708,7 +708,7 @@ reason written next to it, never switched off in the config.**
   `npm ci && npm run dev`, `:5173` (container 3000).
 - **No dev-server WS proxy** — browser connects directly to `ws://<host>:8080/ws` (the proxy is unreliable under Docker).
 - `VITE_WS_PORT=8080` env tells client which port (default 8080).
-- `hooks/webSocket.svelte.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
+- `state/webSocket.svelte.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
 - `vite.config.ts`: no proxy for the socket; it proxies `/live.json` and `/live-thumb` to
   `LOCO_SERVER_ORIGIN` (the `server` service in compose), as nginx does in production.
   `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries `VITE_HMR_CLIENT_PORT` so HMR

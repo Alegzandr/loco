@@ -61,8 +61,9 @@ function addField(key: string, initial: unknown): void {
   Object.defineProperty(view, key, { get: c.get, enumerable: true, configurable: true })
 }
 
-let whole = $state.raw(gameStore.getState())
-for (const [key, value] of Object.entries(whole)) addField(key, value)
+const first = gameStore.getState()
+let whole = $state.raw(first)
+for (const [key, value] of Object.entries(first)) addField(key, value)
 
 gameStore.subscribe((next, prev) => {
   for (const key in cells) {

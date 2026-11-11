@@ -328,7 +328,7 @@ Every card the table moves is seen moving, from the place it leaves to the place
 - **Three readable states, not two.** *Dead* while every other hand is above
   `CATCH_LIVE_MAX_HAND` (2) — the opening of every round and most of its middle. *Awake and
   pressable* as soon as any other seat is at two cards or fewer
-  (`components/catchAvailability.ts`), i.e. one ordinary play before the server can name anybody:
+  (`game/catchAvailability.ts`), i.e. one ordinary play before the server can name anybody:
   a control that only unlocks on the server's cue can be answered but never anticipated, and five
   seconds is not long enough to find a button in. *Armed* for the seconds a seat actually owes the
   call. The middle state is what the price in §14.6 is for, and `game-catch-live` is its scene.
@@ -1049,7 +1049,7 @@ Each builder's header names its three grounds.
     4096 shadow map and runs all of them; `medium` 2× with a 2048 map, the occlusion, FXAA, bloom,
     the mist and the vignette; `light` is the lit, shadowed (1024), multisampled frame with nothing
     over it. **Every tier is lit and shadowed**: the room is rendered once per match, so the light is
-    never a frame budget. The tier is the player's (`hooks/graphicsPref.ts`, `autoTier` when it is
+    never a frame budget. The tier is the player's (`state/graphicsPref.ts`, `autoTier` when it is
     `auto`), and **it is part of the cache key** so moving it mid-match renders the room again.
 - **A room is built once per match, and it is built on the main thread, so what it costs is
   measured** (`render.ts` logs the view it solved and what the frame took, in DEV). A room is
@@ -2163,7 +2163,7 @@ measures it).
   - **One roll decides how near a card is** and size and speed both read off it, because a large card
     drifting down slowly behind a small one is the frame where the depth goes. Reduced motion drops
     the layer entirely.
-- **Per-seat identity colours** (`components/playerColors.ts`): a player keeps one colour across
+- **Per-seat identity colours** (`game/playerColors.ts`): a player keeps one colour across
   lobby avatar, banner and scoreboard so a viewer can follow "the orange player" all match.
 - Opponent pills show the **exact** card count (the fan only conveys few-vs-many, and caps out).
 
@@ -2505,7 +2505,7 @@ the same voice as the rest of the board.
   totals and the game-over standings): a figure that pops into place is a spreadsheet cell. Rows on
   both cards arrive top place first and the winner's row catches the light once; the game-over
   heading wraps as a phrase (`text-wrap: balance`) rather than leaving `TOI !` alone on a line.
-- **Every screen arrives** (`hooks/screenIn.ts`, on the wrapper `App.svelte` puts round each
+- **Every screen arrives** (`state/screenIn.ts`, on the wrapper `App.svelte` puts round each
   screen): a 240 ms rise and fade in, no departure — nothing pressable is ever behind a screen on
   its way out. `.screen` is `height: 100%` and owns nothing else, so every screen sizes itself to
   it exactly as it sized itself to `#root`.

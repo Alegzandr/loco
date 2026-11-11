@@ -168,7 +168,7 @@ rather than on the `Room`, because it has to outlive the room's reset.
   gate (nothing was played), and a match restored from a snapshot written before the stamp existed.
   The stamp rides the drain snapshot (`RoomSnapshot.match_started_at`) for that reason — a deploy
   mid-match must not restart the clock — and `reset_for_next_match` clears it, because the next
-  match is timed from its own open. The client's half is `components/matchDuration.ts`: the last
+  match is timed from its own open. The client's half is `game/matchDuration.ts`: the last
   record is the match that just ended (recorded before it is announced), worded to the second with
   the units written out — `12 min 34 s`, `42 s` under a minute, `1 h 05 min 12 s` past an hour — and
   never as `12:34`, which reads as a clock or a speedrun split. It was minutes only; the player asked
@@ -476,7 +476,7 @@ won, and a one-card hand had made them finishes by accident.
   - **It used to be free, and it was free because the button used to be a cue.** While Contre-LOCO!
     only lit up on the seats the server named in `catch_seats`, a call outside a window could only
     be a message no client of ours composed, so it was refused, charged nothing and told nobody. The
-    button is now live from two cards out (`client/src/components/catchAvailability.ts`), because
+    button is now live from two cards out (`client/src/game/catchAvailability.ts`), because
     a control that unlocks on the server's permission can only ever *answer* a five-second window
     and never *anticipate* one. That makes the wrong press an ordinary part of playing, and the
     thing that keeps it honest is the price.

@@ -35,7 +35,7 @@ TypeScript does not mention them there, and no client reads them. Dropping them 
 and a recapture of the fixtures.
 
 The client reads a message by switching on `msg.type`, which narrows the union: a field is only
-readable on the messages that carry it (`client/src/hooks/serverMessages.ts`). `ServerMsgOf<'x'>`
+readable on the messages that carry it (`client/src/state/serverMessages.ts`). `ServerMsgOf<'x'>`
 names one variant.
 
 Decoding a client message is strict about values and lenient about everything else: a `type` the
@@ -144,7 +144,7 @@ Every server message also carries `server_now`, the server's clock in unix milli
 
 - `card_played` carries `chosen_player` only for `swap` (target seat index). `global_switch` and other cards omit it.
 - **`interrupt_open` says whether the top discard may still be slammed**, on `card_played`, `card_drawn`, `turn_changed`, `match_ready` and in every `GameStateDTO`. It is nullable on the wire like `has_drawn` and for the same reason: false is the answer that matters, and an absent field means unchanged — a draw by the seat at turn shuts the window, a penalty growing a hand leaves it where it was, and both arrive as `card_drawn`. A client that offers a slam without reading it is answered `interrupt window closed` for a race nobody ran.
-- **Every deadline is an absolute server instant, and `server_now` is how the client reads it.** `turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until` and `forfeit_deadline` are unix milliseconds on the server's clock; a client that compared them to its own clock as they arrived was wrong by however far its clock was off, which on a phone is easily seconds — enough to hide a five-second catch window entirely, or to keep it on screen past its end and charge a card for the press. The client keeps the largest recent `server_now - Date.now()` as its offset and moves every deadline by it on arrival (`client/src/hooks/serverClock.ts`). `server_now` is stamped on every message so the estimate is always fresh; it is optional on the wire so an older fixture still validates.
+- **Every deadline is an absolute server instant, and `server_now` is how the client reads it.** `turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until` and `forfeit_deadline` are unix milliseconds on the server's clock; a client that compared them to its own clock as they arrived was wrong by however far its clock was off, which on a phone is easily seconds — enough to hide a five-second catch window entirely, or to keep it on screen past its end and charge a card for the press. The client keeps the largest recent `server_now - Date.now()` as its offset and moves every deadline by it on arrival (`client/src/state/serverClock.ts`). `server_now` is stamped on every message so the estimate is always fresh; it is optional on the wire so an older fixture still validates.
 - `chosen_color` is required for **every** wild (`wild`, `wild_draw_four` **and** `global_switch`) on `play_card`, `play_cards`, `counter_draw` and `interrupt_play`. A colourless wild is rejected (`must choose a color for a wild card`); the value `wild` counts as colourless, since it matches no coloured card and would strand the whole table.
 - `interrupt_success` is emitted before the corresponding `card_played` so the client can render lead-taking distinctly.
 - `pending_draw` and `has_drawn` describe the **table** after the event, not the recipient, and `card_played` / `card_drawn` carry both to every seat. They are nullable on the wire on purpose: a hand can grow without anybody having drawn on their turn (the LOCO-catch penalty), so a missing `has_drawn` must mean "unchanged" and never be defaulted to `true` — a client that guessed it disabled its own draw button and had every pass refused with `you must draw a card before passing`.
@@ -160,7 +160,7 @@ Every server message also carries `server_now`, the server's clock in unix milli
   is drawn. `players_online` is nullable on the wire for the same reason `player_index` is: a count
   of zero is a real answer (every other tab gone), and `omitempty` would drop it, leaving a chip on
   screen counting people who have left. The client draws it from **2 up** and nothing at all below
-  that (`components/playersOnline.ts`) — for the reason `matchmaking_queued` carries no number at
+  that (`game/playersOnline.ts`) — for the reason `matchmaking_queued` carries no number at
   all, one floor above it. What is drawn is always exactly what was sent: the floor hides the plate,
   it never rounds or rewords what is above it.
 - `round_history` is server-owned so a reconnecting player recovers the same table: cumulative scores cannot be split back into rounds client-side once a player has won twice.
