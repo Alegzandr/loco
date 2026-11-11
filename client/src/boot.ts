@@ -47,26 +47,21 @@ export function mountLookPanelIfAsked(): void {
 }
 
 /**
- * The home page arrives in one piece.
+ * The game page arrives in one piece.
  *
- * `/` is half prerendered markup (the bar, the phone's burger, the prose behind
- * the sheet) and half application rendered in the browser, and nothing held the
- * two together: the canvas and the static half painted on the first frame, the
- * lobby appeared whenever the game had booted. Both halves wait on this
- * attribute instead and fade in together — see the boot rules in
- * `layouts/GamePage.css`, which also carry the fallback that reveals the page if
- * this never runs.
+ * The page is half prerendered markup (the bar, the phone's burger, the prose
+ * behind the sheet) and half application rendered in the browser. A
+ * canvas-coloured veil holds both until this attribute is written, then lifts
+ * — see the boot rules in `layouts/GamePage.css`, which also carry the fallback
+ * that lifts it if this never runs. The content under the veil is opaque from
+ * its first paint, which is what keeps the page an LCP candidate.
  *
  * Two frames, not one: the render schedules the work, so the first callback
- * runs with the commit still pending and the fade would start over an empty
+ * runs with the commit still pending and the veil would lift over an empty
  * #root.
  *
- * The value is then spent. What fades is the app's rendered child rather than
- * #root itself — fading the mount point showed the body's gradient through it,
- * which no screen is ever meant to display — and every screen is a fresh child,
- * so a live reveal rule would replay on each one for the rest of the match. The
- * bare attribute is what lifts the hold and it stays; `in` is the animation and
- * it lasts one fade.
+ * The value is then spent: `in` is the fade and lasts one fade; the bare
+ * attribute that follows removes the veil for the life of the document.
  */
 const BOOT_FADE_MS = 600
 

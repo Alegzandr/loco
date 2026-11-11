@@ -253,7 +253,7 @@ Every card the table moves is seen moving, from where it leaves to where it land
   grid, **mounted all match** and enabled only while `handSize === 1 && !hasDeclared` — for Catch's
   reason. `actionBar.test.ts` asserts the slot, the enabled state and the arming of every button.
 - **It is small and quiet on purpose**: forgetting the call is one of this game's turns, so the chip
-  must not read as a fourth action. 30px tall, 13px type, `opacity: 0.55` while dead; its `.hit-target`
+  must not read as a fourth action. 34px tall, 14px type, dead as every dead button on the bar is (the sunken slot, never an opacity); its `.hit-target`
   applies **only while live**, and the 10px gap above the bar is 3px more than the target overhangs,
   so it never steals a tap from Catch.
 - **Its band is part of `BOTTOM_RESERVE`** (140: 82 bar + 58 chip), so the hand is dealt above it

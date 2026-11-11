@@ -532,11 +532,11 @@ the class does nothing. Measure the rendered box rather than reading the CSS.
 
 Chrome takes the LCP candidate at an element's **first** paint and skips anything at `opacity: 0`; an
 element fading up from zero is not reconsidered. No candidate is `NO_LCP` (and `NO_FCP`), and
-Lighthouse scores performance **0** however fast the page is. On `/`, the boot fade holding
-`#root > *`, the bar's row and `.homeBurger` at `opacity: 0` until `data-booted` measured **perf 0, no
-LCP**; with it neutralised, **perf 95, LCP 2.6 s**. The fix is to fade a canvas-coloured veil *off
-the top* and leave the content opaque on the first frame. Nothing about the failure is visible.
-**Open:** `layouts/GamePage.css` (`homeBootIn`) still fades the content itself from 0, not a veil.
+Lighthouse scores performance **0** however fast the page is, and nothing about the failure is
+visible. So a page that must arrive at once fades a canvas-coloured veil *off the top* and leaves the
+content opaque on its first frame: `layouts/GamePage.css` (`body.game::after`, `homeVeilOff`),
+pinned by `contentPages.test.ts`. Fading the content itself measured **perf 0, no LCP** on `/`; the
+content left opaque measured **perf 95, LCP 2.6 s**.
 
 ### Re-running it
 

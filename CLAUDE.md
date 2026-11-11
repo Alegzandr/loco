@@ -749,9 +749,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **Reduced motion is `:root[data-motion="reduce"]`, never a media query** (`initMotion()`;
   `reducedMotionCss.test.ts`, `motionPref.test.ts`).
 - **Under 46rem the burger is the only navigation**, prose included (`#navAbout`, shipped `hidden`).
-- **`/` arrives in one piece**: hold `#root > *`, `.onHome .footerRow` and `.homeBurger` at
-  `opacity: 0` (`layouts/GamePage.css`, `homeBootIn`), **never `#root` or `.siteFooter`**, which
-  paint the canvas; opacity only (`contentPages.test.ts`).
+- **A game page arrives in one piece, under a veil**: a canvas-coloured `body.game::after` holds
+  the page until `data-booted` and lifts off (`layouts/GamePage.css`, `homeVeilOff`), opacity only.
+  **The content under it is never faded** — it paints opaque on its first frame, which is what keeps
+  it an LCP candidate (`contentPages.test.ts`).
 
 ## Findability
 Detail: [`docs/notes/seo.md`](docs/notes/seo.md).

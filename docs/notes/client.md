@@ -158,13 +158,14 @@ electing it would curtain the tab actually playing. On every later arrival at a 
 layout runs `initLang()` and `redetectLang()` again. `Root.svelte` is the tab lock's switch, which
 decides whether `App` (and its socket) exists at all.
 
-**`/` arrives in one piece.** The prerendered chrome paints on the first frame and the lobby when the
-game has booted, so `#root > *`, `.onHome .footerRow` and `.homeBurger` hold at `opacity: 0` until
-`boot.ts: markBooted` writes `data-booted` (two `requestAnimationFrame`s after the render), then one
-0.34s fade brings them up together. **What fades is what arrives, never the surface**: `#root` and the
-bar paint `--color-canvas`, and fading them shows the body through. The hold is inside
-`@media (scripting: enabled)` with a 3s fallback, the reveal is spent 600ms later so it never
-replays, and it animates opacity only. `contentPages.test.ts`.
+**A game page arrives in one piece.** The prerendered chrome paints on the first frame and the lobby
+when the game has booted, so a canvas-coloured veil (`body.game::after`, fixed, no pointer events)
+covers both until `boot.ts: markBooted` writes `data-booted` (two `requestAnimationFrame`s after the
+render), then lifts in one 0.34s fade. **The veil fades, never the content**: everything under it is
+opaque from its first paint (see seo.md, "NO_LCP scores 0"), and the veil is the canvas's own colour,
+so the body's gradient never shows. The hold is inside `@media (scripting: enabled)` with a 3s
+fallback, the reveal is spent 600ms later (which removes the veil), and it animates opacity only.
+`contentPages.test.ts`.
 
 ### Behaviour is the components', not a script's over the markup
 
