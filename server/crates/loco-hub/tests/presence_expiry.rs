@@ -1,5 +1,3 @@
-//! Port of `server/hub/presence_expiry_test.go`.
-//!
 //! What a departure looks like from the other side of the table, once the seat
 //! stops being held.
 

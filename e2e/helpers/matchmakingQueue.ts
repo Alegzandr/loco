@@ -73,7 +73,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  *
  * This is the only place in the suite that reads an operator surface, and it is
  * worth saying why it is not a test smell: the queue's size is deliberately
- * never on the wire (see loco-hub/src/matchmaking.rs), so there is no client-visible way
+ * never on the wire (see loco-hub/src/router/matchmaking.rs), so there is no client-visible way
  * to ask "is the queue empty" — and that is precisely the question a test has to
  * answer before it can trust a pairing to be its own.
  */

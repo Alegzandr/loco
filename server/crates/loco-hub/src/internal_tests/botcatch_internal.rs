@@ -1,16 +1,15 @@
-//! Port of `server/hub/botcatch_internal_test.go`.
+//! A bot's Contre-LOCO!: when it presses, and how often.
 
-use crate::bots::bot_catch_attempt;
-use crate::clock;
-use crate::config::BotTimings;
+use crate::ops::clock;
+use crate::ops::config::BotTimings;
+use crate::table::bots::bot_catch_attempt;
 use loco_game::{Millis, Room};
 use std::collections::HashSet;
 use std::time::Duration;
 
 /// Asks the domain how long a seat stays on the hook instead of restating the
-/// 5 s here. Go read `CatchWindowEnd(0) - LastCardAt[0]` off a closed window
-/// (zero time plus 5s); the Rust domain answers `None` for a closed one, so the
-/// window is opened by hand first.
+/// 5 s here. The domain answers `None` for a closed window, so the window is
+/// opened by hand first.
 fn catch_window_length() -> Duration {
     let mut r = Room::from_u64_seed("WINDOW", 1);
     r.join("Alice").expect("join");
@@ -98,8 +97,8 @@ fn bot_catch_attempt_varies_across_windows() {
     );
 }
 
-/// The windows the two probability tests walk. Go stepped a microsecond; the
-/// Rust clock is in milliseconds, so they step one.
+/// The windows the two probability tests walk, one millisecond apart: the
+/// clock's own unit.
 fn windows(n: i64) -> impl Iterator<Item = (usize, Millis)> {
     let base = clock::now_ms();
     (0..n).map(move |i| ((i % 4) as usize, base + i))

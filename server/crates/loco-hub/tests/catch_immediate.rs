@@ -1,5 +1,3 @@
-//! Port of `server/hub/catch_immediate_test.go`.
-//!
 //! A Contre-LOCO! is answered on the instant it arrives, and two rations keep
 //! the button from being mashed: the card is charged once per offer, and the
 //! lockout is armed once per press.
@@ -51,7 +49,6 @@ struct Board {
 
 /// The seat at turn holds exactly two cards, so a Contre-LOCO! from the other
 /// chair is offered — the button is live — and there is nothing yet to catch.
-/// Go's `seatOneCardAway`.
 async fn seat_one_card_away(th: &TestHub) -> Board {
     let TwoPlayers {
         mut alice, mut bob, ..
@@ -91,8 +88,7 @@ async fn seat_one_card_away(th: &TestHub) -> Board {
     b
 }
 
-/// The active seat plays to a single card without calling it. Go's
-/// `playDownToOne`.
+/// The active seat plays to a single card without calling it.
 async fn play_down_to_one(th: &TestHub) -> Board {
     let mut b = seat_one_card_away(th).await;
     send_msg(

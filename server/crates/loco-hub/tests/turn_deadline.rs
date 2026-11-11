@@ -1,4 +1,4 @@
-//! Port of `server/hub/turn_deadline_test.go`.
+//! The turn's deadline on the wire.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

@@ -1,6 +1,5 @@
-//! The white-box half of `server/hub/`'s tests (Go's `package hub` files),
-//! one module per Go file. They reach the table's fields directly, the way
-//! the Go ones did; the socket-level tests live in `tests/`.
+//! The hub's white-box tests: they reach the table's fields directly. The
+//! socket-level tests live in `tests/`.
 
 mod bot_finish_internal;
 mod botcatch_internal;

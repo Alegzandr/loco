@@ -77,7 +77,7 @@ describe('a matchmade table nobody is left at', () => {
 
 describe('the two ways off a finished 1v1', () => {
   // Relaunching the search is one message: the server gives the seat up inside
-  // find_match (loco-hub/src/matchmaking.rs), so a leave_room ahead of it would only add
+  // find_match (loco-hub/src/router/matchmaking.rs), so a leave_room ahead of it would only add
   // an ordering bug — and its left_room runs resetToHome, which would reset the
   // store out from under the search screen this just opened.
   it('relaunches the search without leaving the room first', () => {

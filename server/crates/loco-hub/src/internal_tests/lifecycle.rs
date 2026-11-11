@@ -3,11 +3,11 @@
 //! match.
 
 use crate::HubConfig;
-use crate::actor::{DeadlineKey, TableCtx, TableJob};
-use crate::client::Client;
-use crate::hub::Hub;
-use crate::room::new_room;
+use crate::net::client::Client;
+use crate::router::hub::Hub;
 use crate::table::Table;
+use crate::table::actor::{DeadlineKey, TableCtx, TableJob};
+use crate::table::room::new_room;
 use axum::extract::ws::Utf8Bytes;
 use std::sync::Arc;
 use std::sync::mpsc as std_mpsc;
@@ -112,14 +112,13 @@ async fn a_deleted_table_runs_nothing_after_the_job_it_was_in() {
             core.tables[CODE]
                 .post(TableJob::new("arm", move |t: &mut Table, _| {
                     let now = Instant::now();
+                    t.deadlines.arm(DeadlineKey::TurnTimeout, now, move |_, _| {
+                        let _ = entered_tx.send(());
+                        let _ = gate.recv();
+                    });
                     t.deadlines
-                        .arm(DeadlineKey::table("first"), now, move |_, _| {
-                            let _ = entered_tx.send(());
-                            let _ = gate.recv();
-                        });
-                    t.deadlines
-                        .arm(DeadlineKey::table("second"), now, |t: &mut Table, _| {
-                            t.broadcast_all(crate::wire::msg::server_updating());
+                        .arm(DeadlineKey::RoomCleanup, now, |t: &mut Table, _| {
+                            t.broadcast_all(crate::net::wire::msg::server_updating());
                         });
                 }))
                 .is_ok()
@@ -131,7 +130,7 @@ async fn a_deleted_table_runs_nothing_after_the_job_it_was_in() {
     // And a job queued behind it in the box.
     hub.on_loop(|core| {
         core.tables[CODE].post_from_timer("queued", |t, _| {
-            t.broadcast_all(crate::wire::msg::server_updating());
+            t.broadcast_all(crate::net::wire::msg::server_updating());
         });
         core.delete_room(CODE);
     })
@@ -154,23 +153,23 @@ async fn a_forfeit_disarms_what_the_match_armed() {
     let mut room = new_room(CODE);
     room.join("Alice").unwrap();
     room.join("Bob").unwrap();
-    room.start(crate::clock::now_ms()).unwrap();
+    room.start(crate::ops::clock::now_ms()).unwrap();
     let mut t = Table::new(CODE, room);
     t.timings = Arc::new(hub.config().timings.clone());
     t.set_members(vec![None, None]);
     let cx = TableCtx::detached(&hub, CODE);
 
     t.schedule_turn_timer(&cx);
-    let turn = DeadlineKey::table("turn_timeout");
+    let turn = DeadlineKey::TurnTimeout;
     assert!(
         t.deadlines.when(turn).is_some(),
         "the turn clock never armed"
     );
-    let bot = DeadlineKey::seat("bot_move", 1);
+    let bot = DeadlineKey::BotMove(1);
     let far = Instant::now() + Duration::from_secs(60);
     t.deadlines.arm(bot, far, |_, _| {});
-    t.deadlines.arm(crate::rooms::CLEANUP, far, |_, _| {});
-    let hold = t.unique_key(crate::presence::RECONNECT_EXPIRY);
+    t.deadlines.arm(DeadlineKey::RoomCleanup, far, |_, _| {});
+    let hold = t.reconnect_key();
     t.deadlines.arm(hold, far, |_, _| {});
 
     t.forfeit_match(&cx, 1);
@@ -184,7 +183,7 @@ async fn a_forfeit_disarms_what_the_match_armed() {
         "a bot move survived the forfeit"
     );
     assert!(
-        t.deadlines.when(crate::rooms::CLEANUP).is_some(),
+        t.deadlines.when(DeadlineKey::RoomCleanup).is_some(),
         "the cleanup was disarmed"
     );
     assert!(

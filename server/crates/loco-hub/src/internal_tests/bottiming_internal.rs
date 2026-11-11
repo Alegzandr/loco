@@ -1,6 +1,6 @@
-//! Port of `server/hub/bottiming_internal_test.go`.
+//! The bots' tunable clocks, and the environment that may move them.
 
-use crate::config::{BotTimings, HubConfig};
+use crate::ops::config::{BotTimings, HubConfig};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -20,8 +20,7 @@ fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> String + use<> {
 // production server must not be able to grow instant bots through a stray
 // environment variable.
 //
-// Go's `botTimingOverride(getenv, defThink, defJitter)` is
-// `BotTimings::apply_env` over the defaults here.
+// `BotTimings::apply_env` over the defaults.
 #[test]
 fn bot_timing_override() {
     let def_think = Duration::from_millis(1200);
@@ -97,8 +96,7 @@ fn bot_timing_override() {
                 assert_eq!(b.think, think, "{}: think", tc.name);
                 assert_eq!(b.jitter_max, jitter, "{}: jitter", tc.name);
             }
-            // Go returned the defaults' copies untouched with ok=false; here
-            // the timings themselves must not have moved.
+            // Nothing applied: the timings themselves must not have moved.
             None => {
                 assert_eq!(b.think, def_think, "{}: think moved", tc.name);
                 assert_eq!(b.jitter_max, def_jitter, "{}: jitter moved", tc.name);
@@ -111,8 +109,7 @@ fn bot_timing_override() {
 // about it is that it writes what the scheduler actually reads and leaves it
 // alone when there is nothing to apply.
 //
-// Adapted: Go wrote package vars from the process environment; here the
-// scheduler reads `HubConfig::timings.bots`, which `HubConfig::from_env`
+// The scheduler reads `HubConfig::timings.bots`, which `HubConfig::from_env`
 // builds from an injected getenv (the process environment is not mutated: it
 // is shared by every test in the binary).
 #[test]

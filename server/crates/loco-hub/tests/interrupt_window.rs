@@ -1,4 +1,4 @@
-//! Port of `server/hub/interrupt_window_test.go`.
+//! Whether the pile may still be slammed rides the wire.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

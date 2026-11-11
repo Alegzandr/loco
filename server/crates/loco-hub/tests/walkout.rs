@@ -1,5 +1,3 @@
-//! Port of `server/hub/walkout_test.go`.
-//!
 //! Leaving a match in progress, which every table allows. The exit is never
 //! refused; what the table size decides is what happens next: above the floor
 //! the round carries on without the seat, at or below it the match ends and

@@ -35,7 +35,7 @@ services:
       # Where the shutdown parks the matches the drain could not finish, and
       # where the next container picks them up. A named path under DATA_DIR
       # rather than a volume so an operator can see, and delete, exactly one
-      # file. See server/crates/loco-hub/src/snapshot.rs. Owned by uid 65532,
+      # file. See server/crates/loco-hub/src/ops/snapshot.rs. Owned by uid 65532,
       # which the deploy's rollout sets (.gitlab-ci.yml).
       #
       # One directory per environment. Dev and prod share DATA_DIR, and with

@@ -1,4 +1,4 @@
-//! Port of `server/hub/online_test.go`.
+//! The count of connected players, told to the sockets not at a table.
 
 #![allow(clippy::field_reassign_with_default)]
 
@@ -23,7 +23,7 @@ async fn read_players_online(ws: &mut Ws) -> i64 {
     panic!("no players_online within 20 messages");
 }
 
-/// Makes the tick fast enough for a test. Go's `shortenOnlinePeriod`.
+/// Makes the tick fast enough for a test.
 fn short_online_period() -> HubConfig {
     let mut c = HubConfig::default();
     c.timings.players_online_period = Duration::from_millis(20);

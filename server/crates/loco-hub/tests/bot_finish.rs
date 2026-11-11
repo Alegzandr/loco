@@ -1,4 +1,4 @@
-//! Port of `server/hub/bot_finish_test.go`.
+//! A bot's round-taking move, held to its instant.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 
@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 
 /// Opens a 1v1 against a bot, past the map gate, and returns the socket with
-/// our seat and the bot's. Go's `botFinishTable`.
+/// our seat and the bot's.
 async fn bot_finish_table(th: &TestHub) -> (Ws, i64, i64) {
     let mut conn = dial_ws(th).await;
     send_msg(
@@ -51,7 +51,7 @@ async fn await_type(conn: &mut Ws, typ: &str, budget: Duration) -> (Value, Insta
     }
 }
 
-/// Go's `pinBotFinishTimings`: every jitter off, no bot catch.
+/// Every jitter off, no bot catch.
 fn pinned() -> HubConfig {
     let mut c = HubConfig::default();
     c.debug_mode = true;

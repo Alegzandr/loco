@@ -1,14 +1,13 @@
 //! Room codes and session tokens. Both come from the operating system's
 //! generator and neither has a fallback: the code is the only thing guarding a
-//! private table and the token the only proof behind a seat reclaim. Port of
-//! `server/hub/tokens.go`.
+//! private table and the token the only proof behind a seat reclaim.
 
 use crate::ids::{RoomCode, SessionToken};
 use rand::TryRngCore;
 use rand::rngs::OsRng;
 
 /// The 32 characters a table code is drawn from: no `0`/`O`, no `1`/`I`.
-/// Identical to Go's, which `client/src/components/tableCodeRules.ts` mirrors.
+/// `client/src/components/tableCodeRules.ts` mirrors it.
 pub const ROOM_CODE_CHARS: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /// How many characters a table code has.
@@ -125,7 +124,7 @@ mod tests {
     }
 
     // The alphabet is the one the client validates against and the one every
-    // printed code has used since the Go server. Changing it is a protocol
+    // printed code has ever used. Changing it is a protocol
     // change, not a tidy-up.
     #[test]
     fn the_alphabet_is_the_go_one() {

@@ -10,7 +10,7 @@
  * own testing section still carries as a warning.
  *
  * So every path the docs put in backticks has to resolve. They are written at
- * whatever depth the surrounding paragraph makes readable (`loco-hub/src/rooms.rs`
+ * whatever depth the surrounding paragraph makes readable (`loco-hub/src/router/rooms.rs`
  * in a server section, a bare `layout.ts` in a paragraph already about the card
  * renderer), so a token passes if it names any real file or directory in the
  * repository. What it may not do is name nothing at all.

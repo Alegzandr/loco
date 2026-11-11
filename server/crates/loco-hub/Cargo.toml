@@ -7,7 +7,7 @@ publish.workspace = true
 description = "The hub, the tables, the sockets, the drain and the snapshot."
 
 [features]
-# The WebSocket harness hub_test.go's helpers became (`testkit`). Off in the
+# The WebSocket harness the socket-level tests stand on (`testkit`). Off in the
 # binary; the crate's own tests turn it on through the self dev-dependency below.
 testkit = ["dep:tokio-tungstenite"]
 

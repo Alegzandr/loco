@@ -145,7 +145,7 @@ describe('Lobby', () => {
 
   it('keeps only what the server draws a code from', () => {
     // I, O, 0 and 1 are outside the alphabet on purpose: a code is read out
-    // loud off a stream. See server/crates/loco-hub/src/config.rs.
+    // loud off a stream. See server/crates/loco-hub/src/ops/config.rs.
     renderLobby()
     fireEvent.click(screen.getByText(en.joinRoom))
     const codeInput = screen.getByPlaceholderText(en.roomCodeLabel)

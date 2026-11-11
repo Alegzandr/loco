@@ -1,5 +1,3 @@
-//! Port of `server/hub/hardening_test.go`.
-//!
 //! Hardening: the refusals that stand between a stranger with a socket and this
 //! process. Every test here is a security property, not a game rule: send
 //! something no honest client sends, and assert the server answers rather than
@@ -236,8 +234,8 @@ async fn one_mistyped_code_does_not_lock_a_player_out() {
     th.stop().await;
 }
 
-/// A host and a guest at a dealt table (the map gate left shut, as Go's
-/// fixture did). Returns the host, the guest, the room_created and the
+/// A host and a guest at a dealt table (the map gate left
+/// shut). Returns the host, the guest, the room_created and the
 /// room_joined.
 async fn dealt_table(th: &TestHub) -> (Ws, Ws, Value, Value) {
     let (mut host, created) = create(th, "Hote").await;

@@ -5,10 +5,10 @@
 //! the checks they do not repeat.
 
 use loco_game::SavedRoom;
-use loco_hub::actor::{DeadlineKey, Phase, TableJob};
-use loco_hub::room::{Room, Status, new_room};
-use loco_hub::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};
+use loco_hub::ops::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};
 use loco_hub::table::MatchRecord;
+use loco_hub::table::actor::{DeadlineKey, Phase, TableJob};
+use loco_hub::table::room::{Room, Status, new_room};
 use loco_hub::testkit::*;
 use loco_hub::{Client, DRAIN_REFUSAL, Hub, HubConfig, Table};
 use serde_json::{Value, json};
@@ -26,7 +26,7 @@ fn playing_room(code: &str, players: usize) -> Room {
     for i in 0..players {
         r.join(&format!("Joueur{i}")).expect("join");
     }
-    r.start(loco_hub::wire::now_ms()).expect("start");
+    r.start(loco_hub::net::wire::now_ms()).expect("start");
     assert_eq!(r.status, Status::Playing);
     r
 }
@@ -303,7 +303,7 @@ async fn a_rearmed_deadline_replaces_the_old_one() {
     let fired: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::default();
     let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
     let now = tokio::time::Instant::now();
-    let key = DeadlineKey::seat("turn", 0);
+    let key = DeadlineKey::BotMove(0);
     let f = fired.clone();
     t.deadlines
         .arm(key, now + Duration::from_secs(30), move |_, _| {
@@ -316,7 +316,7 @@ async fn a_rearmed_deadline_replaces_the_old_one() {
         });
     let f = fired.clone();
     t.deadlines.arm(
-        DeadlineKey::table("cleanup"),
+        DeadlineKey::RoomCleanup,
         now + Duration::from_secs(20),
         move |_, _| f.lock().unwrap().push("cleanup"),
     );
@@ -344,13 +344,13 @@ async fn a_deadline_can_rearm_from_its_own_job() {
         move |t, _| {
             if count.fetch_add(1, Ordering::SeqCst) < 2 {
                 let at = tokio::time::Instant::now() + Duration::from_secs(1);
-                t.deadlines.arm(DeadlineKey::table("tick"), at, tick(count));
+                t.deadlines.arm(DeadlineKey::TurnTimeout, at, tick(count));
             }
         }
     }
     let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
     t.deadlines.arm(
-        DeadlineKey::table("tick"),
+        DeadlineKey::TurnTimeout,
         tokio::time::Instant::now() + Duration::from_secs(1),
         tick(count.clone()),
     );
@@ -448,11 +448,12 @@ async fn drain_notifies_every_table_and_empties_the_queue() {
     let q = queued.clone();
     th.hub
         .on_loop(move |core| {
-            core.queue.push(loco_hub::matchmaking::QueuedPlayer {
-                client: q,
-                nickname: "Q".into(),
-                since: tokio::time::Instant::now(),
-            })
+            core.queue
+                .push(loco_hub::router::matchmaking::QueuedPlayer {
+                    client: q,
+                    nickname: "Q".into(),
+                    since: tokio::time::Instant::now(),
+                })
         })
         .await;
 
@@ -622,7 +623,7 @@ fn write_snapshot(path: &std::path::Path, schema: i64, saved_at: SystemTime) {
             "PLAYIN", 2,
         )))],
     };
-    loco_hub::snapshot::write_atomic(path, &file).unwrap();
+    loco_hub::ops::snapshot::write_atomic(path, &file).unwrap();
 }
 
 #[tokio::test]
