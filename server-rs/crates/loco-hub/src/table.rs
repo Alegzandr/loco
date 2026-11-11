@@ -16,6 +16,7 @@
 
 use crate::actor::{Deadlines, Phase};
 use crate::client::Client;
+use crate::ids::{RoomCode, SessionToken};
 use crate::room::{Room, Status};
 use crate::wire::{LatencyEntry, msg};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -77,7 +78,7 @@ pub struct Seat {
     pub occupant: Occupant,
     /// The proof a returning player has to produce. Spent and reissued on
     /// every reclaim; travels with the player on a swap.
-    pub token: Option<String>,
+    pub token: Option<SessionToken>,
     /// Consecutive turn timeouts; any voluntary action clears it.
     pub afk: i64,
     /// This seat has asked for another match.
@@ -97,7 +98,7 @@ impl Seat {
 
 /// Everything the hub knows about one room code.
 pub struct Table {
-    pub code: String,
+    pub code: RoomCode,
     pub room: Room,
     /// Indexed by seat number. Never written directly: [`Table::seat`],
     /// [`Table::hold`], [`Table::drop_seat`] and [`Table::swap_seats`] are the
@@ -145,10 +146,12 @@ impl std::fmt::Debug for Table {
 
 impl Table {
     /// Builds a table but does not start it: the caller finishes filling it in
-    /// and then hands it to `HubCore::open_table`.
+    /// and then hands it to `HubCore::open_table`. `code` is one this server
+    /// minted (or a test's), never one a player typed: that goes through
+    /// [`RoomCode::parse`] and is looked up, not built.
     pub fn new(code: &str, room: Room) -> Table {
         Table {
-            code: code.to_owned(),
+            code: RoomCode::from_trusted(code),
             room,
             seats: Vec::new(),
             match_history: Vec::new(),
@@ -431,9 +434,7 @@ impl Table {
         (0..self.room.players.len())
             .filter(|&seat| match self.occupant(seat) {
                 Some(Occupant::Bot) => true,
-                Some(Occupant::Human(_) | Occupant::Held { .. }) => {
-                    !self.room.is_retired(seat as i32)
-                }
+                Some(Occupant::Human(_) | Occupant::Held { .. }) => !self.room.is_retired(seat),
                 _ => false,
             })
             .count()
@@ -455,9 +456,9 @@ impl Table {
         let n = self.room.players.len();
         let here = (0..n).find(|&s| s != away_seat && self.client(s).is_some());
         here.or_else(|| {
-            (0..n).find(|&s| s != away_seat && self.is_held(s) && !self.room.is_retired(s as i32))
+            (0..n).find(|&s| s != away_seat && self.is_held(s) && !self.room.is_retired(s))
         })
-        .or_else(|| (0..n).find(|&s| s != away_seat && !self.room.is_retired(s as i32)))
+        .or_else(|| (0..n).find(|&s| s != away_seat && !self.room.is_retired(s)))
     }
 
     /// Appends the match that has just ended. The room's arrays are copied:
@@ -494,7 +495,7 @@ impl Table {
     // ── per-seat bookkeeping ────────────────────────────────────────────────
 
     /// Creates and stores a session token for a seat.
-    pub fn issue_token(&mut self, seat: usize) -> String {
+    pub fn issue_token(&mut self, seat: usize) -> SessionToken {
         let tok = crate::tokens::generate_session_token();
         self.ensure(seat);
         self.seats[seat].token = Some(tok.clone());
@@ -502,12 +503,12 @@ impl Table {
     }
 
     /// Checks a token against the one stored for the seat, in constant time.
-    pub fn validate_token(&self, seat: usize, token: &str) -> bool {
-        crate::tokens::tokens_match(self.seats.get(seat).and_then(|s| s.token.as_deref()), token)
+    pub fn validate_token(&self, seat: usize, token: &SessionToken) -> bool {
+        self.token(seat).is_some_and(|stored| stored.matches(token))
     }
 
-    pub fn token(&self, seat: usize) -> Option<&str> {
-        self.seats.get(seat).and_then(|s| s.token.as_deref())
+    pub fn token(&self, seat: usize) -> Option<&SessionToken> {
+        self.seats.get(seat).and_then(|s| s.token.as_ref())
     }
 
     pub fn afk(&self, seat: usize) -> i64 {

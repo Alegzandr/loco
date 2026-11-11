@@ -1,7 +1,7 @@
 //! The game's own event log (`GameState.EventLog`), as Go recorded it.
 
-use crate::Millis;
 use crate::card::{Card, Color};
+use crate::{Millis, Seat};
 use serde::{Deserialize, Serialize};
 
 /// What a logged event was.
@@ -63,11 +63,13 @@ fn is_red(c: &Color) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameEvent {
     pub kind: EventKind,
-    pub player_index: i32,
+    /// The seat that acted; `None` for the deal and a match end (Go: -1).
+    #[serde(rename = "player_index", with = "crate::gojson::opt_seat")]
+    pub player: Option<Seat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card: Option<Card>,
     #[serde(default, skip_serializing_if = "is_red")]
     pub chosen_color: Color,
-    #[serde(with = "crate::stamp::req")]
+    #[serde(with = "crate::gojson::req")]
     pub at: Millis,
 }

@@ -6,7 +6,7 @@
 
 use super::support::*;
 use crate::card::{Card, Color, Kind};
-use crate::error::GameError;
+use crate::error::{ErrorKind, GameError};
 use crate::hand::Hand;
 use crate::room::{CATCH_WINDOW_MS, FAILED_CATCH_PENALTY, INITIAL_HAND_SIZE, MatchFormat, Status};
 
@@ -26,7 +26,7 @@ fn room_reverse_flips_direction() {
     let rev = act(Color::Red, Kind::Reverse);
     prepend(&mut r, 0, rev);
 
-    r.play_card(0, rev, Color::Red, -1, NOW)
+    r.play_card(0, rev, Color::Red, None, NOW)
         .expect("PlayCard Reverse");
     assert_eq!(st_ref(&r).direction, -1, "Direction after Reverse");
     assert_eq!(
@@ -47,7 +47,7 @@ fn room_reverse_two_players_acts_as_skip() {
     let rev = act(Color::Red, Kind::Reverse);
     prepend(&mut r, 0, rev);
 
-    r.play_card(0, rev, Color::Red, -1, NOW)
+    r.play_card(0, rev, Color::Red, None, NOW)
         .expect("PlayCard Reverse 2-player");
     // Direction flips then alice gets another turn (2-player skip behaviour).
     assert_eq!(
@@ -66,7 +66,7 @@ fn room_wild_sets_active_color() {
     let w = wild(Kind::WildCard);
     prepend(&mut r, 0, w);
 
-    r.play_card(0, w, Color::Green, -1, NOW)
+    r.play_card(0, w, Color::Green, None, NOW)
         .expect("PlayCard Wild");
     assert_eq!(st_ref(&r).active_color, Color::Green);
     assert_eq!(st_ref(&r).current_turn, 1, "after Wild, want 1 (bob)");
@@ -81,7 +81,7 @@ fn room_wild_draw_four_sets_pending_and_color() {
     let wdf = wild(Kind::WildDrawFour);
     prepend(&mut r, 0, wdf);
 
-    r.play_card(0, wdf, Color::Blue, -1, NOW)
+    r.play_card(0, wdf, Color::Blue, None, NOW)
         .expect("PlayCard WildDrawFour");
     assert_eq!(st_ref(&r).active_color, Color::Blue);
     assert_eq!(st_ref(&r).pending_draw, 4);
@@ -100,7 +100,7 @@ fn room_draw_stack_draw_two_plus_wild_draw_four() {
 
     let alice2 = act(Color::Red, Kind::DrawTwo);
     prepend(&mut r, 0, alice2);
-    r.play_card(0, alice2, Color::Red, -1, NOW)
+    r.play_card(0, alice2, Color::Red, None, NOW)
         .expect("alice +2");
     assert_eq!(st_ref(&r).pending_draw, 2, "PendingDraw after +2");
     assert_eq!(st_ref(&r).current_turn, 1);
@@ -127,7 +127,7 @@ fn room_counter_draw_wild_draw_four() {
 
     let wdf1 = wild(Kind::WildDrawFour);
     prepend(&mut r, 0, wdf1);
-    r.play_card(0, wdf1, Color::Green, -1, NOW)
+    r.play_card(0, wdf1, Color::Green, None, NOW)
         .expect("alice +4");
     assert_eq!(st_ref(&r).pending_draw, 4);
 
@@ -160,7 +160,7 @@ fn room_interrupt_play_valid() {
     prepend(&mut r, 2, carol_card);
     let carol_hand_before = st_ref(&r).hands[2].cards.len();
 
-    r.interrupt_play(2, carol_card, carol_card.color, -1, NOW)
+    r.interrupt_play(2, &[carol_card], carol_card.color, None, NOW)
         .expect("InterruptPlay");
     // carol's hand shrank by 1
     assert_eq!(st_ref(&r).hands[2].cards.len(), carol_hand_before - 1);
@@ -193,7 +193,7 @@ fn room_interrupt_play_wild_on_wild_allowed() {
     let w = wild(Kind::WildCard);
     prepend(&mut r, 2, w);
 
-    r.interrupt_play(2, w, Color::Green, -1, NOW)
+    r.interrupt_play(2, &[w], Color::Green, None, NOW)
         .expect("wild-on-wild interrupt must be accepted");
     assert_eq!(
         st_ref(&r).active_color,
@@ -216,7 +216,7 @@ fn room_interrupt_play_wild_draw_four_extends_chain() {
     let wd4 = wild(Kind::WildDrawFour);
     prepend(&mut r, 2, wd4);
 
-    r.interrupt_play(2, wd4, Color::Blue, -1, NOW)
+    r.interrupt_play(2, &[wd4], Color::Blue, None, NOW)
         .expect("WildDrawFour interject must be accepted");
     assert_eq!(st_ref(&r).pending_draw, 8, "chain extended");
     assert_eq!(st_ref(&r).current_turn, 0, "victim is the seat after carol");
@@ -236,7 +236,7 @@ fn room_interrupt_play_global_switch_rotates_hands() {
     st(&mut r).hands[1].cards = vec![num(Color::Red, 2)];
     st(&mut r).hands[2].cards = vec![gs, num(Color::Red, 3)];
 
-    r.interrupt_play(2, gs, Color::Yellow, -1, NOW)
+    r.interrupt_play(2, &[gs], Color::Yellow, None, NOW)
         .expect("GlobalSwitch interject must be accepted");
     // Hands rotate one seat in the play direction: seat i receives seat i-1's hand.
     assert_eq!(
@@ -267,7 +267,7 @@ fn room_interrupt_play_wild_without_color_rejected() {
     prepend(&mut r, 2, w);
 
     assert!(
-        r.interrupt_play(2, w, Color::Wild, -1, NOW).is_err(),
+        r.interrupt_play(2, &[w], Color::Wild, None, NOW).is_err(),
         "a wild interject must name a real colour"
     );
     assert_eq!(
@@ -287,7 +287,7 @@ fn room_interrupt_play_non_matching_card_rejected() {
     let mismatch = num(Color::Blue, 5); // same value, wrong color
     prepend(&mut r, 1, mismatch);
     assert!(
-        r.interrupt_play(1, mismatch, mismatch.color, -1, NOW)
+        r.interrupt_play(1, &[mismatch], mismatch.color, None, NOW)
             .is_err(),
         "color-mismatched interrupt should be rejected"
     );
@@ -303,7 +303,7 @@ fn room_interrupt_play_value_mismatch_rejected() {
     let mismatch = num(Color::Red, 3); // same color, wrong value
     prepend(&mut r, 1, mismatch);
     assert!(
-        r.interrupt_play(1, mismatch, mismatch.color, -1, NOW)
+        r.interrupt_play(1, &[mismatch], mismatch.color, None, NOW)
             .is_err(),
         "value-mismatched interrupt should be rejected"
     );
@@ -324,7 +324,7 @@ fn room_interrupt_play_non_draw_card_during_pending_draw_rejected() {
     let match_card = num(Color::Red, 5);
     prepend(&mut r, 1, match_card);
     assert!(
-        r.interrupt_play(1, match_card, match_card.color, -1, NOW)
+        r.interrupt_play(1, &[match_card], match_card.color, None, NOW)
             .is_err(),
         "non-DrawTwo interrupt during pending draw should be rejected"
     );
@@ -342,7 +342,7 @@ fn room_interrupt_play_own_turn_allowed() {
     arm_interrupt(&mut r, 2); // someone else just played
     let match_card = num(Color::Red, 5);
     prepend(&mut r, 0, match_card);
-    r.interrupt_play(0, match_card, match_card.color, -1, NOW)
+    r.interrupt_play(0, &[match_card], match_card.color, None, NOW)
         .expect("interrupt on own turn must be accepted");
     assert_eq!(
         st_ref(&r).current_turn,
@@ -366,7 +366,7 @@ fn room_interrupt_play_empties_hand_ends_round() {
     st(&mut r).hands[1].cards = vec![act(Color::Red, Kind::Skip)]; // bob has 1 card (20 pts)
 
     declare_last(&mut r, 2);
-    r.interrupt_play(2, win_card, win_card.color, -1, NOW)
+    r.interrupt_play(2, &[win_card], win_card.color, None, NOW)
         .expect("InterruptPlay finish");
     assert!(
         r.round_ended,
@@ -409,7 +409,7 @@ fn room_interrupt_play_swap_removes_before_swapping() {
     ];
     st(&mut r).hands[1].cards = bob_hand.clone();
 
-    r.interrupt_play(2, swap, swap.color, 1, NOW)
+    r.interrupt_play(2, &[swap], swap.color, Some(1), NOW)
         .expect("InterruptPlay Swap");
     // Top discard is the Red Swap.
     assert_eq!(*st_ref(&r).discard.last().unwrap(), swap, "top discard");
@@ -445,7 +445,7 @@ fn room_interrupt_play_swap_as_last_card_ends_round_without_swapping() {
     st(&mut r).hands[1].cards = bob_hand_before.clone();
 
     declare_last(&mut r, 2);
-    r.interrupt_play(2, swap, swap.color, 1, NOW)
+    r.interrupt_play(2, &[swap], swap.color, Some(1), NOW)
         .expect("InterruptPlay last-card swap");
     assert!(
         r.round_ended,
@@ -480,7 +480,7 @@ fn room_interrupt_play_skip_effect() {
     let carol_skip = act(Color::Red, Kind::Skip);
     prepend(&mut r, 2, carol_skip);
 
-    r.interrupt_play(2, carol_skip, carol_skip.color, -1, NOW)
+    r.interrupt_play(2, &[carol_skip], carol_skip.color, None, NOW)
         .expect("InterruptPlay Skip");
     // Skip from carol (2): skip the next player after carol.
     // Clockwise from carol(2): next is alice(0), then bob(1).
@@ -504,14 +504,14 @@ fn room_play_cards_stacked_draw_two() {
     let d2 = act(Color::Red, Kind::DrawTwo);
     st(&mut r).hands[0].cards = vec![d2, d2, d2, num(Color::Blue, 4)];
 
-    r.play_cards(0, &[d2, d2, d2], Color::Red, -1, false, NOW)
+    r.play_cards(0, &[d2, d2, d2], Color::Red, None, false, NOW)
         .expect("PlayCards 3x +2");
     assert_eq!(st_ref(&r).pending_draw, 6, "3 × +2");
     assert_eq!(st_ref(&r).current_turn, 1, "want 1 (bob)");
     // All 3 +2 cards should be on top of discard.
     assert_eq!(st_ref(&r).discard.len(), 4, "initial + 3 +2s");
     // Player 0 hand has only the unrelated card left.
-    assert_eq!(st_ref(&r).hands[0].size(), 1);
+    assert_eq!(st_ref(&r).hands[0].len(), 1);
 }
 
 #[test]
@@ -533,7 +533,7 @@ fn room_play_cards_stacked_skip_skips_multiple_players() {
     let skip = act(Color::Red, Kind::Skip);
     st(&mut r).hands[0].cards = vec![skip, skip, num(Color::Yellow, 9)];
 
-    r.play_cards(0, &[skip, skip], Color::Red, -1, false, NOW)
+    r.play_cards(0, &[skip, skip], Color::Red, None, false, NOW)
         .expect("PlayCards 2x Skip");
     // One Skip alone takes turn from 0 to 2 (skips 1). Two Skips take it to 3.
     assert_eq!(
@@ -552,7 +552,7 @@ fn room_play_cards_rejects_non_identical() {
     let b = num(Color::Red, 6);
     st(&mut r).hands[0].cards = vec![a, b];
     assert!(
-        r.play_cards(0, &[a, b], Color::Red, -1, false, NOW)
+        r.play_cards(0, &[a, b], Color::Red, None, false, NOW)
             .is_err(),
         "non-identical batch should be rejected"
     );
@@ -566,7 +566,7 @@ fn room_play_cards_rejects_batch_swap() {
     let swap = act(Color::Red, Kind::Swap);
     st(&mut r).hands[0].cards = vec![swap, swap];
     assert!(
-        r.play_cards(0, &[swap, swap], Color::Red, 1, false, NOW)
+        r.play_cards(0, &[swap, swap], Color::Red, Some(1), false, NOW)
             .is_err(),
         "batch Swap must be rejected"
     );
@@ -587,7 +587,7 @@ fn room_interrupt_play_non_identical_draw_two_rejected() {
     st(&mut r).hands[1].cards = vec![bob2, num(Color::Red, 1)];
 
     assert!(
-        r.interrupt_play(1, bob2, bob2.color, -1, NOW).is_err(),
+        r.interrupt_play(1, &[bob2], bob2.color, None, NOW).is_err(),
         "non-identical DrawTwo interrupt should be rejected"
     );
     // State must be untouched.
@@ -597,7 +597,7 @@ fn room_interrupt_play_non_identical_draw_two_rejected() {
         "interrupt rejected, no mutation"
     );
     assert_eq!(st_ref(&r).discard.len(), 1, "no mutation");
-    assert_eq!(st_ref(&r).hands[1].size(), 2, "no mutation");
+    assert_eq!(st_ref(&r).hands[1].len(), 2, "no mutation");
 }
 
 // Non-identical DrawTwo (color mismatch) during a Take2 chain must still be
@@ -613,7 +613,7 @@ fn room_interrupt_play_non_identical_draw_two_during_chain() {
     let bob2 = act(Color::Blue, Kind::DrawTwo); // wrong color
     st(&mut r).hands[2].cards = vec![bob2];
     assert!(
-        r.interrupt_play(2, bob2, bob2.color, -1, NOW).is_err(),
+        r.interrupt_play(2, &[bob2], bob2.color, None, NOW).is_err(),
         "color-mismatched DrawTwo during pending draw must be rejected"
     );
 }
@@ -634,7 +634,7 @@ fn room_interrupt_play_identical_draw_two_extends_chain() {
     let carol_d2 = act(Color::Red, Kind::DrawTwo);
     st(&mut r).hands[2].cards = vec![carol_d2, num(Color::Blue, 1)];
 
-    r.interrupt_play(2, carol_d2, carol_d2.color, -1, NOW)
+    r.interrupt_play(2, &[carol_d2], carol_d2.color, None, NOW)
         .expect("identical DrawTwo interrupt during chain");
     assert_eq!(st_ref(&r).pending_draw, 4, "chain extended");
     // Next player after carol(2) clockwise is alice(0): she is now the victim.
@@ -661,7 +661,7 @@ fn room_interrupt_play_closed_window_rejected() {
     prepend(&mut r, 2, carol_card);
 
     assert!(
-        r.interrupt_play(2, carol_card, carol_card.color, -1, NOW)
+        r.interrupt_play(2, &[carol_card], carol_card.color, None, NOW)
             .is_err(),
         "interrupt on a closed window must be rejected"
     );
@@ -682,7 +682,7 @@ fn room_interrupt_play_opening_discard_is_interceptable() {
     );
     assert_eq!(
         st_ref(&r).last_play_by,
-        -1,
+        None,
         "LastPlayBy after the deal: nobody played that card"
     );
 
@@ -692,9 +692,9 @@ fn room_interrupt_play_opening_discard_is_interceptable() {
     prepend(&mut r, 2, top);
     let before = st_ref(&r).hands[2].cards.len();
 
-    r.interrupt_play(2, top, top.color, -1, NOW)
+    r.interrupt_play(2, &[top], top.color, None, NOW)
         .expect("interrupt on the opening discard must be accepted");
-    assert_eq!(st_ref(&r).last_play_by, 2, "carol took the lead");
+    assert_eq!(st_ref(&r).last_play_by, Some(2), "carol took the lead");
     assert_eq!(
         st_ref(&r).hands[2].cards.len(),
         before - 1,
@@ -716,7 +716,7 @@ fn room_interrupt_play_opening_window_closes_on_a_draw() {
         "a draw must close the window the deal opened"
     );
     assert_eq!(
-        r.interrupt_play(2, top, top.color, -1, NOW),
+        r.interrupt_play(2, &[top], top.color, None, NOW),
         Err(GameError::InterruptWindowClosed),
         "interrupt after the draw"
     );
@@ -739,11 +739,11 @@ fn room_interrupt_play_no_time_limit() {
     prepend(&mut r, 2, carol_card);
 
     assert_eq!(
-        r.interrupt_play(2, carol_card, carol_card.color, -1, NOW),
+        r.interrupt_play(2, &[carol_card], carol_card.color, None, NOW),
         Ok(()),
         "interrupt long after the play must still be accepted"
     );
-    assert_eq!(st_ref(&r).last_play_by, 2, "carol took the lead");
+    assert_eq!(st_ref(&r).last_play_by, Some(2), "carol took the lead");
 }
 
 #[test]
@@ -761,7 +761,7 @@ fn room_interrupt_play_self_interrupt_allowed() {
     let dup = num(Color::Red, 7);
     prepend(&mut r, 0, dup);
 
-    r.interrupt_play(0, dup, dup.color, -1, NOW)
+    r.interrupt_play(0, &[dup], dup.color, None, NOW)
         .expect("self-interrupt must be accepted");
     // Lead transfers back to alice, so the next seat clockwise plays: bob(1).
     assert_eq!(
@@ -797,11 +797,11 @@ fn room_interrupt_play_fastest_serialized_wins() {
     prepend(&mut r, 2, m);
     prepend(&mut r, 3, m);
 
-    r.interrupt_play(2, m, m.color, -1, NOW)
+    r.interrupt_play(2, &[m], m.color, None, NOW)
         .expect("first interrupt by carol");
     assert_eq!(
         st_ref(&r).last_play_by,
-        2,
+        Some(2),
         "LastPlayBy after first interrupt (carol)"
     );
     // After carol's interject CurrentTurn = dave(3).
@@ -809,11 +809,11 @@ fn room_interrupt_play_fastest_serialized_wins() {
     // Second arrival: dave slams the same identical card. Being the current
     // player is no longer a reason to refuse — he simply takes the lead in turn,
     // and the seat after him plays next.
-    r.interrupt_play(3, m, m.color, -1, NOW)
+    r.interrupt_play(3, &[m], m.color, None, NOW)
         .expect("second interrupt by dave");
     assert_eq!(
         st_ref(&r).last_play_by,
-        3,
+        Some(3),
         "LastPlayBy after second interrupt (dave)"
     );
     assert_eq!(
@@ -839,7 +839,7 @@ fn room_interrupt_play_cards_batch_is_refused() {
     let discard_len = st_ref(&r).discard.len();
 
     assert_eq!(
-        r.interrupt_play_cards(2, &[m, m, m], m.color, -1, NOW),
+        r.interrupt_play(2, &[m, m, m], m.color, None, NOW),
         Err(GameError::InterruptBatch),
         "batch interject"
     );
@@ -848,7 +848,7 @@ fn room_interrupt_play_cards_batch_is_refused() {
         discard_len,
         "discard mutated after rejection"
     );
-    assert_eq!(st_ref(&r).hands[2].size(), 4, "carol hand size");
+    assert_eq!(st_ref(&r).hands[2].len(), 4, "carol hand size");
     assert_eq!(
         st_ref(&r).current_turn,
         1,
@@ -856,13 +856,13 @@ fn room_interrupt_play_cards_batch_is_refused() {
     );
 
     // One press, one card, and the lead is taken exactly as before.
-    r.interrupt_play_cards(2, &[m], m.color, -1, NOW)
+    r.interrupt_play(2, &[m], m.color, None, NOW)
         .expect("single interject");
     assert_eq!(st_ref(&r).discard.len(), discard_len + 1, "initial + 1");
-    assert_eq!(st_ref(&r).hands[2].size(), 3, "two copies left to press");
+    assert_eq!(st_ref(&r).hands[2].len(), 3, "two copies left to press");
     assert_eq!(
         st_ref(&r).last_play_by,
-        2,
+        Some(2),
         "LastPlayBy after interrupt (carol)"
     );
 }
@@ -881,11 +881,11 @@ fn room_interrupt_play_cards_not_in_hand_does_not_mutate() {
     let m = num(Color::Red, 4);
     st(&mut r).hands[2].cards = vec![num(Color::Blue, 9)];
     let discard_len = st_ref(&r).discard.len();
-    let hand_len = st_ref(&r).hands[2].size();
+    let hand_len = st_ref(&r).hands[2].len();
     let turn_before = st_ref(&r).current_turn;
 
     assert_eq!(
-        r.interrupt_play_cards(2, &[m], m.color, -1, NOW),
+        r.interrupt_play(2, &[m], m.color, None, NOW),
         Err(GameError::CardNotInHand),
         "interject of a card not held"
     );
@@ -895,7 +895,7 @@ fn room_interrupt_play_cards_not_in_hand_does_not_mutate() {
         "discard mutated after rejection"
     );
     assert_eq!(
-        st_ref(&r).hands[2].size(),
+        st_ref(&r).hands[2].len(),
         hand_len,
         "hand mutated after rejection"
     );
@@ -913,8 +913,9 @@ fn room_play_card_opens_interrupt_window() {
     st(&mut r).discard = vec![num(Color::Red, 5)];
     let play = num(Color::Red, 5);
     st(&mut r).hands[0].cards = vec![play, num(Color::Blue, 9)];
-    r.play_card(0, play, Color::Red, -1, NOW).expect("PlayCard");
-    assert_eq!(st_ref(&r).last_play_by, 0);
+    r.play_card(0, play, Color::Red, None, NOW)
+        .expect("PlayCard");
+    assert_eq!(st_ref(&r).last_play_by, Some(0));
     assert!(
         st_ref(&r).last_play_at.is_some(),
         "LastPlayAt must be stamped after a play"
@@ -928,7 +929,7 @@ fn room_draw_card_closes_interrupt_window() {
     r.draw_card(0, NOW).expect("DrawCard");
     assert_eq!(
         st_ref(&r).last_play_by,
-        -1,
+        None,
         "after DrawCard, LastPlayBy (window closed)"
     );
 }
@@ -940,7 +941,7 @@ fn room_begin_next_round_rejects_after_match_over() {
     let mut r = new_room("BNRM");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO1;
+    r.format = MatchFormat::Bo1;
     let _ = r.start(NOW);
     st(&mut r).current_turn = 0;
     st(&mut r).pending_draw = 0;
@@ -951,7 +952,7 @@ fn room_begin_next_round_rejects_after_match_over() {
     st(&mut r).hands[0].cards = vec![win_card];
     st(&mut r).hands[1].cards = vec![num(Color::Red, 5)];
     declare_last(&mut r, 0);
-    r.play_card(0, win_card, win_card.color, -1, NOW)
+    r.play_card(0, win_card, win_card.color, None, NOW)
         .expect("PlayCard");
     assert!(r.match_over, "expected MatchOver=true after BO1 win");
     assert!(
@@ -982,7 +983,7 @@ fn room_remove_lobby_player_reindexes_player_indices() {
     }
     // Verify initial indices.
     for (i, p) in r.players.iter().enumerate() {
-        assert_eq!(p.index, i as i32, "initial Players[{i}].Index");
+        assert_eq!(p.index, i, "initial Players[{i}].Index");
     }
 
     // Remove the middle player (bob, index 1).
@@ -1032,7 +1033,7 @@ fn room_remove_lobby_player_bounds_check() {
     let mut r = new_room("RMVB");
     let _ = r.join("alice");
     assert!(
-        r.remove_lobby_player(-1).is_err(),
+        r.remove_lobby_player(usize::MAX).is_err(),
         "negative index should return error"
     );
     assert!(
@@ -1079,16 +1080,16 @@ fn room_swap_receiver_owes_declaration() {
     ];
     st(&mut r).hands[2].cards = vec![num(Color::Yellow, 7)];
 
-    r.play_card(0, swap, Color::Red, 1, NOW)
+    r.play_card(0, swap, Color::Red, Some(1), NOW)
         .expect("PlayCard swap");
     assert_eq!(
-        st_ref(&r).hands[1].size(),
+        st_ref(&r).hands[1].len(),
         1,
         "bob hand (received alice's leftover)"
     );
     r.catch_undeclared(2, 1, NOW)
         .expect("bob received a single card and never declared, so he must be catchable");
-    assert_eq!(st_ref(&r).hands[1].size(), 3, "bob hand after penalty");
+    assert_eq!(st_ref(&r).hands[1].len(), 3, "bob hand after penalty");
 }
 
 // Declaring closes the window for a receiver exactly as for a player who played
@@ -1105,7 +1106,7 @@ fn room_swap_receiver_can_declare() {
     st(&mut r).hands[1].cards = vec![num(Color::Green, 3), num(Color::Green, 4)];
     st(&mut r).hands[2].cards = vec![num(Color::Yellow, 7)];
 
-    r.play_card(0, swap, Color::Red, 1, NOW)
+    r.play_card(0, swap, Color::Red, Some(1), NOW)
         .expect("PlayCard swap");
     r.declare_last_card(1, NOW)
         .expect("bob must be able to declare the card he received");
@@ -1132,7 +1133,7 @@ fn room_global_switch_every_single_card_seat_is_catchable() {
     st(&mut r).hands[1].cards = vec![num(Color::Green, 3), num(Color::Green, 4)];
     st(&mut r).hands[2].cards = vec![num(Color::Yellow, 7)];
 
-    r.play_card(0, gs, Color::Green, -1, NOW)
+    r.play_card(0, gs, Color::Green, None, NOW)
         .expect("PlayCard global switch");
     let open = st_ref(&r).catchable_targets(NOW);
     assert!(
@@ -1141,7 +1142,7 @@ fn room_global_switch_every_single_card_seat_is_catchable() {
     );
     for seat in [0, 1] {
         assert_eq!(
-            st_ref(&r).hands[seat].size(),
+            st_ref(&r).hands[seat].len(),
             1,
             "seat {seat}: fixture is wrong"
         );
@@ -1167,7 +1168,7 @@ fn room_catch_undeclared_cannot_catch_yourself() {
     st(&mut r).active_color = Color::Red;
     st(&mut r).discard = vec![num(Color::Red, 5)];
     st(&mut r).hands[0].cards = vec![num(Color::Red, 2), num(Color::Red, 3)];
-    r.play_card(0, num(Color::Red, 2), Color::Red, -1, NOW)
+    r.play_card(0, num(Color::Red, 2), Color::Red, None, NOW)
         .expect("PlayCard");
     assert!(
         r.catch_undeclared(0, 0, NOW).is_err(),
@@ -1192,7 +1193,7 @@ fn room_interrupt_play_reverse_flips_direction() {
     let carol_reverse = act(Color::Red, Kind::Reverse);
     prepend(&mut r, 2, carol_reverse);
 
-    r.interrupt_play(2, carol_reverse, carol_reverse.color, -1, NOW)
+    r.interrupt_play(2, &[carol_reverse], carol_reverse.color, None, NOW)
         .expect("InterruptPlay Reverse");
     assert_eq!(
         st_ref(&r).direction,
@@ -1222,7 +1223,7 @@ fn room_interrupt_play_counter_clockwise() {
     let carol_card = num(Color::Red, 4);
     prepend(&mut r, 2, carol_card);
 
-    r.interrupt_play(2, carol_card, carol_card.color, -1, NOW)
+    r.interrupt_play(2, &[carol_card], carol_card.color, None, NOW)
         .expect("InterruptPlay CCW");
     // CCW from carol(2): next is bob(1).
     assert_eq!(
@@ -1243,20 +1244,21 @@ fn room_interrupt_play_opens_catch_window() {
     st(&mut r).discard = vec![num(Color::Red, 6)];
     st(&mut r).pending_draw = 0;
     arm_interrupt(&mut r, 0);
-    st(&mut r).last_card_declared[2] = true; // simulate a previous declaration we expect to be cleared
+    st(&mut r).seats[2].declared = true; // simulate a previous declaration we expect to be cleared
 
     let m = num(Color::Red, 6);
     // carol holds exactly 2 cards; after the interject she will have 1.
     st(&mut r).hands[2].cards = vec![m, num(Color::Blue, 1)];
 
     let before = NOW;
-    r.interrupt_play(2, m, m.color, -1, NOW)
+    r.interrupt_play(2, &[m], m.color, None, NOW)
         .expect("InterruptPlay");
     assert!(
-        !st_ref(&r).last_card_declared[2],
+        !st_ref(&r).seats[2].declared,
         "LastCardDeclared[2] must be reset after a fresh play to 1 card"
     );
-    let at = st_ref(&r).last_card_at[2]
+    let at = st_ref(&r).seats[2]
+        .last_card_at
         .expect("carol's catch window must be open after she interjects to 1 card");
     assert!(
         at >= before,
@@ -1276,7 +1278,7 @@ fn room_interrupt_play_opens_catch_window() {
 #[test]
 fn room_reset_for_rematch() {
     let mut r = finish_match(&["alice", "bob"]);
-    r.format = MatchFormat::BO3;
+    r.format = MatchFormat::Bo3;
     r.max_players = 4;
     let prev_players = r.players.clone();
 
@@ -1308,9 +1310,9 @@ fn room_reset_for_rematch() {
     assert_eq!(r.players.len(), prev_players.len());
     for (i, p) in r.players.iter().enumerate() {
         assert_eq!(*p, prev_players[i], "player {i} changed identity");
-        assert_eq!(p.index, i as i32, "player {i} Index");
+        assert_eq!(p.index, i, "player {i} Index");
     }
-    assert_eq!(r.format, MatchFormat::BO3, "preserved");
+    assert_eq!(r.format, MatchFormat::Bo3, "preserved");
     assert_eq!(r.max_players, 4, "preserved");
 }
 
@@ -1373,13 +1375,16 @@ fn room_catch_undeclared_missed_by_declaration() {
     st(&mut r).active_color = Color::Red;
     st(&mut r).discard = vec![num(Color::Red, 5)];
     st(&mut r).hands[0].cards = vec![num(Color::Red, 2), num(Color::Red, 3)];
-    r.play_card(0, num(Color::Red, 2), Color::Red, -1, NOW)
+    r.play_card(0, num(Color::Red, 2), Color::Red, None, NOW)
         .expect("PlayCard");
     r.declare_last_card(0, NOW).expect("DeclareLastCard");
     let err = r
         .catch_undeclared(1, 0, NOW)
         .expect_err("catching a declared player must fail");
-    assert!(err.is_missed_catch(), "IsMissedCatch({err}) = false");
+    assert!(
+        err.kind() == ErrorKind::MissedCatch,
+        "IsMissedCatch({err}) = false"
+    );
     assert_eq!(
         err.to_string(),
         "player already declared",
@@ -1394,12 +1399,15 @@ fn room_catch_undeclared_missed_by_expiry() {
     st(&mut r).active_color = Color::Red;
     st(&mut r).discard = vec![num(Color::Red, 5)];
     st(&mut r).hands[0].cards = vec![num(Color::Red, 2), num(Color::Red, 3)];
-    r.play_card(0, num(Color::Red, 2), Color::Red, -1, NOW)
+    r.play_card(0, num(Color::Red, 2), Color::Red, None, NOW)
         .expect("PlayCard");
     let err = r
         .catch_undeclared(1, 0, NOW + CATCH_WINDOW_MS + 1000)
         .expect_err("catching after the window must fail");
-    assert!(err.is_missed_catch(), "IsMissedCatch({err}) = false");
+    assert!(
+        err.kind() == ErrorKind::MissedCatch,
+        "IsMissedCatch({err}) = false"
+    );
 }
 
 // A malformed target is a client bug or an attack, never a lost race — it must
@@ -1409,12 +1417,12 @@ fn room_catch_undeclared_invalid_target_is_not_a_miss() {
     let mut r = setup_three_player_game();
     let err = r.catch_undeclared(1, 99, NOW);
     assert!(
-        matches!(&err, Err(e) if !e.is_missed_catch()),
+        matches!(&err, Err(e) if e.kind() != ErrorKind::MissedCatch),
         "CatchUndeclared(1, 99) = {err:?}, want a non-miss error"
     );
     let err = r.catch_undeclared(0, 0, NOW);
     assert!(
-        matches!(&err, Err(e) if !e.is_missed_catch()),
+        matches!(&err, Err(e) if e.kind() != ErrorKind::MissedCatch),
         "self-catch = {err:?}, want a non-miss error"
     );
 }
@@ -1425,18 +1433,19 @@ fn room_catch_undeclared_invalid_target_is_not_a_miss() {
 fn room_penalize_failed_catch() {
     let mut r = setup_three_player_game();
     near_seat(&mut r, 0);
-    let before = st_ref(&r).hands[1].size();
+    let before = st_ref(&r).hands[1].len();
     let (turn, has_drawn) = (st_ref(&r).current_turn, st_ref(&r).has_drawn);
-    let target_before = st_ref(&r).hands[0].size();
+    let target_before = st_ref(&r).hands[0].len();
 
-    let (cards, charged) = r.penalize_failed_catch(1, NOW);
+    let charge = r.penalize_failed_catch(1, NOW);
+    let (cards, charged) = (charged_cards(&charge), is_charged(&charge));
     assert!(
         charged,
         "the first failed catch on an offer must be charged"
     );
     assert_eq!(cards.len(), FAILED_CATCH_PENALTY, "cards drawn");
     assert_eq!(
-        st_ref(&r).hands[1].size(),
+        st_ref(&r).hands[1].len(),
         before + FAILED_CATCH_PENALTY,
         "catcher hand"
     );
@@ -1445,7 +1454,7 @@ fn room_penalize_failed_catch() {
         "a failed catch must not touch the turn state"
     );
     assert_eq!(
-        st_ref(&r).hands[0].size(),
+        st_ref(&r).hands[0].len(),
         target_before,
         "a failed catch must not touch the target's hand"
     );
@@ -1459,8 +1468,9 @@ fn room_penalize_failed_catch_empty_deck() {
     near_seat(&mut r, 0);
     st(&mut r).deck.cards.clear();
     st(&mut r).discard = vec![num(Color::Red, 5)];
-    let before = st_ref(&r).hands[1].size();
-    let (cards, charged) = r.penalize_failed_catch(1, NOW);
+    let before = st_ref(&r).hands[1].len();
+    let charge = r.penalize_failed_catch(1, NOW);
+    let (cards, charged) = (charged_cards(&charge), is_charged(&charge));
     assert_eq!(
         cards.len(),
         0,
@@ -1472,7 +1482,7 @@ fn room_penalize_failed_catch_empty_deck() {
         charged,
         "a call against dry piles is still the seat's one charge for this offer"
     );
-    assert_eq!(st_ref(&r).hands[1].size(), before, "catcher hand unchanged");
+    assert_eq!(st_ref(&r).hands[1].len(), before, "catcher hand unchanged");
 }
 
 // The anti-spam rule, and the reason the button can afford to be live for most
@@ -1483,13 +1493,14 @@ fn room_penalize_failed_catch_charges_once_per_offer() {
     let mut r = setup_three_player_game();
     near_seat(&mut r, 0);
     assert!(
-        r.penalize_failed_catch(1, NOW).1,
+        is_charged(&r.penalize_failed_catch(1, NOW)),
         "the first press must be charged"
     );
-    let before = st_ref(&r).hands[1].size();
+    let before = st_ref(&r).hands[1].len();
 
     for i in 0..5 {
-        let (cards, charged) = r.penalize_failed_catch(1, NOW);
+        let charge = r.penalize_failed_catch(1, NOW);
+        let (cards, charged) = (charged_cards(&charge), is_charged(&charge));
         assert!(
             !charged && cards.is_empty(),
             "press {} on an unchanged offer charged again",
@@ -1497,7 +1508,7 @@ fn room_penalize_failed_catch_charges_once_per_offer() {
         );
     }
     assert_eq!(
-        st_ref(&r).hands[1].size(),
+        st_ref(&r).hands[1].len(),
         before,
         "spamming the button must cost nothing more"
     );
@@ -1510,8 +1521,9 @@ fn room_penalize_failed_catch_charges_once_per_offer() {
 #[test]
 fn room_penalize_failed_catch_nothing_offered_charges_nothing() {
     let mut r = setup_three_player_game();
-    let before = st_ref(&r).hands[1].size();
-    let (cards, charged) = r.penalize_failed_catch(1, NOW);
+    let before = st_ref(&r).hands[1].len();
+    let charge = r.penalize_failed_catch(1, NOW);
+    let (cards, charged) = (charged_cards(&charge), is_charged(&charge));
     assert!(
         !charged && cards.is_empty(),
         "eight-card hands all round: nothing was offered, so nothing may be charged"
@@ -1519,18 +1531,18 @@ fn room_penalize_failed_catch_nothing_offered_charges_nothing() {
     // A seat on one card whose window shut long ago is the same table: the
     // button went dark when the window did.
     st(&mut r).hands[0] = Hand::of([num(Color::Red, 1)]);
-    st(&mut r).last_card_at[0] = Some(NOW - 60_000);
+    st(&mut r).seats[0].last_card_at = Some(NOW - 60_000);
     assert!(
-        !r.penalize_failed_catch(1, NOW).1,
+        !is_charged(&r.penalize_failed_catch(1, NOW)),
         "a seat stuck on one card past its window is not an offer"
     );
     // Three cards out is not one either — the client's threshold, pinned here.
     st(&mut r).hands[0] = Hand::of([num(Color::Red, 1), num(Color::Red, 2), num(Color::Red, 3)]);
     assert!(
-        !r.penalize_failed_catch(1, NOW).1,
+        !is_charged(&r.penalize_failed_catch(1, NOW)),
         "three cards out is one too many to be an offer"
     );
-    assert_eq!(st_ref(&r).hands[1].size(), before, "catcher hand untouched");
+    assert_eq!(st_ref(&r).hands[1].len(), before, "catcher hand untouched");
 }
 
 // The other half of the ration, and the farm it closes: the catcher's own play
@@ -1542,7 +1554,7 @@ fn room_penalize_failed_catch_own_play_is_not_a_new_offer() {
     let mut r = setup_three_player_game();
     near_seat(&mut r, 0);
     assert!(
-        r.penalize_failed_catch(1, NOW).1,
+        is_charged(&r.penalize_failed_catch(1, NOW)),
         "the first press must be charged"
     );
 
@@ -1551,10 +1563,11 @@ fn room_penalize_failed_catch_own_play_is_not_a_new_offer() {
     let card = Card::new(st_ref(&r).active_color, Kind::Number, top.value);
     st(&mut r).hands[1].add(&[card]);
     st(&mut r).current_turn = 1;
-    r.play_card(1, card, Color::Red, -1, NOW).expect("PlayCard");
+    r.play_card(1, card, Color::Red, None, NOW)
+        .expect("PlayCard");
 
     assert!(
-        !r.penalize_failed_catch(1, NOW).1,
+        !is_charged(&r.penalize_failed_catch(1, NOW)),
         "the seat on two has not moved, so the second press is the same misread"
     );
 }
@@ -1568,14 +1581,14 @@ fn room_penalize_failed_catch_charges_again_on_a_new_offer() {
     st(&mut r).discard = vec![num(Color::Red, 5)];
     near_seat(&mut r, 0);
     assert!(
-        r.penalize_failed_catch(1, NOW).1,
+        is_charged(&r.penalize_failed_catch(1, NOW)),
         "the first press must be charged"
     );
     st(&mut r).current_turn = 0;
-    r.play_card(0, num(Color::Red, 2), Color::Red, -1, NOW)
+    r.play_card(0, num(Color::Red, 2), Color::Red, None, NOW)
         .expect("PlayCard");
     assert!(
-        r.penalize_failed_catch(1, NOW).1,
+        is_charged(&r.penalize_failed_catch(1, NOW)),
         "the seat is on its last card now: a new offer, a new wager, a new card"
     );
     // A second window on the same seat is a second offer too: the card it is
@@ -1584,10 +1597,10 @@ fn room_penalize_failed_catch_charges_again_on_a_new_offer() {
     st(&mut r).hands[0].cards.remove(0);
     st(&mut r).open_catch_window(0, NOW);
     // Distinct from the first window whatever the clock's resolution.
-    let at = st_ref(&r).last_card_at[0].unwrap();
-    st(&mut r).last_card_at[0] = Some(at + 1);
+    let at = st_ref(&r).seats[0].last_card_at.unwrap();
+    st(&mut r).seats[0].last_card_at = Some(at + 1);
     assert!(
-        r.penalize_failed_catch(1, NOW + 1).1,
+        is_charged(&r.penalize_failed_catch(1, NOW + 1)),
         "a reopened window is a fresh offer"
     );
 }
@@ -1602,7 +1615,7 @@ fn game_state_catch_window_end() {
     must_join(&mut r, "Bob");
     r.start(NOW).expect("start");
     st(&mut r).open_catch_window(1, NOW);
-    let opened = st_ref(&r).last_card_at[1].unwrap();
+    let opened = st_ref(&r).seats[1].last_card_at.unwrap();
     assert_eq!(
         st_ref(&r).catch_window_end(1),
         Some(opened + CATCH_WINDOW_MS),

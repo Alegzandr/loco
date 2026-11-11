@@ -10,7 +10,8 @@
 use crate::card::{Card, Color, Kind};
 use crate::event::EventKind;
 use crate::hand::Hand;
-use crate::room::{GameState, MatchFormat, Room};
+use crate::room::{CatchCharge, MatchFormat, Room};
+use crate::state::{GameState, SeatState};
 use crate::{Millis, Seat};
 use rand_chacha::ChaCha12Rng;
 use rand_core::SeedableRng;
@@ -59,7 +60,7 @@ fn join_all(r: &mut Room, names: &[&str]) {
     }
 }
 
-/// Go: `setupTwoPlayerGame` — alice and bob, seat 0 to play, no pending draw,
+/// Go: `setupTwoPlayerGame` â€” alice and bob, seat 0 to play, no pending draw,
 /// clockwise.
 pub(crate) fn setup_two_player_game() -> Room {
     let mut r = new_room("GAME");
@@ -72,7 +73,7 @@ pub(crate) fn setup_two_player_game() -> Room {
     r
 }
 
-/// Go: `setupThreePlayerGame` — alice, bob and carol.
+/// Go: `setupThreePlayerGame` â€” alice, bob and carol.
 pub(crate) fn setup_three_player_game() -> Room {
     let mut r = new_room("3PLY");
     join_all(&mut r, &["alice", "bob", "carol"]);
@@ -90,7 +91,7 @@ pub(crate) fn declare_last(r: &mut Room, seat: Seat) {
         .unwrap_or_else(|e| panic!("DeclareLastCard({seat}): {e}"));
 }
 
-/// Go: `nearSeat` — seat `i` on exactly two cards.
+/// Go: `nearSeat` â€” seat `i` on exactly two cards.
 pub(crate) fn near_seat(r: &mut Room, i: usize) {
     st(r).hands[i] = Hand::of([Card::number(Color::Red, 1), Card::number(Color::Red, 2)]);
 }
@@ -100,7 +101,7 @@ pub(crate) fn arm_interrupt(r: &mut Room, seat: Seat) {
     st(r).arm_interrupt_window(seat, NOW);
 }
 
-/// Go: `finishMatch` — a BO1 ended by seat 0's round.
+/// Go: `finishMatch` â€” a BO1 ended by seat 0's round.
 pub(crate) fn finish_match(names: &[&str]) -> Room {
     let mut r = new_room("TEST");
     join_all(&mut r, names);
@@ -116,23 +117,24 @@ pub(crate) fn has_event(r: &Room, kind: EventKind, seat: Seat) -> bool {
     st_ref(r)
         .event_log
         .iter()
-        .any(|e| e.kind == kind && e.player_index == seat)
+        .any(|e| e.kind == kind && e.player == Some(seat))
 }
 
-/// Go: `interruptState` — seat 0 just played `top`, the bot is seat 1.
+/// Go: `interruptState` â€” seat 0 just played `top`, the bot is seat 1.
 pub(crate) fn interrupt_state(top: Card, active: Color, bot_hand: &[Card]) -> GameState {
     GameState {
         hands: vec![Hand::of([top]), Hand::of(bot_hand)],
         discard: vec![top],
         active_color: active,
         interrupt_open: true,
-        last_play_by: 0,
+        last_play_by: Some(0),
         current_turn: 1,
+        seats: vec![SeatState::default(); 2],
         ..GameState::default()
     }
 }
 
-/// Go: `twoSeatRoom` — one seat per size, each hand of red numbers.
+/// Go: `twoSeatRoom` â€” one seat per size, each hand of red numbers.
 pub(crate) fn two_seat_room(sizes: &[usize]) -> Room {
     let mut r = new_room("TEST01");
     for i in 0..sizes.len() {
@@ -159,13 +161,13 @@ pub(crate) fn match_room(code: &str, format: MatchFormat, names: &[&str]) -> Roo
     r
 }
 
-/// Go: `retireRoom` — a BO3 at `seats` seats.
+/// Go: `retireRoom` â€” a BO3 at `seats` seats.
 pub(crate) fn retire_room(seats: usize) -> Room {
     let names = ["alice", "bob", "carol", "dave", "erin", "frank"];
-    match_room("RET", MatchFormat::BO3, &names[..seats])
+    match_room("RET", MatchFormat::Bo3, &names[..seats])
 }
 
-/// Go: `exhaustPiles` — the pile down to its top, the deck down to `keep`.
+/// Go: `exhaustPiles` â€” the pile down to its top, the deck down to `keep`.
 pub(crate) fn exhaust_piles(r: &mut Room, keep: usize) {
     let s = st(r);
     let top = s.top_card();
@@ -182,7 +184,7 @@ pub(crate) fn started_room(players: &[&str]) -> Room {
     r
 }
 
-/// Go: `playRound` — seat `seat` takes the round off a declared last card,
+/// Go: `playRound` â€” seat `seat` takes the round off a declared last card,
 /// every other seat holding `loser_cards`; then the next round is dealt
 /// unless the match is over.
 pub(crate) fn play_round(r: &mut Room, seat: Seat, loser_cards: &[Card]) {
@@ -194,7 +196,7 @@ pub(crate) fn play_round(r: &mut Room, seat: Seat, loser_cards: &[Card]) {
         s.current_turn = seat;
         s.pending_draw = 0;
         for (i, h) in s.hands.iter_mut().enumerate() {
-            if i as Seat == seat {
+            if i == seat {
                 h.cards = vec![top];
             } else {
                 h.cards = loser_cards.to_vec();
@@ -202,7 +204,7 @@ pub(crate) fn play_round(r: &mut Room, seat: Seat, loser_cards: &[Card]) {
         }
     }
     declare_last(r, seat);
-    r.play_card(seat, top, Color::Red, -1, NOW)
+    r.play_card(seat, top, Color::Red, None, NOW)
         .unwrap_or_else(|e| panic!("PlayCard: {e}"));
     r.round_ended = false;
     if !r.match_over {
@@ -211,14 +213,25 @@ pub(crate) fn play_round(r: &mut Room, seat: Seat, loser_cards: &[Card]) {
     }
 }
 
-/// Go: `newTestState` — a minimal state for rule tests.
+/// Go: `newTestState` â€” a minimal state for rule tests.
 pub(crate) fn new_test_state(players: usize, current_turn: Seat) -> GameState {
     GameState {
-        hands: vec![Hand::default(); players],
         current_turn,
-        direction: 1,
         active_color: Color::Red,
-        ..GameState::default()
+        ..GameState::with_hands(vec![Hand::default(); players])
+    }
+}
+
+/// Go's `charged` half of `PenalizeFailedCatch`'s `(cards, charged)`.
+pub(crate) fn is_charged(c: &CatchCharge) -> bool {
+    matches!(c, CatchCharge::Charged { .. })
+}
+
+/// Go's `cards` half of `PenalizeFailedCatch`'s `(cards, charged)`.
+pub(crate) fn charged_cards(c: &CatchCharge) -> &[Card] {
+    match c {
+        CatchCharge::Free => &[],
+        CatchCharge::Charged { drawn } => drawn,
     }
 }
 

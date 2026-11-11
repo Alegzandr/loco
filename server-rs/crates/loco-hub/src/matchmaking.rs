@@ -20,7 +20,7 @@ use std::sync::atomic::Ordering;
 use tokio::time::Instant;
 
 /// The format every matchmade match is played in.
-pub const MATCHMAKING_FORMAT: MatchFormat = MatchFormat::BO1;
+pub const MATCHMAKING_FORMAT: MatchFormat = MatchFormat::Bo1;
 
 /// What a match needs to keep being a match: below it a departure ends it.
 pub const WALK_OUT_FLOOR: usize = 2;
@@ -208,12 +208,12 @@ impl Table {
             let tok = self.issue_token(seat);
             if let Some(m) = self.client(seat) {
                 m.send(ServerMsg::MatchFound(MatchFoundMsg {
-                    room_code: self.code.clone(),
+                    room_code: self.code.to_string(),
                     player_id: Some(seat as i32),
                     players: pl.clone(),
-                    session_token: tok,
+                    session_token: tok.into_string(),
                     match_format: Some(match_format_string(self.room.format)),
-                    max_players: self.room.max_players,
+                    max_players: self.room.max_players as i32,
                     starts_in_ms: starts_in,
                     ..Default::default()
                 }));
@@ -380,8 +380,8 @@ impl Table {
             .get(seat)
             .map(|p| p.nickname.clone())
             .unwrap_or_default();
-        let turn_before = self.room.state.as_ref().map_or(-1, |s| s.current_turn);
-        if let Err(e) = self.room.retire_seat(seat as i32, clock::now_ms()) {
+        let turn_before = self.room.state.as_ref().map(|s| s.current_turn);
+        if let Err(e) = self.room.retire_seat(seat, clock::now_ms()) {
             c.refuse(e);
             return;
         }
@@ -404,8 +404,8 @@ impl Table {
     }
 
     pub(crate) fn retire_absent_seat(&mut self, cx: &TableCtx, seat: usize) {
-        let turn_before = self.room.state.as_ref().map_or(-1, |s| s.current_turn);
-        if let Err(e) = self.room.retire_seat(seat as i32, clock::now_ms()) {
+        let turn_before = self.room.state.as_ref().map(|s| s.current_turn);
+        if let Err(e) = self.room.retire_seat(seat, clock::now_ms()) {
             tracing::warn!(player = seat, "retire on expiry failed err={e}");
             return;
         }
@@ -418,13 +418,13 @@ impl Table {
         self.announce_retired_seat(cx, turn_before);
     }
 
-    fn announce_retired_seat(&mut self, cx: &TableCtx, turn_before: i32) {
+    fn announce_retired_seat(&mut self, cx: &TableCtx, turn_before: Option<usize>) {
         self.broadcast_personalized_game_state();
         if self
             .room
             .state
             .as_ref()
-            .is_some_and(|s| s.current_turn != turn_before)
+            .is_some_and(|s| Some(s.current_turn) != turn_before)
         {
             self.schedule_turn_timer(cx);
             self.broadcast_turn_changed();
@@ -438,7 +438,7 @@ impl Table {
         let Some(winner) = self.remaining_seat(away_seat) else {
             return;
         };
-        if let Err(e) = self.room.forfeit_to(winner as i32, clock::now_ms()) {
+        if let Err(e) = self.room.forfeit_to(winner, clock::now_ms()) {
             tracing::warn!(away = away_seat, "forfeit failed err={e}");
             return;
         }

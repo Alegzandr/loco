@@ -18,7 +18,7 @@ fn catch_window_length() -> Duration {
     let now = clock::now_ms();
     r.start(now).expect("start");
     let s = r.state.as_mut().expect("dealt");
-    s.last_card_at[0] = Some(now);
+    s.seats[0].last_card_at = Some(now);
     let end = s.catch_window_end(0).expect("an open window has an end");
     Duration::from_millis((end - now) as u64)
 }

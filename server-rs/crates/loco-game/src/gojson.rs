@@ -1,4 +1,4 @@
-//! Instants on the wire of the drain snapshot.
+//! Go-compatible JSON for the drain snapshot: instants, seats, nil slices.
 //!
 //! The domain keeps time as Unix milliseconds, but the snapshot is Go's
 //! `json.Marshal(game.Room)`, where every `time.Time` is an RFC 3339 string and
@@ -219,6 +219,23 @@ pub mod nil_when_empty {
     pub use super::nullable::deserialize;
 }
 
+/// `Option<Seat>` as Go's `int`, where -1 meant "nobody".
+pub mod opt_seat {
+    use crate::Seat;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &Option<Seat>, s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            Some(seat) => s.serialize_u64(*seat as u64),
+            None => s.serialize_i64(-1),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Seat>, D::Error> {
+        let n = i64::deserialize(d)?;
+        Ok(usize::try_from(n).ok())
+    }
+}
 #[cfg(test)]
 mod unit {
     use super::*;

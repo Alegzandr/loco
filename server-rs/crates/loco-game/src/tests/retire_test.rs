@@ -17,12 +17,12 @@ use crate::room::INITIAL_HAND_SIZE;
 fn retire_seat_hand_goes_back_to_the_deck() {
     let mut r = retire_room(4);
     let deck_before = st_ref(&r).deck.cards.len();
-    let hand_size = st_ref(&r).hands[2].size();
+    let hand_size = st_ref(&r).hands[2].len();
 
     r.retire_seat(2, NOW)
         .unwrap_or_else(|e| panic!("RetireSeat: {e}"));
 
-    assert_eq!(st_ref(&r).hands[2].size(), 0, "hand, want 0");
+    assert_eq!(st_ref(&r).hands[2].len(), 0, "hand, want 0");
     // Left in a hand nobody holds, those cards would shrink the deck for
     // everybody else every time somebody left.
     assert_eq!(
@@ -116,7 +116,7 @@ fn retire_seat_is_dealt_nothing_in_the_next_round() {
         .unwrap_or_else(|e| panic!("BeginNextRound: {e}"));
     let s = st_ref(&r);
     assert_eq!(
-        s.hands[2].size(),
+        s.hands[2].len(),
         0,
         "dealt cards to a seat that left, want 0"
     );
@@ -125,10 +125,10 @@ fn retire_seat_is_dealt_nothing_in_the_next_round() {
             continue;
         }
         assert_eq!(
-            h.size(),
+            h.len(),
             INITIAL_HAND_SIZE,
             "seat {i} got {} cards, want {INITIAL_HAND_SIZE}",
-            h.size()
+            h.len()
         );
     }
     // And the round cannot open on the empty seat, whatever the points say.
@@ -157,7 +157,8 @@ fn retire_seat_global_switch_skips_it() {
     let mut r = retire_room(4);
     r.retire_seat(1, NOW)
         .unwrap_or_else(|e| panic!("RetireSeat: {e}"));
-    let src = st_ref(&r).rotate_seats(1);
+    assert_eq!(st_ref(&r).direction, 1, "the deal plays clockwise");
+    let src = st_ref(&r).rotate_seats();
     // Seats 0, 2 and 3 are the circle: each takes the previous one's hand.
     assert!(
         src[0] == 3 && src[2] == 0 && src[3] == 2,
@@ -185,7 +186,7 @@ fn retire_seat_cannot_be_swapped_with() {
     }
 
     assert!(
-        r.play_card(0, swap, swap.color, 2, NOW).is_err(),
+        r.play_card(0, swap, swap.color, Some(2), NOW).is_err(),
         "swapping with a seat that left was allowed"
     );
 }

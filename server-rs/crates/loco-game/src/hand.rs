@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct Hand {
     #[serde(
         rename = "Cards",
-        deserialize_with = "crate::stamp::nullable::deserialize"
+        deserialize_with = "crate::gojson::nullable::deserialize"
     )]
     pub cards: Vec<Card>,
 }
@@ -44,7 +44,12 @@ impl Hand {
     }
 
     /// The number of cards in the hand. (Go: `Size`.)
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.cards.len()
+    }
+
+    /// Whether the hand is empty: the round has been won from it.
+    pub fn is_empty(&self) -> bool {
+        self.cards.is_empty()
     }
 }

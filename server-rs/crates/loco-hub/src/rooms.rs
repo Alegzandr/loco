@@ -7,6 +7,7 @@ use crate::client::Client;
 use crate::clock;
 use crate::convert::{match_format_of, match_format_string};
 use crate::hub::HubCore;
+use crate::ids::{RoomCode, SessionToken};
 use crate::room::new_room;
 use crate::table::Table;
 use loco_game::Status;
@@ -24,17 +25,9 @@ use tokio::time::Instant;
 /// (`tableCodeRules.ts`) to it. The same 32 characters `tokens.rs` draws from.
 pub const ROOM_CODE_CHARS: &str = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-/// How many characters a table code has.
+/// How many characters a table code has. Both are checked by
+/// [`RoomCode::parse`], the one door a typed code goes through.
 pub const ROOM_CODE_LEN: usize = 6;
-
-/// Whether `code` is a table code at all, case aside.
-pub fn valid_room_code(code: &str) -> bool {
-    code.len() == ROOM_CODE_LEN
-        && code
-            .to_ascii_uppercase()
-            .bytes()
-            .all(|b| ROOM_CODE_CHARS.as_bytes().contains(&b))
-}
 
 /// The empty-room cleanup. Seating anybody disarms it (`Table::seat`), so a
 /// cleanup that fires is never a stale one.
@@ -158,12 +151,12 @@ impl HubCore {
         tracing::info!(code = %code, host = %nickname, "room created");
         let tok = t.issue_token(0);
         c.send(ServerMsg::RoomCreated(RoomCreatedMsg {
-            room_code: code.clone(),
+            room_code: code.to_string(),
             player_id: Some(0),
             players: t.player_list(),
-            session_token: tok,
+            session_token: tok.into_string(),
             match_format: Some(match_format_string(t.room.format)),
-            max_players: t.room.max_players,
+            max_players: t.room.max_players as i32,
             ..Default::default()
         }));
         // Last, when the hub has finished filling it in.
@@ -171,7 +164,7 @@ impl HubCore {
     }
 
     /// A code no live table holds.
-    pub(crate) fn generate_code(&self) -> String {
+    pub(crate) fn generate_code(&self) -> RoomCode {
         crate::tokens::generate_code(|c| self.tables.contains_key(c))
     }
 
@@ -183,11 +176,11 @@ impl HubCore {
         let Some(nickname) = Self::validate_nickname(c, &msg.nickname) else {
             return;
         };
-        if !valid_room_code(&msg.room_code) {
+        let Ok(code) = RoomCode::parse(&msg.room_code) else {
             self.note_failed_join(c);
             c.refuse(crate::refusal::Refusal::InvalidRoomCode);
             return;
-        }
+        };
         // A sweep is refused before the lookup, so a throttled network learns
         // nothing from the answer either.
         if self.join_throttled(c) {
@@ -198,7 +191,6 @@ impl HubCore {
             c.refuse(crate::refusal::Refusal::TooManyAttempts);
             return;
         }
-        let code = msg.room_code.to_ascii_uppercase();
         let Some(t) = self.tables.get(&code) else {
             // While draining, a code this process does not have is very likely
             // one the previous process had: not the player's mistake.
@@ -212,7 +204,7 @@ impl HubCore {
         // The rest of a join is the table's, which also makes two people
         // typing the same code in the same instant a queue, not a race.
         let c2 = c.clone();
-        let token = msg.session_token;
+        let token = SessionToken::from(msg.session_token);
         let job = TableJob::new("join_room", move |t: &mut Table, cx: &TableCtx| {
             t.join_at_table(cx, &c2, &nickname, &token)
         })
@@ -240,7 +232,13 @@ impl Table {
         self.seat(c, id);
     }
 
-    fn join_at_table(&mut self, cx: &TableCtx, c: &Arc<Client>, nickname: &str, token: &str) {
+    fn join_at_table(
+        &mut self,
+        cx: &TableCtx,
+        c: &Arc<Client>,
+        nickname: &str,
+        token: &SessionToken,
+    ) {
         // A table that has dealt (or finished, or is a matchmade reveal) takes
         // nothing but a reclaim, and a stranger gets the same one string as a
         // stale token: two refusals would be a roster oracle.
@@ -268,12 +266,12 @@ impl Table {
         let seat = c.player_id();
         let tok = self.issue_token(seat);
         c.send(ServerMsg::RoomJoined(RoomJoinedMsg {
-            room_code: self.code.clone(),
+            room_code: self.code.to_string(),
             player_id: Some(seat as i32),
             players: self.player_list(),
-            session_token: tok,
+            session_token: tok.into_string(),
             match_format: Some(match_format_string(self.room.format)),
-            max_players: self.room.max_players,
+            max_players: self.room.max_players as i32,
             streamer_mode: self.streamer_mode,
             ..Default::default()
         }));
@@ -380,7 +378,7 @@ impl Table {
             c.refuse(crate::refusal::Refusal::HostOnlyMaxPlayers);
             return;
         }
-        if let Err(e) = self.room.set_max_players(n) {
+        if let Err(e) = self.room.set_max_players(usize::try_from(n).unwrap_or(0)) {
             c.refuse(e);
             return;
         }
@@ -411,7 +409,7 @@ impl Table {
     fn broadcast_lobby_config(&self) {
         self.broadcast_all(ServerMsg::LobbyConfigChanged(LobbyConfigChangedMsg {
             match_format: Some(match_format_string(self.room.format)),
-            max_players: self.room.max_players,
+            max_players: self.room.max_players as i32,
             ..Default::default()
         }));
     }
@@ -479,7 +477,7 @@ impl Table {
             return;
         }
         let nickname = self.room.players[seat].nickname.clone();
-        if let Err(e) = self.room.swap_lobby_players(0, seat as i32) {
+        if let Err(e) = self.room.swap_lobby_players(0, seat) {
             c.refuse(e);
             return;
         }
@@ -502,7 +500,7 @@ impl Table {
     /// Drops a seat with no socket behind it and re-bases everything above it.
     pub(crate) fn remove_unmanned_seat(&mut self, cx: &TableCtx, seat: usize) {
         let nickname = self.room.players[seat].nickname.clone();
-        if let Err(e) = self.room.remove_lobby_player(seat as i32) {
+        if let Err(e) = self.room.remove_lobby_player(seat) {
             tracing::warn!(player = seat, "RemoveLobbyPlayer failed err={e}");
             return;
         }
@@ -569,10 +567,15 @@ mod tests {
     fn the_code_rule_is_the_generator_s() {
         assert_eq!(ROOM_CODE_CHARS.as_bytes(), crate::tokens::ROOM_CODE_CHARS);
         assert_eq!(ROOM_CODE_LEN, crate::tokens::ROOM_CODE_LEN);
-        assert!(valid_room_code("abcdef"));
-        assert!(valid_room_code("AB23CD"));
-        assert!(!valid_room_code("ABCDE0"), "0 is not in the alphabet");
-        assert!(!valid_room_code("ABCDE"));
-        assert!(!valid_room_code("ABCDEFG"));
+        let valid = |s: &str| RoomCode::parse(s).is_ok();
+        assert!(valid("abcdef"));
+        assert!(valid("AB23CD"));
+        assert!(!valid("ABCDE0"), "0 is not in the alphabet");
+        assert!(!valid("ABCDE"));
+        assert!(!valid("ABCDEFG"));
+        for _ in 0..200 {
+            let code = crate::tokens::generate_code(|_| false);
+            assert_eq!(RoomCode::parse(&code), Ok(code.clone()), "{code:?}");
+        }
     }
 }

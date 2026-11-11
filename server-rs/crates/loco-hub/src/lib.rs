@@ -24,6 +24,7 @@ pub mod emotes;
 pub mod gameplay;
 pub mod gotime;
 pub mod hub;
+pub mod ids;
 #[cfg(test)]
 mod internal_tests;
 pub mod live;
@@ -54,6 +55,7 @@ pub use client::Client;
 pub use config::{HubConfig, Limits, Timings};
 pub use drain::DRAIN_REFUSAL;
 pub use hub::{Hub, HubCore};
+pub use ids::{InvalidRoomCode, RoomCode, SessionToken};
 pub use logsink::AsyncLog;
 pub use metrics::{HealthStats, LiveStats, MetricsStats};
 pub use serve::routes;

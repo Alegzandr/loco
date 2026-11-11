@@ -6,14 +6,23 @@
 //! Go cases on `MapID("atlantis")` become "it does not parse".
 
 use super::support::*;
-use crate::maps::{
-    self, MAP_IDS, MAP_WEATHERS, MapId, TIMES_OF_DAY, Weather, time_of_day_valid, weather_valid,
-};
+use crate::maps::{self, MAP_IDS, MAP_WEATHERS, MapId, TIMES_OF_DAY, TimeOfDay, Weather};
 use crate::room::{MatchFormat, Status};
 use std::collections::HashSet;
 
+// Go's `MapIDValid`, `TimeOfDayValid` and `WeatherValid`: whether a name parses.
+fn parses_map_id(s: &str) -> bool {
+    s.parse::<MapId>().is_ok()
+}
+fn parses_time(s: &str) -> bool {
+    s.parse::<TimeOfDay>().is_ok()
+}
+fn parses_weather(s: &str) -> bool {
+    s.parse::<Weather>().is_ok()
+}
+
 fn map_valid(r: &crate::room::Room) -> bool {
-    r.map_id.is_some_and(|m| maps::map_id_valid(m.as_str()))
+    r.map_id.is_some_and(|m| parses_map_id(m.as_str()))
 }
 
 #[test]
@@ -48,7 +57,7 @@ fn begin_next_round_keeps_the_map() {
     }
     // BO3: the default BO1 ends the match on the round we are about to finish,
     // and there would be no next round to check.
-    r.set_format(MatchFormat::BO3)
+    r.set_format(MatchFormat::Bo3)
         .unwrap_or_else(|e| panic!("SetFormat: {e}"));
     r.start(NOW).unwrap_or_else(|e| panic!("Start: {e}"));
     let first = r.map_id;
@@ -91,12 +100,12 @@ fn reset_for_rematch_clears_the_map() {
 fn map_id_valid() {
     for id in MAP_IDS {
         assert!(
-            maps::map_id_valid(id.as_str()),
+            parses_map_id(id.as_str()),
             "{id:?} is in MapIDs but reports invalid"
         );
     }
     for id in ["", "atlantis", "Neon", "neon "] {
-        assert!(!maps::map_id_valid(id), "{id:?} reports valid");
+        assert!(!parses_map_id(id), "{id:?} reports valid");
     }
 }
 
@@ -130,12 +139,12 @@ fn pick_map_reaches_every_map() {
 fn start_draws_an_hour_and_a_sky() {
     let r = started_room(&["Alice", "Bob"]);
     assert!(
-        r.map_time.is_some_and(|t| time_of_day_valid(t.as_str())),
+        r.map_time.is_some_and(|t| parses_time(t.as_str())),
         "MapTime = {:?}, want one of {TIMES_OF_DAY:?}",
         r.map_time
     );
     assert!(
-        r.map_weather.is_some_and(|w| weather_valid(w.as_str())),
+        r.map_weather.is_some_and(|w| parses_weather(w.as_str())),
         "MapWeather = {:?}, want one of {:?}",
         r.map_weather,
         maps::WEATHERS
@@ -162,7 +171,7 @@ fn begin_next_round_keeps_the_hour_and_the_sky() {
     for name in ["Alice", "Bob"] {
         must_join(&mut r, name);
     }
-    r.set_format(MatchFormat::BO3)
+    r.set_format(MatchFormat::Bo3)
         .unwrap_or_else(|e| panic!("SetFormat: {e}"));
     r.start(NOW).unwrap_or_else(|e| panic!("Start: {e}"));
     let (first_time, first_weather) = (r.map_time, r.map_weather);
@@ -205,7 +214,7 @@ fn map_weathers_cover_every_map() {
         let mut clear = false;
         for &w in list {
             assert!(
-                weather_valid(w.as_str()),
+                parses_weather(w.as_str()),
                 "{id:?} lists {w:?}, which is not a weather"
             );
             if w == Weather::Clear {
@@ -216,14 +225,14 @@ fn map_weathers_cover_every_map() {
     }
     for (id, _) in MAP_WEATHERS {
         assert!(
-            maps::map_id_valid(id.as_str()),
+            parses_map_id(id.as_str()),
             "MapWeathers names {id:?}, which is not a map"
         );
     }
     // Go: `MapID("atlantis").Weathers() == nil`. An unknown id is not a
     // `MapId` here, so the nearest statement is that it never becomes one.
     assert!(
-        MapId::parse("atlantis").is_none(),
+        "atlantis".parse::<MapId>().is_err(),
         "an unknown map should list no weather"
     );
 }
@@ -252,7 +261,7 @@ fn pick_weather_stays_inside_the_maps_list() {
     // cannot reach `pick_weather` (it is not a `MapId`), so the guard it
     // exercised is the empty-list branch, which no registered map takes.
     assert!(
-        MapId::parse("atlantis").is_none(),
+        "atlantis".parse::<MapId>().is_err(),
         "an unknown map parsed into a MapId"
     );
 }
@@ -277,7 +286,7 @@ fn pick_time_reaches_every_hour() {
 #[test]
 fn time_and_weather_valid() {
     for bad in ["", "noon", "Day", "day "] {
-        assert!(!time_of_day_valid(bad), "time {bad:?} reports valid");
-        assert!(!weather_valid(bad), "weather {bad:?} reports valid");
+        assert!(!parses_time(bad), "time {bad:?} reports valid");
+        assert!(!parses_weather(bad), "weather {bad:?} reports valid");
     }
 }

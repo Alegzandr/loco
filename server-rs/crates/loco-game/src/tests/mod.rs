@@ -26,7 +26,7 @@ mod screen_test;
 mod state_mismatch_test;
 
 // Beyond the Go suite.
-mod apply_test;
+mod api_test;
 mod proptests;
 mod scripted_round;
 mod serde_test;

@@ -3,7 +3,7 @@
 
 #[allow(unused_imports)]
 use super::support::*;
-use crate::error::{GameError, NICKNAME_REJECTED};
+use crate::error::{ErrorKind, GameError, NICKNAME_REJECTED};
 use crate::nickname::{self, lists, validate_nickname};
 
 #[test]
@@ -221,7 +221,7 @@ fn nickname_errors_are_one_wire_string() {
         GameError::NicknameBlocked,
     ] {
         assert!(
-            err.is_nickname_rejected(),
+            err.kind() == ErrorKind::NicknameRejected,
             "{err} does not wrap ErrNicknameRejected"
         );
         // Go's `%w` wrapping kept the sentinel's text at the head of the

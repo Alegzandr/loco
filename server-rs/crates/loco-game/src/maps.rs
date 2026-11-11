@@ -8,95 +8,129 @@
 //! every seat has to be handed the same three.
 //!
 //! `client/src/test/maps.test.ts` pins the client's registry to the lists
-//! below, so they stay plain constant arrays.
+//! below and reads each id's spelling off `as_str`, so both stay plain.
 
 use crate::rng;
 use crate::room::Room;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 
-/// Defines a string-valued enum with `as_str`, `parse` and string serde.
-macro_rules! string_enum {
-    ($(#[$m:meta])* $t:ident { $($(#[$vm:meta])* $v:ident = $s:literal),* $(,)? }) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum $t { $($(#[$vm])* $v),* }
+/// A name that is not one of this server's maps, hours or skies.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown {what}: {name}")]
+pub struct UnknownName {
+    pub what: &'static str,
+    pub name: String,
+}
 
-        impl $t {
-            /// The wire spelling.
-            pub const fn as_str(self) -> &'static str {
-                match self { $($t::$v => $s),* }
-            }
+/// The room a match is played in (Go: `MapID`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MapId {
+    /// A rooftop terrace above a neon city.
+    Neon,
+    /// The square of a village around an arcane tavern.
+    Rune,
+    /// A boulevard of art-deco hotels and marquees.
+    Velvet,
+    /// A base on an airless moon, under the home planet.
+    Orbit,
+    /// A hot-spring village under cherry trees.
+    Sakura,
+    /// A harbour front: pier, lighthouse, boats.
+    Marina,
+}
 
-            /// Reads a wire spelling back; `None` for anything this server
-            /// does not know.
-            pub fn parse(s: &str) -> Option<$t> {
-                match s { $($s => Some($t::$v),)* _ => None }
-            }
+/// The hour a match is dealt at (Go: `TimeOfDay`). Presentation only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeOfDay {
+    Dawn,
+    Day,
+    Dusk,
+    Night,
+}
+
+/// The sky a match is dealt under (Go: `Weather`). Presentation only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Weather {
+    Clear,
+    Cloudy,
+    Rain,
+    Storm,
+    Snow,
+    Fog,
+}
+
+impl MapId {
+    /// The wire spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            MapId::Neon => "neon",
+            MapId::Rune => "rune",
+            MapId::Velvet => "velvet",
+            MapId::Orbit => "orbit",
+            MapId::Sakura => "sakura",
+            MapId::Marina => "marina",
         }
+    }
+}
 
-        impl std::fmt::Display for $t {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl TimeOfDay {
+    /// The wire spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TimeOfDay::Dawn => "dawn",
+            TimeOfDay::Day => "day",
+            TimeOfDay::Dusk => "dusk",
+            TimeOfDay::Night => "night",
+        }
+    }
+}
+
+impl Weather {
+    /// The wire spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Weather::Clear => "clear",
+            Weather::Cloudy => "cloudy",
+            Weather::Rain => "rain",
+            Weather::Storm => "storm",
+            Weather::Snow => "snow",
+            Weather::Fog => "fog",
+        }
+    }
+}
+
+/// `Display` and `FromStr` off `as_str` and the list of every value, so the
+/// spelling is written once (Go: `String()` and `Valid()`).
+macro_rules! named {
+    ($t:ident, $all:ident, $what:literal) => {
+        impl fmt::Display for $t {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str(self.as_str())
             }
         }
 
-        impl Serialize for $t {
-            fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-                s.serialize_str(self.as_str())
-            }
-        }
+        impl FromStr for $t {
+            type Err = UnknownName;
 
-        impl<'de> Deserialize<'de> for $t {
-            fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-                let s = String::deserialize(d)?;
-                $t::parse(&s).ok_or_else(|| serde::de::Error::custom(format!(
-                    concat!("unknown ", stringify!($t), ": {}"), s
-                )))
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                $all.into_iter()
+                    .find(|v| v.as_str() == s)
+                    .ok_or_else(|| UnknownName {
+                        what: $what,
+                        name: s.to_string(),
+                    })
             }
         }
     };
 }
-
-string_enum!(
-    /// The room a match is played in (Go: `MapID`).
-    MapId {
-        /// A rooftop terrace above a neon city.
-        Neon = "neon",
-        /// The square of a village around an arcane tavern.
-        Rune = "rune",
-        /// A boulevard of art-deco hotels and marquees.
-        Velvet = "velvet",
-        /// A base on an airless moon, under the home planet.
-        Orbit = "orbit",
-        /// A hot-spring village under cherry trees.
-        Sakura = "sakura",
-        /// A harbour front: pier, lighthouse, boats.
-        Marina = "marina",
-    }
-);
-
-string_enum!(
-    /// The hour a match is dealt at (Go: `TimeOfDay`). Presentation only.
-    TimeOfDay {
-        Dawn = "dawn",
-        Day = "day",
-        Dusk = "dusk",
-        Night = "night",
-    }
-);
-
-string_enum!(
-    /// The sky a match is dealt under (Go: `Weather`). Presentation only.
-    Weather {
-        Clear = "clear",
-        Cloudy = "cloudy",
-        Rain = "rain",
-        Storm = "storm",
-        Snow = "snow",
-        Fog = "fog",
-    }
-);
-
+named!(MapId, MAP_IDS, "map");
+named!(TimeOfDay, TIMES_OF_DAY, "time of day");
+named!(Weather, WEATHERS, "weather");
 /// Every map a match can be dealt into, and the list the draw reads (Go:
 /// `MapIDs`).
 pub const MAP_IDS: [MapId; 6] = [
@@ -189,28 +223,15 @@ pub const MAP_WEATHERS: [(MapId, &[Weather]); 6] = [
 ];
 
 impl MapId {
-    /// The skies this room can be dealt under (Go: `MapID.Weathers`).
+    /// The skies this room can be dealt under (Go: `MapID.Weathers`). Every map
+    /// has a list, which `maps_test` pins.
     pub fn weathers(self) -> &'static [Weather] {
         MAP_WEATHERS
             .iter()
             .find(|(m, _)| *m == self)
-            .map_or(&[], |(_, w)| *w)
+            .map(|(_, w)| *w)
+            .expect("every map has its weathers")
     }
-}
-
-/// Whether `s` names a map this server can deal into (Go: `MapID.Valid`).
-pub fn map_id_valid(s: &str) -> bool {
-    MapId::parse(s).is_some()
-}
-
-/// Whether `s` names an hour (Go: `TimeOfDay.Valid`).
-pub fn time_of_day_valid(s: &str) -> bool {
-    TimeOfDay::parse(s).is_some()
-}
-
-/// Whether `s` names a weather (Go: `Weather.Valid`).
-pub fn weather_valid(s: &str) -> bool {
-    Weather::parse(s).is_some()
 }
 
 /// `Option<T>` as Go's string type, where `""` is "not drawn yet".
@@ -249,13 +270,9 @@ impl Room {
         TIMES_OF_DAY[rng::below(self.rng_mut(), TIMES_OF_DAY.len())]
     }
 
-    /// Draws the sky among the ones the room allows; clear for a map with no
-    /// list. (Go: `pickWeather`.)
+    /// Draws the sky among the ones the room allows. (Go: `pickWeather`.)
     pub(crate) fn pick_weather(&mut self, m: MapId) -> Weather {
         let list = m.weathers();
-        if list.is_empty() {
-            return Weather::Clear;
-        }
         list[rng::below(self.rng_mut(), list.len())]
     }
 }

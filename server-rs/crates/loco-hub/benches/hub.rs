@@ -84,7 +84,7 @@ fn bench_table(
 ) {
     let code = "BENCH1";
     let mut room = loco_game::Room::from_u64_seed(code, 1);
-    room.max_players = n as i32;
+    room.max_players = n;
     for i in 0..n {
         room.join(&format!("player{i}")).expect("join");
     }
@@ -130,7 +130,7 @@ fn dispatch_play_card(c: &mut Criterion) {
                     let mut total = Duration::ZERO;
                     for _ in 0..iters {
                         let state = t.room.state.as_mut().expect("dealt");
-                        let seat = state.current_turn as usize;
+                        let seat = state.current_turn;
                         state.hands[seat].add(&[Card {
                             color: Color::Wild,
                             kind: Kind::WildCard,
@@ -173,7 +173,7 @@ fn broadcasts(c: &mut Criterion) {
         t.room.round_ended = true;
         c.bench_function(&format!("broadcast_card_played/players={n}"), |b| {
             b.iter(|| {
-                t.broadcast_card_played(&cx, 0, -1);
+                t.broadcast_card_played(&cx, 0, None);
                 drain(&mut rxs);
             })
         });

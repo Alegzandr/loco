@@ -185,7 +185,8 @@ async fn drop_seat_shifts_everything_together() {
         tbl.seats
     );
     assert!(
-        tbl.token(0) == Some("tok-bot") && tbl.token(1) == Some("tok-c"),
+        tbl.token(0).map(|t| t.expose()) == Some("tok-bot")
+            && tbl.token(1).map(|t| t.expose()) == Some("tok-c"),
         "the tokens did not shift: {:?}",
         tbl.seats
     );
@@ -261,7 +262,7 @@ async fn reset_for_next_match_clears_the_gate() {
     );
     // Who is at the table is not per-match and must survive.
     assert!(
-        same(tbl.client(0), &c) && tbl.token(0) == Some("tok") && tbl.is_bot(1),
+        same(tbl.client(0), &c) && tbl.token(0).map(|t| t.expose()) == Some("tok") && tbl.is_bot(1),
         "reset_for_next_match emptied the table instead of the match"
     );
     hub.stop().await;

@@ -8,7 +8,7 @@
 
 use super::support::*;
 use crate::card::Color;
-use crate::error::GameError;
+use crate::error::{ErrorKind, GameError};
 use crate::hand::Hand;
 use crate::room::{
     CATCH_GRACE_MS, CATCH_LOCKOUT_MS, CATCH_NEAR_GRACE_MS, CATCH_WINDOW_MS, FAILED_CATCH_PENALTY,
@@ -29,7 +29,7 @@ fn catch_undeclared_lands_on_the_instant_the_window_opens() {
     if let Err(e) = r.catch_undeclared(0, 1, NOW) {
         panic!("a press on the opening frame of the window must land: {e}");
     }
-    let got = st_ref(&r).hands[1].size();
+    let got = st_ref(&r).hands[1].len();
     assert_eq!(
         got,
         1 + UNDECLARED_PENALTY,
@@ -48,7 +48,7 @@ fn catch_undeclared_declared_first_is_a_race_lost() {
     let err = r.catch_undeclared(0, 1, NOW);
     assert_eq!(err, Err(GameError::AlreadyDeclared));
     assert!(
-        err.unwrap_err().is_missed_catch(),
+        err.unwrap_err().kind() == ErrorKind::MissedCatch,
         "losing that race is a miss, and a miss costs a card"
     );
 }
@@ -75,7 +75,7 @@ fn catch_offered_survives_the_hand_growing_out_of_reach() {
         r.catch_offered(0, NOW),
         "the window is still running: a press aimed at it is still a wager"
     );
-    let (_, charged) = r.penalize_failed_catch(0, NOW);
+    let charged = is_charged(&r.penalize_failed_catch(0, NOW));
     assert!(
         charged,
         "a press that missed because the hand grew must cost its card"
@@ -88,14 +88,14 @@ fn catch_offered_survives_the_hand_growing_out_of_reach() {
 fn catch_offered_covers_the_grace_after_the_window() {
     let mut r = two_seat_room(&[3, 1]);
     st(&mut r).open_catch_window(1, NOW);
-    let opened = st_ref(&r).last_card_at[1].expect("window opened");
+    let opened = st_ref(&r).seats[1].last_card_at.expect("window opened");
     let late = opened + CATCH_WINDOW_MS + CATCH_GRACE_MS / 2;
 
     assert!(
         r.catch_offered(0, late),
         "a press inside the grace is a wager that came too late"
     );
-    let (_, charged) = r.penalize_failed_catch(0, late);
+    let charged = is_charged(&r.penalize_failed_catch(0, late));
     assert!(charged, "too late costs the same card as too early");
     // And out the other side of the grace it is nothing at all: no honest
     // screen still has the button live, so there is nobody to charge.
@@ -116,15 +116,15 @@ fn penalize_failed_catch_one_card_per_window_through_a_growing_hand() {
     let mut r = two_seat_room(&[3, 1]);
     st(&mut r).open_catch_window(1, NOW);
 
-    let (_, charged) = r.penalize_failed_catch(0, NOW);
+    let charged = is_charged(&r.penalize_failed_catch(0, NOW));
     assert!(charged, "the first press against an offer is charged");
     st(&mut r).hands[1].add(&[num(Color::Blue, 2)]);
-    let (_, charged) = r.penalize_failed_catch(0, NOW);
+    let charged = is_charged(&r.penalize_failed_catch(0, NOW));
     assert!(
         !charged,
         "the same misread, a beat later, is not a second one"
     );
-    let got = st_ref(&r).hands[0].size();
+    let got = st_ref(&r).hands[0].len();
     assert_eq!(
         got,
         3 + FAILED_CATCH_PENALTY,
@@ -146,7 +146,8 @@ fn catch_offered_outlives_a_draw_out_of_the_two_card_picture() {
         s.has_drawn = false;
     }
     r.draw_card(1, NOW).unwrap_or_else(|e| panic!("draw: {e}"));
-    let left = st_ref(&r).near_left_at[1]
+    let left = st_ref(&r).seats[1]
+        .near_left_at
         .expect("a seat drawing from two cards must stamp the instant it left them");
     assert!(
         r.catch_offered(0, left + CATCH_NEAR_GRACE_MS / 2),
@@ -156,7 +157,7 @@ fn catch_offered_outlives_a_draw_out_of_the_two_card_picture() {
         !r.catch_offered(0, left + CATCH_NEAR_GRACE_MS + 1),
         "past the near grace the offer is gone"
     );
-    let (_, charged) = r.penalize_failed_catch(0, left + CATCH_NEAR_GRACE_MS / 2);
+    let charged = is_charged(&r.penalize_failed_catch(0, left + CATCH_NEAR_GRACE_MS / 2));
     assert!(
         charged,
         "too late on the two-card picture costs the same card as too early"
@@ -174,10 +175,10 @@ fn penalize_failed_catch_one_card_across_a_draw_out_of_two() {
         s.pending_draw = 0;
         s.has_drawn = false;
     }
-    let (_, charged) = r.penalize_failed_catch(0, NOW);
+    let charged = is_charged(&r.penalize_failed_catch(0, NOW));
     assert!(charged, "the press against a seat on two is charged");
     r.draw_card(1, NOW).unwrap_or_else(|e| panic!("draw: {e}"));
-    let (_, charged) = r.penalize_failed_catch(0, NOW);
+    let charged = is_charged(&r.penalize_failed_catch(0, NOW));
     assert!(
         !charged,
         "the same misread a beat later is not a second card"
@@ -197,7 +198,7 @@ fn catch_offered_no_near_grace_from_three_cards() {
     }
     r.draw_card(1, NOW).unwrap_or_else(|e| panic!("draw: {e}"));
     assert!(
-        st_ref(&r).near_left_at[1].is_none(),
+        st_ref(&r).seats[1].near_left_at.is_none(),
         "three to four is not leaving the two-card picture"
     );
     assert!(
@@ -215,11 +216,11 @@ fn catch_undeclared_seat_that_was_never_on_the_hook() {
     assert_eq!(err, Err(GameError::NoCatchWindow));
     let err = err.unwrap_err();
     assert!(
-        !err.is_missed_catch(),
+        err.kind() != ErrorKind::MissedCatch,
         "a call on a seat that was never on the hook must not be charged as a lost race"
     );
     assert!(
-        !err.is_lost_race(),
+        !err.kind().is_honest(),
         "and it must not be excused as one either: nothing a correct client sends reaches here"
     );
 }
@@ -229,11 +230,11 @@ fn catch_undeclared_long_closed_window_is_not_a_race() {
     let mut r = two_seat_room(&[3, 1]);
     // The window opened, nobody called it, and it shut a long time ago. Every
     // client stopped drawing the button when it did.
-    st(&mut r).last_card_at[1] = Some(NOW - 60_000);
+    st(&mut r).seats[1].last_card_at = Some(NOW - 60_000);
 
     let err = r.catch_undeclared(0, 1, NOW);
     assert_eq!(err, Err(GameError::NoCatchWindow));
-    let got = st_ref(&r).hands[0].size();
+    let got = st_ref(&r).hands[0].len();
     assert_eq!(
         got, 3,
         "caller was charged for a window nobody could still see: hand {got}"
@@ -245,12 +246,12 @@ fn catch_undeclared_just_missed_is_still_a_race() {
     let mut r = two_seat_room(&[3, 1]);
     // Shut a moment ago: the button was live when it was pressed and the
     // message lost the trip. That is the wager, and it is charged.
-    st(&mut r).last_card_at[1] = Some(NOW - (CATCH_WINDOW_MS + 500));
+    st(&mut r).seats[1].last_card_at = Some(NOW - (CATCH_WINDOW_MS + 500));
 
     let err = r.catch_undeclared(0, 1, NOW);
     assert_eq!(err, Err(GameError::CatchWindowExpired));
     assert!(
-        err.unwrap_err().is_missed_catch(),
+        err.unwrap_err().kind() == ErrorKind::MissedCatch,
         "a window that shut inside the grace is a lost race and must still cost a card"
     );
 }
@@ -263,7 +264,7 @@ fn catch_undeclared_open_window_still_catches() {
     if let Err(e) = r.catch_undeclared(0, 1, NOW) {
         panic!("an open window must still be catchable: {e}");
     }
-    let got = st_ref(&r).hands[1].size();
+    let got = st_ref(&r).hands[1].len();
     assert_eq!(
         got,
         1 + UNDECLARED_PENALTY,
@@ -281,7 +282,7 @@ fn catch_undeclared_declared_inside_the_window_is_still_a_race() {
     let err = r.catch_undeclared(0, 1, NOW);
     assert_eq!(err, Err(GameError::AlreadyDeclared));
     assert!(
-        err.unwrap_err().is_missed_catch(),
+        err.unwrap_err().kind() == ErrorKind::MissedCatch,
         "beaten to the declaration is the race this mechanic is made of"
     );
 }
@@ -317,7 +318,7 @@ fn catch_lockout_mashing_cannot_take_the_window_it_opens_on() {
         r.catch_offered(0, now),
         "a seat on two cards is the offer this whole mechanic is priced on"
     );
-    let (_, charged) = r.penalize_failed_catch(0, now);
+    let charged = is_charged(&r.penalize_failed_catch(0, now));
     assert!(charged, "the press found nobody and must be charged a card");
     r.lock_catch(0, now);
 
@@ -332,7 +333,7 @@ fn catch_lockout_mashing_cannot_take_the_window_it_opens_on() {
     );
     let err = r.catch_undeclared(0, 1, at);
     assert_eq!(err, Err(GameError::CatchLocked));
-    let got = st_ref(&r).hands[1].size();
+    let got = st_ref(&r).hands[1].len();
     assert_eq!(
         got,
         1,
@@ -342,9 +343,12 @@ fn catch_lockout_mashing_cannot_take_the_window_it_opens_on() {
     // Refused, but not suspicious and not a miss: the press cost a card once
     // already, and both clocks are honest.
     let err = err.unwrap_err();
-    assert!(!err.is_missed_catch(), "a locked press is not a lost race");
     assert!(
-        err.is_lost_race(),
+        err.kind() != ErrorKind::MissedCatch,
+        "a locked press is not a lost race"
+    );
+    assert!(
+        err.kind().is_honest(),
         "a locked press is ordinary play, not a tampered client"
     );
 }
@@ -358,13 +362,13 @@ fn catch_lockout_a_press_inside_it_is_free() {
     let now = NOW;
     r.lock_catch(0, now);
 
-    let before = st_ref(&r).hands[0].size();
-    let (_, charged) = r.penalize_failed_catch(0, now + 100);
+    let before = st_ref(&r).hands[0].len();
+    let charged = is_charged(&r.penalize_failed_catch(0, now + 100));
     assert!(
         !charged,
         "a press inside the lockout must be charged nothing"
     );
-    let got = st_ref(&r).hands[0].size();
+    let got = st_ref(&r).hands[0].len();
     assert_eq!(
         got,
         before,

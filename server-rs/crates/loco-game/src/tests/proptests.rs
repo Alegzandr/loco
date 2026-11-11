@@ -20,7 +20,7 @@ const T0: Millis = 1_700_000_000_000;
 
 fn card_total(r: &Room) -> usize {
     r.state.as_ref().map_or(DECK_SIZE, |s| {
-        s.hands.iter().map(Hand::size).sum::<usize>() + s.deck.cards.len() + s.discard.len()
+        s.hands.iter().map(Hand::len).sum::<usize>() + s.deck.cards.len() + s.discard.len()
     })
 }
 
@@ -48,10 +48,11 @@ fn step(
     let st = r.state.as_ref().unwrap();
     let n = st.hands.len();
     let turn = st.current_turn;
-    let seat = (b as usize % n) as Seat;
+    let seat: Seat = b as usize % n;
     let color = COLORS[c as usize % 4];
-    let target = (c as usize % n) as Seat;
-    let hand = &st.hands[turn as usize].cards;
+    let target_seat: Seat = c as usize % n;
+    let target = Some(target_seat);
+    let hand = &st.hands[turn].cards;
     let pick = |cards: &[Card], legal_only: bool| -> Option<Card> {
         let pool: Vec<Card> = cards
             .iter()
@@ -64,7 +65,7 @@ fn step(
         0..=4 => match pick(hand, true).or_else(|| pick(hand, false)) {
             Some(card) => {
                 // Most of the time the seat remembers its LOCO!, so rounds end.
-                let owes = hand.len() == 1 && !st.last_card_declared[turn as usize];
+                let owes = hand.len() == 1 && !st.seats[turn].declared;
                 if owes && c % 3 != 0 {
                     let _ = r.declare_last_card(turn, now);
                     *before = r.clone();
@@ -79,7 +80,7 @@ fn step(
         }
         6 => (r.pass_turn(turn, now), false),
         7 => (r.declare_last_card(seat, now), false),
-        8 => (r.catch_undeclared(seat, target, now), false),
+        8 => (r.catch_undeclared(seat, target_seat, now), false),
         9 => {
             r.penalize_failed_catch(seat, now);
             r.lock_catch(seat, now);
@@ -88,12 +89,12 @@ fn step(
         10 => {
             // Slam the top card from whoever holds it, else anything.
             let top = st.top_card();
-            let card = if st.hands[seat as usize].contains(top) {
+            let card = if st.hands[seat].contains(top) {
                 top
             } else {
-                pick(&st.hands[seat as usize].cards, false).unwrap_or(top)
+                pick(&st.hands[seat].cards, false).unwrap_or(top)
             };
-            (r.interrupt_play(seat, card, color, target, now), false)
+            (r.interrupt_play(seat, &[card], color, target, now), false)
         }
         11 => match pick(hand, false) {
             Some(card) => (r.counter_draw(turn, card, color, now), false),
@@ -122,7 +123,7 @@ fn random_play_reaches_the_states_the_invariants_are_about() {
     let mut rng = rand_chacha::ChaCha12Rng::seed_from_u64(7);
     let (mut rounds, mut matches, mut dry_draws, mut plays) = (0, 0, 0, 0);
     for seed in 0..40 {
-        let mut r = started(seed, 2 + (seed as usize % 3), MatchFormat::BO3);
+        let mut r = started(seed, 2 + (seed as usize % 3), MatchFormat::Bo3);
         let mut now = T0;
         for _ in 0..1500 {
             if r.status != Status::Playing {
@@ -167,10 +168,10 @@ proptest! {
     fn random_play_keeps_the_invariants(
         seed in any::<u64>(),
         seats in 2usize..=5,
-        format in prop::sample::select(vec![1, 3, 5]),
+        format in prop::sample::select(vec![1i64, 3, 5]),
         steps in prop::collection::vec((any::<u8>(), any::<u8>(), any::<u8>(), 0u16..4000), 1..400),
     ) {
-        let mut r = started(seed, seats, MatchFormat(format));
+        let mut r = started(seed, seats, MatchFormat::try_from(format).unwrap());
         let mut now = T0;
         for (a, b, c, dt) in steps {
             now += Millis::from(dt);
@@ -181,7 +182,7 @@ proptest! {
             if a == 255 && b % 3 == 0 {
                 let active = r.state.as_ref().unwrap().active_seats();
                 if active > 2 {
-                    let _ = r.retire_seat((c as usize % seats) as Seat, now);
+                    let _ = r.retire_seat(c as usize % seats, now);
                 }
             }
             let mut before = r.clone();
@@ -208,8 +209,8 @@ proptest! {
 
     /// A draw never fails, however dry the piles are.
     #[test]
-    fn a_draw_never_fails(seed in any::<u64>(), keep in 0usize..3, pending in 0i32..12) {
-        let mut r = started(seed, 3, MatchFormat::BO1);
+    fn a_draw_never_fails(seed in any::<u64>(), keep in 0usize..3, pending in 0u32..12) {
+        let mut r = started(seed, 3, MatchFormat::Bo1);
         let st = r.state.as_mut().unwrap();
         // Everything off the deck and the pile goes into seat 2's hand.
         let mut spill: Vec<Card> = st.deck.cards.drain(keep.min(st.deck.cards.len())..).collect();
@@ -219,12 +220,12 @@ proptest! {
         st.hands[2].add(&spill);
         st.pending_draw = pending;
         let turn = st.current_turn;
-        let before = st.hands[turn as usize].size();
+        let before = st.hands[turn].len();
         prop_assert!(r.draw_card(turn, T0).is_ok());
         let st = r.state.as_ref().unwrap();
         prop_assert!(st.has_drawn);
         prop_assert_eq!(st.pending_draw, 0);
-        prop_assert!(st.hands[turn as usize].size() >= before);
+        prop_assert!(st.hands[turn].len() >= before);
         prop_assert_eq!(card_total(&r), DECK_SIZE);
     }
 
@@ -236,10 +237,10 @@ proptest! {
         path in 0usize..4,
         declared in any::<bool>(),
     ) {
-        let mut r = started(seed, 3, MatchFormat::BO3);
+        let mut r = started(seed, 3, MatchFormat::Bo3);
         let st = r.state.as_mut().unwrap();
         let seat: Seat = 1;
-        let s = seat as usize;
+        let s = seat;
         // The finishing card, and the hand that goes with each path; extras go
         // back on the deck so the table still holds 112.
         let (card, top, hand_len) = match path {
@@ -266,23 +267,23 @@ proptest! {
         st.current_turn = if path == 2 { 0 } else { seat };
         st.pending_draw = if path == 3 { 2 } else { 0 };
         st.interrupt_open = true;
-        st.last_play_by = 0;
-        st.last_card_declared[s] = declared && hand_len == 1;
+        st.last_play_by = Some(0);
+        st.seats[s].declared = declared && hand_len == 1;
         prop_assert_eq!(card_total(&r), DECK_SIZE);
 
         let res = match path {
-            0 => r.play_card(seat, card, color, -1, T0),
-            1 => r.play_cards(seat, &[card, card], color, -1, declared, T0),
-            2 => r.interrupt_play(seat, card, color, -1, T0),
+            0 => r.play_card(seat, card, color, None, T0),
+            1 => r.play_cards(seat, &[card, card], color, None, declared, T0),
+            2 => r.interrupt_play(seat, &[card], color, None, T0),
             _ => r.counter_draw(seat, card, color, T0),
         };
         if declared {
             prop_assert_eq!(res, Ok(()));
             prop_assert!(r.round_ended, "the finish did not end the round");
-            prop_assert_eq!(r.state.as_ref().unwrap().hands[s].size(), 0);
+            prop_assert_eq!(r.state.as_ref().unwrap().hands[s].len(), 0);
         } else {
             prop_assert_eq!(res, Err(GameError::MustDeclareLoco));
-            prop_assert_eq!(r.state.as_ref().unwrap().hands[s].size(), hand_len);
+            prop_assert_eq!(r.state.as_ref().unwrap().hands[s].len(), hand_len);
             prop_assert!(!r.round_ended);
         }
     }

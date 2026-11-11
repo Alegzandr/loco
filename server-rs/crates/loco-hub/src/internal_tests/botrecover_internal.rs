@@ -59,12 +59,12 @@ async fn bot_recover_draws_first_when_it_still_may() {
         st.current_turn = 1;
         st.has_drawn = false;
         st.pending_draw = 0;
-        st.hands[1].size()
+        st.hands[1].len()
     };
     t.bot_recover(&cx, 1);
     let st = t.room.state.as_ref().unwrap();
     assert_eq!(
-        st.hands[1].size(),
+        st.hands[1].len(),
         before + 1,
         "the recovery draws before it passes"
     );
@@ -83,8 +83,8 @@ async fn player_game_state_carries_the_open_catch_windows() {
     let mut tbl = two_seat_table(&hub);
     let state = tbl.room.state.as_mut().expect("dealt");
     state.hands[1].cards.truncate(1);
-    state.last_card_declared[1] = false;
-    state.last_card_at[1] = Some(clock::now_ms());
+    state.seats[1].declared = false;
+    state.seats[1].last_card_at = Some(clock::now_ms());
 
     let dto = tbl.player_game_state_using(0, tbl.player_list());
     assert!(

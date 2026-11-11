@@ -92,7 +92,7 @@ fn interrupt_play_cards_single_card_finish_logs_one_declaration() {
         s.active_color = Color::Red;
         s.hands[1] = Hand::of([top]);
         s.current_turn = 0;
-        s.last_play_by = 0;
+        s.last_play_by = Some(0);
         s.interrupt_open = true;
         s.update_last_card_state(1, NOW);
     }
@@ -105,8 +105,7 @@ fn interrupt_play_cards_single_card_finish_logs_one_declaration() {
             .count()
     };
     let before = count(&r);
-    r.interrupt_play_cards(1, &[top], Color::Red, -1, NOW)
-        .unwrap();
+    r.interrupt_play(1, &[top], Color::Red, None, NOW).unwrap();
     let after = count(&r);
     assert_eq!(
         after, before,

@@ -9,7 +9,7 @@ use crate::statedto::catch_seats;
 use crate::table::Table;
 use crate::wire::Outgoing;
 use axum::extract::ws::Utf8Bytes;
-use loco_game::{Card, GameError, Kind};
+use loco_game::{Card, ErrorKind, GameError, Kind, Seat};
 use loco_protocol::{CardDrawnMsg, CardPlayedMsg, GameStateMsg, ServerMsg, TurnChangedMsg};
 use std::sync::Arc;
 
@@ -53,8 +53,8 @@ impl Table {
         let dl = self.turn_deadline_ms();
         let base = CardDrawnMsg {
             player_index: Some(seat as i32),
-            turn: state.current_turn,
-            pending_draw: Some(state.pending_draw),
+            turn: state.current_turn as i32,
+            pending_draw: Some(state.pending_draw as i32),
             has_drawn: Some(state.has_drawn),
             turn_deadline: dl,
             interrupt_open: Some(state.interrupt_open),
@@ -82,7 +82,7 @@ impl Table {
             return;
         };
         self.broadcast_all(ServerMsg::TurnChanged(TurnChangedMsg {
-            turn: state.current_turn,
+            turn: state.current_turn as i32,
             turn_deadline: self.turn_deadline_ms(),
             interrupt_open: Some(state.interrupt_open),
             ..Default::default()
@@ -95,7 +95,7 @@ impl Table {
     pub fn refuse_action(&self, cx: &TableCtx, c: &Arc<Client>, err: &GameError) {
         c.refuse(err.clone());
         c.note_rejection(err);
-        if !err.is_state_mismatch() {
+        if err.kind() != ErrorKind::StaleState {
             return;
         }
         if !c.claim_resync(cx.hub.config().timings.resync_period) {
@@ -126,7 +126,7 @@ impl Table {
     }
 
     /// The card that just landed, the turn it leaves, and who is on the hook.
-    pub fn broadcast_card_played(&mut self, cx: &TableCtx, seat: usize, chosen_player: i32) {
+    pub fn broadcast_card_played(&mut self, cx: &TableCtx, seat: usize, target: Option<Seat>) {
         if !self.room.round_ended {
             self.schedule_turn_timer(cx);
         }
@@ -140,10 +140,10 @@ impl Table {
             player_index: Some(seat as i32),
             card: Some(card_to_dto(top)),
             active_color: Some(color_name(state.active_color)),
-            chosen_player: (top.kind == Kind::Swap && chosen_player >= 0).then_some(chosen_player),
-            turn: state.current_turn,
+            chosen_player: target.filter(|_| top.kind == Kind::Swap).map(|t| t as i32),
+            turn: state.current_turn as i32,
             direction: state.direction,
-            pending_draw: Some(state.pending_draw),
+            pending_draw: Some(state.pending_draw as i32),
             has_drawn: Some(state.has_drawn),
             players: self.player_list(),
             turn_deadline: self.turn_deadline_ms(),

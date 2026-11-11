@@ -2,7 +2,7 @@
 
 use crate::bots::bot_finish_due;
 use crate::config::BotTimings;
-use loco_game::{Card, Color, GameState, Hand, Kind, Millis};
+use loco_game::{Card, Color, GameState, Hand, Kind, Millis, SeatState};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -22,8 +22,7 @@ fn two_card_state(seats: usize) -> GameState {
             };
             seats
         ],
-        last_card_at: vec![None; seats],
-        last_card_declared: vec![false; seats],
+        seats: vec![SeatState::default(); seats],
         ..GameState::default()
     }
 }
@@ -101,8 +100,13 @@ fn bot_finish_due_the_later_floor_holds() {
                 }],
             },
         ],
-        last_card_at: vec![None, Some(window)],
-        last_card_declared: vec![false, false],
+        seats: vec![
+            SeatState::default(),
+            SeatState {
+                last_card_at: Some(window),
+                ..SeatState::default()
+            },
+        ],
         ..GameState::default()
     };
     let got = bot_finish_due(&b, &s, 1, since);
@@ -112,7 +116,7 @@ fn bot_finish_due_the_later_floor_holds() {
         "undeclared: due {}ms after the window, want 2000ms",
         got - window
     );
-    s.last_card_declared[1] = true;
+    s.seats[1].declared = true;
     let got = bot_finish_due(&b, &s, 1, since);
     assert_eq!(
         got - since,

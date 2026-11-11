@@ -10,8 +10,8 @@ use crate::Seat;
 use crate::card::{COLORS, Card, Color, Kind};
 use crate::hand::Hand;
 use crate::rng;
-use crate::room::GameState;
 use crate::rules::can_play;
+use crate::state::GameState;
 use rand_core::RngCore;
 
 /// What a bot decided to do on its turn.
@@ -30,8 +30,8 @@ pub struct BotAction {
     pub card: Card,
     /// For wild cards.
     pub chosen_color: Color,
-    /// For Swap cards; -1 = no target.
-    pub chosen_player: Seat,
+    /// The Swap's other seat.
+    pub target: Option<Seat>,
     /// The batch when the bot plays more than one copy of `card` at once;
     /// empty for a single card (Go: nil).
     pub cards: Vec<Card>,
@@ -43,7 +43,7 @@ pub struct BotAction {
 /// weighted towards action cards, holds a Swap or an idle Wild that would not
 /// pay, and batches the copies that buy something. (Go: `BotThink`.)
 pub fn bot_think<R: RngCore + ?Sized>(state: &GameState, player: Seat, rng: &mut R) -> BotAction {
-    let hand = &state.hands[player as usize];
+    let hand = &state.hands[player];
     let top = state.top_card();
     let active = state.active_color;
 
@@ -101,12 +101,11 @@ pub fn bot_think<R: RngCore + ?Sized>(state: &GameState, player: Seat, rng: &mut
     };
 
     // A Swap is only played while it pays.
-    let mut swap_target = -1;
-    if bot_swap_pays(state, player) {
-        swap_target = bot_swap_target(state, player);
-    }
+    let swap_target = bot_swap_pays(state, player)
+        .then(|| bot_swap_target(state, player))
+        .flatten();
     let mut fallback = legal.clone();
-    if swap_target < 0 {
+    if swap_target.is_none() {
         fallback = without_kind(&legal, Kind::Swap);
         candidates = without_kind(&candidates, Kind::Swap);
         if candidates.is_empty() {
@@ -116,7 +115,6 @@ pub fn bot_think<R: RngCore + ?Sized>(state: &GameState, player: Seat, rng: &mut
             // Nothing but a Swap that hurts: a card off the deck is cheaper.
             return BotAction {
                 kind: BotActionKind::Draw,
-                chosen_player: -1,
                 ..BotAction::default()
             };
         }
@@ -140,18 +138,14 @@ pub fn bot_think<R: RngCore + ?Sized>(state: &GameState, player: Seat, rng: &mut
     } else {
         active
     };
-    let chosen_player = if pick.kind == Kind::Swap {
-        swap_target
-    } else {
-        -1
-    };
+    let target = swap_target.filter(|_| pick.kind == Kind::Swap);
     let batch = bot_batch_for(pick, hand);
-    let declare_loco = !batch.is_empty() && batch.len() == hand.size();
+    let declare_loco = !batch.is_empty() && batch.len() == hand.len();
     BotAction {
         kind: BotActionKind::Play,
         card: pick,
         chosen_color: chosen,
-        chosen_player,
+        target,
         cards: batch,
         declare_loco,
     }
@@ -168,7 +162,7 @@ pub(crate) fn bot_batch_for(card: Card, hand: &Hand) -> Vec<Card> {
     if copies.len() < 2 {
         return Vec::new();
     }
-    if card.kind == Kind::WildCard && copies.len() < hand.size() {
+    if card.kind == Kind::WildCard && copies.len() < hand.len() {
         return Vec::new();
     }
     copies
@@ -185,25 +179,22 @@ pub(crate) fn without_kind(cards: &[Card], kind: Kind) -> Vec<Card> {
 pub struct BotInterruptAction {
     pub cards: Vec<Card>,
     pub chosen_color: Color,
-    /// Swap target, -1 otherwise.
-    pub chosen_player: Seat,
+    /// The Swap's other seat.
+    pub target: Option<Seat>,
 }
 
 /// What `player` could slam onto the top discard right now, or `None`. Gated on
 /// `last_play_by` and not on the window, so a bot never slams the opening
 /// discard. Mirrors `interrupt_play_cards`' own rules. (Go: `BotInterrupt`.)
 pub fn bot_interrupt(state: &GameState, player: Seat) -> Option<BotInterruptAction> {
-    if player < 0 || player as usize >= state.hands.len() {
-        return None;
-    }
-    if state.last_play_by < 0 || state.discard.is_empty() {
+    if player >= state.hands.len() || state.last_play_by.is_none() || state.discard.is_empty() {
         return None;
     }
     let top = state.top_card();
     if state.pending_draw > 0 && top.kind != Kind::DrawTwo && top.kind != Kind::WildDrawFour {
         return None;
     }
-    let hand = &state.hands[player as usize];
+    let hand = &state.hands[player];
     if !hand.contains(top) {
         return None;
     }
@@ -211,7 +202,7 @@ pub fn bot_interrupt(state: &GameState, player: Seat) -> Option<BotInterruptActi
     let mut action = BotInterruptAction {
         cards: vec![top],
         chosen_color: state.active_color,
-        chosen_player: -1,
+        target: None,
     };
     if top.is_wild() {
         action.chosen_color = bot_preferred_color(hand, state.active_color);
@@ -220,43 +211,25 @@ pub fn bot_interrupt(state: &GameState, player: Seat) -> Option<BotInterruptActi
         if !bot_swap_pays(state, player) {
             return None;
         }
-        action.chosen_player = bot_swap_target(state, player);
-        if action.chosen_player < 0 {
-            return None;
-        }
+        action.target = Some(bot_swap_target(state, player)?);
     }
     Some(action)
 }
 
-/// The opponent holding the fewest cards, never a retired seat; -1 if nobody.
-/// (Go: `botSwapTarget`.)
-pub(crate) fn bot_swap_target(state: &GameState, player: Seat) -> Seat {
-    let mut best: Option<(usize, usize)> = None;
-    for (i, h) in state.hands.iter().enumerate() {
-        if i as Seat == player || state.is_retired(i as Seat) {
-            continue;
-        }
-        if best.is_none_or(|(_, size)| h.size() < size) {
-            best = Some((i, h.size()));
-        }
-    }
-    best.map_or(-1, |(i, _)| i as Seat)
+/// The opponent holding the fewest cards, never a retired seat (the earliest
+/// such seat on a tie). (Go: `botSwapTarget`.)
+pub(crate) fn bot_swap_target(state: &GameState, player: Seat) -> Option<Seat> {
+    (0..state.hands.len())
+        .filter(|&i| i != player && !state.is_retired(i))
+        .min_by_key(|&i| (state.hands[i].len(), i))
 }
 
 /// Whether a Swap now leaves the bot with fewer cards than holding it would.
 /// A Swap that empties the hand always pays. (Go: `botSwapPays`.)
 pub(crate) fn bot_swap_pays(state: &GameState, player: Seat) -> bool {
-    let own = state.hands[player as usize].size() as i64 - 1;
-    if own <= 0 {
-        return true;
-    }
-    let target = bot_swap_target(state, player);
-    if target < 0 {
-        return false;
-    }
-    (state.hands[target as usize].size() as i64) < own
+    let own = state.hands[player].len().saturating_sub(1);
+    own == 0 || bot_swap_target(state, player).is_some_and(|t| state.hands[t].len() < own)
 }
-
 /// The colour the bot holds most of; a tie is broken towards a colour that is
 /// not already active, never bought with a colour held less. (Go:
 /// `botPreferredColor`.)
@@ -265,14 +238,14 @@ pub(crate) fn bot_preferred_color(hand: &Hand, active: Color) -> Color {
         hand.cards
             .iter()
             .filter(|c| !c.is_wild() && c.color == col)
-            .count() as i64
+            .count()
     };
     let mut best = Color::Red;
-    let mut best_n = -1;
+    let mut best_n = None;
     for col in COLORS {
         let n = count(col);
-        if n > best_n || (n == best_n && best == active && col != active) {
-            best_n = n;
+        if Some(n) > best_n || (Some(n) == best_n && best == active && col != active) {
+            best_n = Some(n);
             best = col;
         }
     }

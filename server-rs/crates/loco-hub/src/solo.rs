@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 /// The format a solo game is played in.
-pub const SOLO_FORMAT: MatchFormat = MatchFormat::BO1;
+pub const SOLO_FORMAT: MatchFormat = MatchFormat::Bo1;
 
 impl HubCore {
     pub(crate) fn handle_play_bot(&mut self, c: &Arc<Client>, nickname: &str) {
@@ -109,9 +109,9 @@ impl Table {
         let seat = c.player_id();
         let tok = self.issue_token(seat);
         c.send(ServerMsg::GameStarted(GameStartedMsg {
-            room_code: self.code.clone(),
+            room_code: self.code.to_string(),
             player_id: Some(seat as i32),
-            session_token: tok,
+            session_token: tok.into_string(),
             state: Some(self.player_game_state(seat)),
             ..Default::default()
         }));

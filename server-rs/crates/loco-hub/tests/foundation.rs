@@ -6,6 +6,7 @@
 //! files are `drain.rs`, `snapshot.rs`, `online.rs`, `live.rs`, `actor.rs`;
 //! what stays here are the structural checks they do not repeat.
 
+use loco_game::SavedRoom;
 use loco_hub::actor::{DeadlineKey, Phase, TableJob};
 use loco_hub::room::{Room, Status, new_room};
 use loco_hub::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};
@@ -573,7 +574,7 @@ async fn snapshot_match_survives_a_restart() {
         .on_loop(move |core| {
             let _ = core.tables["PLAYIN"].post(TableJob::new("inspect", move |t, _| {
                 let _ = tx.send((
-                    t.validate_token(2, "tok-2"),
+                    t.validate_token(2, &"tok-2".into()),
                     t.is_bot(1),
                     Some(t.afk(2)),
                     t.solo && t.streamer_mode,
@@ -581,13 +582,13 @@ async fn snapshot_match_survives_a_restart() {
                     t.match_started_at,
                     t.held_seats(),
                     t.seats.len(),
-                    t.room.is_seeded(),
                 ));
             }));
         })
         .await;
-    let (tok, bot, afk, flags, history, at, away, seats, seeded) = rx.await.unwrap();
-    assert!(seeded, "a restored room was left without an RNG");
+    // No RNG check: a saved room has none, and `SavedRoom::restore(seed)` is
+    // the only way back to a `Room`, so a restored room is seeded by type.
+    let (tok, bot, afk, flags, history, at, away, seats) = rx.await.unwrap();
     assert!(tok && bot && flags);
     assert_eq!(afk, Some(1));
     assert_eq!(history[0].duration_ms, 1234);
@@ -611,10 +612,9 @@ fn write_snapshot(path: &std::path::Path, schema: i64, saved_at: SystemTime) {
     let file = SnapshotFile {
         schema_version: schema,
         saved_at: Some(saved_at),
-        rooms: vec![RoomSnapshot {
-            room: playing_room("PLAYIN", 2),
-            ..Default::default()
-        }],
+        rooms: vec![RoomSnapshot::new(SavedRoom::from(&playing_room(
+            "PLAYIN", 2,
+        )))],
     };
     loco_hub::snapshot::write_atomic(path, &file).unwrap();
 }
@@ -693,7 +693,7 @@ async fn snapshot_written_by_go_loads() {
         "schema_version": 5,
         "saved_at": saved,
         "rooms": [{
-            "room": serde_json::to_value(playing_room("GOGOGO", 2)).unwrap(),
+            "room": serde_json::to_value(SavedRoom::from(&playing_room("GOGOGO", 2))).unwrap(),
             "session_tokens": {"0": "abc", "1": "def"},
             "bot_slots": null,
             "afk_timeouts": null,

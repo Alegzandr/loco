@@ -26,7 +26,7 @@ impl Table {
             return;
         };
         let turn = state.current_turn;
-        if turn < 0 || self.is_bot(turn as usize) {
+        if self.is_bot(turn) {
             self.turn_started_at = None;
             self.deadlines.disarm(TURN);
             return;
@@ -57,7 +57,7 @@ impl Table {
     /// Every turn re-arms the one `TURN` key, so a fire is always the latest
     /// turn's; what can still have moved under it without a re-arm is the
     /// match ending or a fixture rewriting the turn.
-    fn still_the_same_turn(&self, seat: i32) -> bool {
+    fn still_the_same_turn(&self, seat: usize) -> bool {
         self.room.status == Status::Playing
             && self
                 .room
@@ -66,16 +66,15 @@ impl Table {
                 .is_some_and(|s| s.current_turn == seat)
     }
 
-    pub(crate) fn handle_turn_timeout(&mut self, cx: &TableCtx, seat: i32) {
+    pub(crate) fn handle_turn_timeout(&mut self, cx: &TableCtx, seat: usize) {
         if !self.still_the_same_turn(seat) {
             return;
         }
         tracing::info!(player = seat, "turn timeout, auto-acting");
-        let s = seat as usize;
-        if self.kick_if_afk(cx, s) {
+        if self.kick_if_afk(cx, seat) {
             return;
         }
-        if !self.auto_draw_on_timeout(cx, s) {
+        if !self.auto_draw_on_timeout(cx, seat) {
             return;
         }
         if let Err(e) = self.room.pass_turn(seat, clock::now_ms()) {
@@ -153,7 +152,7 @@ impl Table {
             return true;
         }
         let prior = state.hands[seat].cards.len();
-        if let Err(e) = self.room.draw_card(seat as i32, clock::now_ms()) {
+        if let Err(e) = self.room.draw_card(seat, clock::now_ms()) {
             tracing::info!(player = seat, "turn timeout draw error err={e}");
             return false;
         }

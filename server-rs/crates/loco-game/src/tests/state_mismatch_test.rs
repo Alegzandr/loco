@@ -2,7 +2,7 @@
 
 use super::support::*;
 use crate::card::Color;
-use crate::error::GameError;
+use crate::error::{ErrorKind, GameError};
 use crate::hand::Hand;
 
 // The wire strings are what a player reads, resolved to localised copy by the
@@ -22,7 +22,7 @@ fn state_mismatch_errors_keep_their_wire_text() {
     for (err, want) in cases {
         assert_eq!(err.to_string(), want, "error text");
         assert!(
-            err.is_state_mismatch(),
+            err.kind() == ErrorKind::StaleState,
             "IsStateMismatch({:?}) = false, want true",
             err.to_string()
         );
@@ -48,7 +48,7 @@ fn is_state_mismatch_excludes_lost_races() {
         GameError::GameNotInProgress,
     ] {
         assert!(
-            !err.is_state_mismatch(),
+            err.kind() != ErrorKind::StaleState,
             "IsStateMismatch({:?}) = true, want false",
             err.to_string()
         );
@@ -65,7 +65,7 @@ fn state_mismatch_errors_still_match_themselves() {
         "ErrCardNotInHand no longer matches itself"
     );
     assert!(
-        !GameError::IllegalPlay.is_lost_race(),
+        !GameError::IllegalPlay.kind().is_honest(),
         "IsLostRace(ErrIllegalPlay) = true, want false"
     );
 }
@@ -76,11 +76,11 @@ fn state_mismatch_errors_still_match_themselves() {
 fn play_card_refusals_are_state_mismatches() {
     let mut r = setup_two_player_game();
     let me = st_ref(&r).current_turn;
-    let other = (me + 1) % st_ref(&r).hands.len() as i32;
+    let other = (me + 1) % st_ref(&r).hands.len();
 
-    let card = st_ref(&r).hands[other as usize].cards[0];
+    let card = st_ref(&r).hands[other].cards[0];
     assert_eq!(
-        r.play_card(other, card, Color::Wild, -1, NOW),
+        r.play_card(other, card, Color::Wild, None, NOW),
         Err(GameError::NotYourTurn),
         "out-of-turn play"
     );
@@ -88,9 +88,9 @@ fn play_card_refusals_are_state_mismatches() {
     // A card that is in nobody's hand: the deck ships one coloured Swap per
     // colour, so a second copy of the same one cannot be held.
     let ghost = num(Color::Red, 9);
-    st(&mut r).hands[me as usize] = Hand::of([num(Color::Blue, 1)]);
+    st(&mut r).hands[me] = Hand::of([num(Color::Blue, 1)]);
     assert_eq!(
-        r.play_card(me, ghost, Color::Wild, -1, NOW),
+        r.play_card(me, ghost, Color::Wild, None, NOW),
         Err(GameError::CardNotInHand),
         "playing a card we do not hold"
     );
@@ -98,17 +98,17 @@ fn play_card_refusals_are_state_mismatches() {
     // Blue 1 on a red 3 with red active: no colour, no kind, no value.
     st(&mut r).discard = vec![num(Color::Red, 3)];
     st(&mut r).active_color = Color::Red;
-    let card = st_ref(&r).hands[me as usize].cards[0];
+    let card = st_ref(&r).hands[me].cards[0];
     assert_eq!(
-        r.play_card(me, card, Color::Wild, -1, NOW),
+        r.play_card(me, card, Color::Wild, None, NOW),
         Err(GameError::IllegalPlay),
         "off-colour play"
     );
 
     st(&mut r).pending_draw = 2;
-    let card = st_ref(&r).hands[me as usize].cards[0];
+    let card = st_ref(&r).hands[me].cards[0];
     assert_eq!(
-        r.play_card(me, card, Color::Wild, -1, NOW),
+        r.play_card(me, card, Color::Wild, None, NOW),
         Err(GameError::MustAnswerPenalty),
         "play under a pending stack"
     );

@@ -8,7 +8,7 @@
 //! is the whole job under test.
 
 use crate::convert;
-use crate::rooms::{self, ROOM_CODE_CHARS};
+use crate::rooms::ROOM_CODE_CHARS;
 use loco_protocol::{CardColor, CardKind, MatchFormat};
 use serde::de::DeserializeOwned;
 
@@ -71,7 +71,7 @@ fn valid_room_code() {
     ];
     for (input, want) in cases {
         assert_eq!(
-            rooms::valid_room_code(input),
+            crate::ids::RoomCode::parse(input).is_ok(),
             want,
             "valid_room_code({input:?})"
         );
@@ -117,14 +117,14 @@ fn valid_room_code_charset() {
     for ch in ["0", "O", "1", "I"] {
         let code = format!("ABCDE{ch}");
         assert!(
-            !rooms::valid_room_code(&code),
+            crate::ids::RoomCode::parse(&code).is_err(),
             "valid_room_code({code:?}) should be false (excluded char {ch:?})"
         );
     }
     // The charset's characters pass when padded.
     let first = &ROOM_CODE_CHARS[..1];
     assert!(
-        rooms::valid_room_code(&first.repeat(6)),
+        crate::ids::RoomCode::parse(&first.repeat(6)).is_ok(),
         "valid_room_code with valid chars should be true"
     );
     assert_eq!(ROOM_CODE_CHARS, "ABCDEFGHJKLMNPQRSTUVWXYZ23456789");

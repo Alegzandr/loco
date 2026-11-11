@@ -29,7 +29,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, PartialEq, Eq)]
 struct Deal {
     map_id: Option<MapId>,
-    turn: i32,
+    turn: usize,
     hand: Vec<Card>,
 }
 

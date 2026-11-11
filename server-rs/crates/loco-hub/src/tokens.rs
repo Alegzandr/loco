@@ -3,9 +3,9 @@
 //! private table and the token the only proof behind a seat reclaim. Port of
 //! `server/hub/tokens.go`.
 
+use crate::ids::{RoomCode, SessionToken};
 use rand::TryRngCore;
 use rand::rngs::OsRng;
-use subtle::ConstantTimeEq;
 
 /// The 32 characters a table code is drawn from: no `0`/`O`, no `1`/`I`.
 /// Identical to Go's, which `client/src/components/tableCodeRules.ts` mirrors.
@@ -31,10 +31,10 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// A cryptographically random 32-hex-character token.
-pub fn generate_session_token() -> String {
+pub fn generate_session_token() -> SessionToken {
     let mut b = [0u8; 16];
     os_fill(&mut b);
-    hex(&b)
+    SessionToken::from(hex(&b))
 }
 
 /// The 32 bytes a room's RNG is seeded with. Drawn from the OS, because the
@@ -72,7 +72,7 @@ pub fn rand_index(n: usize) -> usize {
 }
 
 /// A 6-character code no live table holds. `taken` is asked about every draw.
-pub fn generate_code(taken: impl Fn(&str) -> bool) -> String {
+pub fn generate_code(taken: impl Fn(&str) -> bool) -> RoomCode {
     loop {
         // Spelled out here as well as in ROOM_CODE_CHARS / ROOM_CODE_LEN:
         // client/src/test/serverSource.ts reads the alphabet and the length
@@ -83,21 +83,8 @@ pub fn generate_code(taken: impl Fn(&str) -> bool) -> String {
             .map(|_| char::from(CHARS[rand_index(CHARS.len())]))
             .collect();
         if !taken(&code) {
-            return code;
+            return RoomCode::from_trusted(code);
         }
-    }
-}
-
-/// Whether `token` matches what was stored for a seat. Constant time, not
-/// `==`: this is the only identity check the game has, and an equality that
-/// returns on the first differing byte is the kind of thing only ever noticed
-/// after it matters. An empty value on either side never matches.
-pub fn tokens_match(stored: Option<&str>, token: &str) -> bool {
-    match stored {
-        Some(s) if !s.is_empty() && !token.is_empty() => {
-            bool::from(s.as_bytes().ct_eq(token.as_bytes()))
-        }
-        _ => false,
     }
 }
 
@@ -108,13 +95,17 @@ mod tests {
 
     #[test]
     fn a_session_token_is_128_bits_of_hex() {
-        let t = generate_session_token();
+        let t = generate_session_token().into_string();
         assert_eq!(t.len(), 32);
         assert!(
             t.bytes()
                 .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         );
-        assert_ne!(t, generate_session_token(), "two tokens were the same");
+        assert_ne!(
+            t,
+            generate_session_token().into_string(),
+            "two tokens were the same"
+        );
     }
 
     #[test]
@@ -160,7 +151,7 @@ mod tests {
     #[test]
     fn a_code_already_taken_is_never_handed_out() {
         let first = generate_code(|_| false);
-        let second = generate_code(|c| c == first);
+        let second = generate_code(|c| c == first.as_str());
         assert_ne!(first, second);
     }
 
@@ -178,15 +169,5 @@ mod tests {
                 assert!(rand_index(n) < n);
             }
         }
-    }
-
-    #[test]
-    fn tokens_match_only_on_an_exact_non_empty_value() {
-        assert!(tokens_match(Some("abc"), "abc"));
-        assert!(!tokens_match(Some("abc"), "abd"));
-        assert!(!tokens_match(Some("abc"), "ab"));
-        assert!(!tokens_match(Some(""), ""));
-        assert!(!tokens_match(None, "abc"));
-        assert!(!tokens_match(Some("abc"), ""));
     }
 }

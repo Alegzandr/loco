@@ -2,7 +2,7 @@
 
 use crate::clock::now_ms;
 use crate::{Client, Hub, HubConfig, Table};
-use loco_game::{Card, Color, Hand, Room};
+use loco_game::{Card, CatchCharge, Color, Hand, Room};
 
 // A Contre-LOCO! that loses its race costs the caller a card, and the table is
 // told whose call it was so the penalty renders. Once both piles are dry there
@@ -31,7 +31,9 @@ async fn penalize_failed_catch_dry_piles_tell_only_the_caller() {
         let top = *st.discard.last().unwrap();
         st.discard = vec![top];
     }
-    let (drawn, _) = room.penalize_failed_catch(0, now_ms());
+    let CatchCharge::Charged { drawn } = room.penalize_failed_catch(0, now_ms()) else {
+        panic!("fixture is wrong: the probe was not charged");
+    };
     assert!(
         drawn.is_empty(),
         "fixture is wrong: the penalty still drew {} cards",
@@ -44,7 +46,7 @@ async fn penalize_failed_catch_dry_piles_tell_only_the_caller() {
         st.hands[1] = Hand {
             cards: vec![Card::number(Color::Red, 1)],
         };
-        st.last_card_at[1] = Some(now_ms());
+        st.seats[1].last_card_at = Some(now_ms());
     }
 
     let mut tbl = Table::new("AAAAAA", room);
