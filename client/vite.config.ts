@@ -81,7 +81,7 @@ export default defineConfig({
       paths: { relative: false },
 
       prerender: {
-        // `/live.json` and `/live-thumb/` are the Go server's, behind nginx: a
+        // `/live.json` and `/live-thumb/` are the game server's, behind nginx: a
         // prerender has no server to ask, and a page that links to them is not
         // broken for it.
         handleHttpError: ({ path, message }) => {
@@ -138,9 +138,9 @@ export default defineConfig({
     // nginx, so without this the page's fetch would ask Vite for a file that
     // does not exist and the list would be silently empty — which is also what
     // it looks like when nobody is streaming, so the bug would be invisible.
-    // The socket is not proxied here: the client dials the Go server directly
+    // The socket is not proxied here: the client dials the game server directly
     // (see webSocketPolicy.ts). LOCO_SERVER_ORIGIN because `make dev` runs Vite
-    // and the Go server in two containers.
+    // and the game server in two containers.
     proxy: {
       '/live.json': process.env.LOCO_SERVER_ORIGIN ?? 'http://localhost:8080',
       '/live-thumb': process.env.LOCO_SERVER_ORIGIN ?? 'http://localhost:8080',

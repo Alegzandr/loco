@@ -106,7 +106,7 @@ pub struct MetricsStats {
     pub uptime_sec: i64,
     /// The runtime's live tasks, low and stable unless something leaks. The
     /// name is the one `/health` and `/metrics` have always used.
-    pub goroutine_count: i64,
+    pub runtime_tasks: i64,
     pub messages_rate_limited: i64,
     pub messages_dropped_busy: i64,
     pub slow_clients_closed: i64,
@@ -193,9 +193,9 @@ impl Exporter {
             g!("bots_active", m.bots_active, "Seats played by the server.");
             g!("uptime_sec", m.uptime_sec, "Seconds since the hub started.");
             g!(
-                "goroutine_count",
-                m.goroutine_count,
-                "Live runtime tasks (Go's goroutine count); low and stable."
+                "runtime_tasks",
+                m.runtime_tasks,
+                "Live tokio runtime tasks; low and stable."
             );
             c!(
                 "messages_rate_limited",

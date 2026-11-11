@@ -103,10 +103,8 @@ const OUTSIDE_THE_REPO = new Set([
  * own) or a directory (a trailing slash). Everything else with a slash in it is
  * as likely to be a Rust path (`std::sync`), a crate feature or a MIME type,
  * and guessing wrong there would make this test a nuisance rather than a guard.
- * `.go` stays on the list although no Go is left: a doc naming a Go file is
- * naming something that is not there, which is exactly what this catches.
  */
-const OURS = /\.(ts|tsx|rs|toml|go|mjs|css|astro|md|yml|json|jsonl|conf|html|webp|png|svg|txt|ico)$/
+const OURS = /\.(ts|tsx|rs|toml|mjs|css|md|yml|json|jsonl|conf|html|webp|png|svg|txt|ico)$/
 
 const looksLikePath = (t: string) =>
   !NOT_A_PATH.some((re) => re.test(t)) && (OURS.test(t) || t.endsWith('/'))

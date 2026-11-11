@@ -53,7 +53,7 @@ const POLL_MS = 50
  * held, and how often to ask.
  *
  * Holding the mutex is not the whole guarantee. Closing a browser context tears
- * the WebSocket down, but the dequeue happens on the hub's own goroutine a
+ * the WebSocket down, but the dequeue happens on the hub's own task a
  * moment later, so the previous test's searcher can still be at the front of the
  * FIFO when the next test enqueues — and then it is paired with the first of
  * this test's two. A fixed sleep was the first shape of this and it is exactly

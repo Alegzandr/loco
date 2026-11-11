@@ -28,8 +28,8 @@ serde_repr = "0.1"
 rand = "0.9"
 rand_chacha = { version = "0.9", features = ["serde"] }
 rand_core = "0.9"
-# The nickname matcher reads general categories (Mn, L*, Lu, Ll, Nd) the way
-# Go's unicode package does; std only exposes the derived properties.
+# The nickname matcher reads Unicode general categories (Mn, L*, Lu, Ll, Nd);
+# std only exposes the derived properties.
 unicode-general-category = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }

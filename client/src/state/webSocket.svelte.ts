@@ -94,7 +94,7 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
       }
       const result = v.safeParse(serverMsgSchema, raw)
       if (!result.success) {
-        // In dev this surfaces protocol drift between Go and TS immediately; in
+        // In dev this surfaces protocol drift between the server and the client immediately; in
         // prod we still pass the raw payload through so a single new field does
         // not take the client offline (forward-compat).
         console.error('Server message failed schema validation', result.issues, raw)

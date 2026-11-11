@@ -4,7 +4,7 @@
 //   node tools/protocol/sample-frames.mjs <capture.jsonl> > fixture.jsonl
 //
 // A capture is one JSON frame per line, as a server wrote (or read) them; the
-// Go server's whole hub suite writes about four thousand. Most are the same
+// hub's whole suite writes about four thousand. Most are the same
 // message with different numbers, so this keeps the first frame of every
 // distinct *shape*: its `type` and the set of key paths present, arrays
 // flattened to their elements. A field that is present on one frame and

@@ -699,12 +699,12 @@ async fn join_room_empty_nickname_rejected() {
 
 // --- Task stability ---
 //
-// The runtime's live task count, which is what `goroutine_count` reports.
+// The runtime's live task count, which is what `runtime_tasks` reports.
 // Each #[tokio::test] has a runtime of its own, so the count is this test's
 // alone.
 
 fn live_tasks(th: &TestHub) -> i64 {
-    th.hub.metrics_stats().goroutine_count
+    th.hub.metrics_stats().runtime_tasks
 }
 
 /// Waits for the live task count to come back within `slack` of `baseline`.
@@ -774,14 +774,14 @@ async fn task_stability_full_lifecycle() {
     th.stop().await;
 }
 
-// goroutine_count is on the Prometheus page, and counts runtime tasks.
+// runtime_tasks is on the Prometheus page, and counts runtime tasks.
 #[tokio::test]
-async fn metrics_goroutine_count_present() {
+async fn metrics_runtime_tasks_present() {
     let th = new_test_hub().await;
     let (status, _, page) = http_get(&th, "/metrics").await;
     assert_eq!(status, 200);
-    let n = metric(&page, "goroutine_count").expect("goroutine_count on /metrics");
-    assert!(n > 0.0, "goroutine_count should be > 0, got {n}");
+    let n = metric(&page, "runtime_tasks").expect("runtime_tasks on /metrics");
+    assert!(n > 0.0, "runtime_tasks should be > 0, got {n}");
     th.stop().await;
 }
 

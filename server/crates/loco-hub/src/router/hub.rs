@@ -281,7 +281,7 @@ impl Hub {
             matches_finished: r(&m.matches_finished),
             bots_active: r(&m.bots_active),
             uptime_sec: self.0.started.elapsed().as_secs() as i64,
-            goroutine_count: tokio::runtime::Handle::try_current()
+            runtime_tasks: tokio::runtime::Handle::try_current()
                 .map(|h| h.metrics().num_alive_tasks() as i64)
                 .unwrap_or(0),
             messages_rate_limited: r64(&m.messages_rate_limited),

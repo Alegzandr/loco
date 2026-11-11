@@ -354,7 +354,7 @@ e2e_test:
         #
         # Two stacks on one key is two sets of requests against one quota, for a
         # list of live channels nobody reads on the dev host. An empty key
-        # switches the whole feature off server-side — no goroutine, no request,
+        # switches the whole feature off server-side — no task, no request,
         # no message, not even a log line — which is exactly the contract an
         # empty LOCO_SNAPSHOT_PATH has. See docs/notes/live.md.
         #
