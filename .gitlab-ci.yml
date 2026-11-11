@@ -240,7 +240,9 @@ e2e_test:
     - |
       if [ ! -s server-bin ] || [ "$(cat server-bin.sha 2>/dev/null)" != "$CI_COMMIT_SHA" ]; then
         echo "no server-bin for $CI_COMMIT_SHA in the cache, rebuilding it"
-        apt-get update -qq && apt-get install -y -qq --no-install-recommends musl-tools >/dev/null
+        # gcc and libc6-dev too: the build scripts (serde, libc…) are linked
+        # for the host, glibc, and the Playwright image ships neither.
+        apt-get update -qq && apt-get install -y -qq --no-install-recommends gcc libc6-dev musl-tools >/dev/null
         curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97 --target x86_64-unknown-linux-musl
         (cd server && "$CARGO_HOME/bin/cargo" build --release --locked -p loco-server --target x86_64-unknown-linux-musl)
         cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/loco-server" server-bin
