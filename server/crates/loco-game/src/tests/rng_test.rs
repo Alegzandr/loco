@@ -20,7 +20,7 @@ use crate::card::Card;
 use crate::maps::MapId;
 use crate::room::Room;
 use crate::tests::support::NOW;
-use rand_core::RngCore;
+use rand_core::Rng;
 use std::collections::HashSet;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};

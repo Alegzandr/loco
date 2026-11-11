@@ -26,12 +26,15 @@ pub fn header(what: &str) -> String {
 }
 
 fn decl<T: TS>(out: &mut String) {
+    // The defaults, never `Config::from_env`: what is generated must not
+    // depend on the shell it was generated in.
+    let cfg = ts_rs::Config::new();
     out.push('\n');
     if let Some(docs) = T::docs() {
         out.push_str(&docs);
     }
     out.push_str("export ");
-    out.push_str(&T::decl());
+    out.push_str(&T::decl(&cfg));
     out.push('\n');
 }
 

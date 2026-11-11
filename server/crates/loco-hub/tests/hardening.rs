@@ -361,13 +361,20 @@ async fn one_network_cannot_hold_every_table() {
         let mut ws = try_dial_ws(&th, &from("203.0.113.9")).await.expect("dial");
         send_msg(&mut ws, msg.clone()).await;
         let got = read_msg(&mut ws).await;
-        assert_eq!(got["type"], "error", "{msg}: a third table was opened: {got}");
+        assert_eq!(
+            got["type"], "error",
+            "{msg}: a third table was opened: {got}"
+        );
         assert_eq!(got["error"], "too many attempts, wait a moment");
     }
 
     // Another network still opens its own.
     let mut other = try_dial_ws(&th, &from("198.51.100.4")).await.expect("dial");
-    send_msg(&mut other, json!({"type": "create_room", "nickname": "Autre"})).await;
+    send_msg(
+        &mut other,
+        json!({"type": "create_room", "nickname": "Autre"}),
+    )
+    .await;
     read_msg_of_type(&mut other, "room_created").await;
     th.stop().await;
 }

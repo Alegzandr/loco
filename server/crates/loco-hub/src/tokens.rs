@@ -3,8 +3,8 @@
 //! private table and the token the only proof behind a seat reclaim.
 
 use crate::ids::{RoomCode, SessionToken};
-use rand::TryRngCore;
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 
 /// The 32 characters a table code is drawn from and validated against: no
 /// `0`/`O`, no `1`/`I`, because a code is read out loud off a stream. The one
@@ -22,7 +22,7 @@ pub const ROOM_CODE_LEN: usize = 6;
 /// and panicking is the correct outcome — the job's `catch_unwind` turns it
 /// into a refused message rather than a dead process.
 fn os_fill(buf: &mut [u8]) {
-    OsRng
+    SysRng
         .try_fill_bytes(buf)
         .expect("the operating system's random source failed");
 }

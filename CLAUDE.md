@@ -396,7 +396,7 @@ Paths are under `server/crates/loco-hub/src/` unless a crate is named.
 - **A refusal must not name the roster** (`join_room` mid-game answers `game already in progress`
   either way). A `SessionToken` (`ids.rs`) compares in constant time, has no `Display` and a `Debug`
   that prints nothing; **a reclaim spends it and is issued a fresh one.**
-- **Room codes, session tokens and the room's RNG come from the OS (`OsRng`)**, no fallback — **the
+- **Room codes, session tokens and the room's RNG come from the OS (`SysRng`)**, no fallback — **the
   deal is hidden state**. The room's `ChaCha12Rng` is seeded with 32 OS bytes (`table/room.rs`:
   `new_room`, `restore_room`); `loco-game/src/tests/rng_test.rs` runs the clock-seed attack. **Every
   shuffle that decides a hand takes it**, `Deck::replenish` included. The thread RNG (`rand::rng()`)

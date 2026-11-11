@@ -11,7 +11,7 @@ use crate::hand::Hand;
 use crate::rng;
 use crate::rules::can_play;
 use crate::state::GameState;
-use rand_core::RngCore;
+use rand_core::Rng;
 
 /// What a bot decided to do on its turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -41,7 +41,7 @@ pub struct BotAction {
 /// Decides a bot's turn. Prefers playing to drawing, picks a random legal card
 /// weighted towards action cards, holds a Swap or an idle Wild that would not
 /// pay, and batches the copies that buy something.
-pub fn bot_think<R: RngCore + ?Sized>(state: &GameState, player: Seat, rng: &mut R) -> BotAction {
+pub fn bot_think<R: Rng + ?Sized>(state: &GameState, player: Seat, rng: &mut R) -> BotAction {
     let hand = &state.hands[player];
     let top = state.top_card();
     let active = state.active_color;

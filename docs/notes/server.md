@@ -380,7 +380,7 @@ count refusals. **A new refusal goes in `client/src/i18n/serverErrors.ts` in the
   **A personalised send indexes by slot**, never by the client's own idea of its seat: every fan-out
   is `for (seat, m) in self.clients()`. `tests/seat_rebind.rs` goes through a Swap, the path that would
   leak.
-- **Room codes and session tokens come from the OS, with no fallback** (`tokens.rs`, `OsRng`). With
+- **Room codes and session tokens come from the OS, with no fallback** (`tokens.rs`, `SysRng`). With
   no login, the six characters *are* the access control on a private table, and a deterministic
   generator's output would let an attacker creating rooms in a loop infer the codes handed to others.
   `tokens::rand_index` uses mask-and-retry, uniform for any alphabet. An OS that cannot produce

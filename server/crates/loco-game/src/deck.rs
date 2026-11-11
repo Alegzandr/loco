@@ -2,7 +2,7 @@
 
 use crate::card::{Card, Color, Kind};
 use crate::rng;
-use rand_core::RngCore;
+use rand_core::Rng;
 use serde::{Deserialize, Serialize};
 
 /// How many cards the game is played with.
@@ -91,7 +91,7 @@ impl Deck {
 
     /// Randomises the deck in place with the given source. There is no global
     /// fallback: every shuffle that decides a hand takes the room's source.
-    pub fn shuffle<R: RngCore + ?Sized>(&mut self, rng: &mut R) {
+    pub fn shuffle<R: Rng + ?Sized>(&mut self, rng: &mut R) {
         rng::shuffle(rng, &mut self.cards);
     }
 
@@ -124,7 +124,7 @@ impl Deck {
     /// it is not empty. The caller keeps the current top card out of `discard`.
     /// The source is the room's, like every other shuffle that decides what
     /// lands in a hand.
-    pub fn replenish<R: RngCore + ?Sized>(&mut self, discard: &[Card], rng: &mut R) {
+    pub fn replenish<R: Rng + ?Sized>(&mut self, discard: &[Card], rng: &mut R) {
         self.cards.extend_from_slice(discard);
         self.shuffle(rng);
     }
