@@ -11,10 +11,9 @@ crate's entry points, and the reasons they are shaped the way they are.
   method that validates first and mutates second, so a command that returns `Err` has left the room
   exactly as it was (the proptests hold every command to that). The task reads what it broadcasts off
   the room afterwards; a command returns only what the room cannot tell it later (`was_host`, a
-  `CatchCharge`, a lockout's end). A functional `Room::apply(&self, Action, now) -> (Room,
-  Vec<Event>)` once stood beside the commands. Nothing used it, it cost a clone per message, and two
-  entry points that must never disagree are one too many: it is gone. A clone before the call is the
-  "previous state" wherever a test or a replay wants one.
+  `CatchCharge`, a lockout's end). There is no functional twin (`apply(&self) -> Room`): two
+  entry points that must never disagree are one too many. A clone before the call is the "previous
+  state" wherever a test or a replay wants one.
 - **Time is data.** Every command that stamps or compares an instant takes `now: Millis` (Unix ms)
   last. An instant that may not exist is `Option<Millis>`, never a sentinel instant.
 - **The room's randomness cannot be missing.** `Room::new(code, seed: [u8; 32])` (the hub draws the
