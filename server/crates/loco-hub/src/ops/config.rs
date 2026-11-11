@@ -17,6 +17,9 @@ pub struct Limits {
     pub max_conns_per_net: usize,
     /// Table codes one network may get wrong per minute.
     pub max_failed_joins: usize,
+    /// Live tables one network may have opened (private and solo). Without it
+    /// one network opening and leaving tables fills `max_rooms` for everybody.
+    pub max_tables_per_net: usize,
 }
 
 impl Default for Limits {
@@ -26,6 +29,7 @@ impl Default for Limits {
             max_clients: 5000,
             max_conns_per_net: 64,
             max_failed_joins: 20,
+            max_tables_per_net: 32,
         }
     }
 }
@@ -246,6 +250,7 @@ mod tests {
         assert_eq!(c.limits.max_clients, 5000);
         assert_eq!(c.limits.max_conns_per_net, 64);
         assert_eq!(c.limits.max_failed_joins, 20);
+        assert_eq!(c.limits.max_tables_per_net, 32);
         assert_eq!(c.timings.ping_period, Duration::from_secs(5));
         assert_eq!(c.timings.snapshot_max_age, Duration::from_secs(120));
         assert!(

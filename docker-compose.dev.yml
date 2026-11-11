@@ -11,7 +11,7 @@
 
 services:
     server:
-        image: rust:1.97-bookworm
+        image: rust:1.99-bookworm
         working_dir: /app
         volumes:
             - ./server:/app
@@ -24,8 +24,11 @@ services:
         environment:
             - PORT=8080
             - LOCO_E2E=1
+        # Loopback only: this server runs with LOCO_E2E=1, so debug_set_state
+        # rewrites any hand at any table. Published on every interface, that is
+        # anybody on the LAN.
         ports:
-            - "8080:8080"
+            - "127.0.0.1:8080:8080"
         # `cargo watch` rebuilds and restarts on every save; the first build
         # takes a few minutes, which is what the healthcheck's retries wait for.
         command: sh -c "cargo install --locked cargo-watch && cargo watch -x 'run -p loco-server'"

@@ -120,6 +120,105 @@ fn is_mn(r: char) -> bool {
     get_general_category(r) == Gc::NonspacingMark
 }
 
+/// The combining marks a nickname may carry: the Combining Diacritical Marks
+/// block, which is every accent Latin, Greek and Cyrillic write, less the
+/// grapheme joiner (U+034F), which draws nothing. Every other nonspacing mark
+/// (variation selectors, the Mongolian ones…) is invisible here and would let
+/// two names that look the same differ.
+fn is_allowed_mark(r: char) -> bool {
+    matches!(r as u32, 0x0300..=0x036f) && r != '\u{034f}'
+}
+
+/// The Greek and Cyrillic letters drawn exactly like a Latin one, onto it.
+/// Case-sensitive on purpose: `Н` is an H and `н` is not. Applied only to
+/// decide whether a name reads as a blocked term or as somebody else's name,
+/// never to what is stored or shown.
+fn latin_lookalike(r: char) -> Option<char> {
+    Some(match r {
+        // Cyrillic capitals
+        'А' => 'A',
+        'В' => 'B',
+        'Е' | 'Ё' => 'E',
+        'К' => 'K',
+        'М' => 'M',
+        'Н' => 'H',
+        'О' => 'O',
+        'Р' => 'P',
+        'С' => 'C',
+        'Т' => 'T',
+        'У' => 'Y',
+        'Х' => 'X',
+        'Ѕ' => 'S',
+        'І' | 'Ї' => 'I',
+        'Ј' => 'J',
+        // Cyrillic small letters
+        'а' => 'a',
+        'е' | 'ё' => 'e',
+        'о' => 'o',
+        'р' => 'p',
+        'с' => 'c',
+        'у' => 'y',
+        'х' => 'x',
+        'ѕ' => 's',
+        'і' | 'ї' => 'i',
+        'ј' => 'j',
+        'ь' => 'b',
+        'к' => 'k',
+        'һ' => 'h',
+        // Greek capitals
+        'Α' => 'A',
+        'Β' => 'B',
+        'Ε' => 'E',
+        'Ζ' => 'Z',
+        'Η' => 'H',
+        'Ι' => 'I',
+        'Κ' => 'K',
+        'Μ' => 'M',
+        'Ν' => 'N',
+        'Ο' => 'O',
+        'Ρ' => 'P',
+        'Τ' => 'T',
+        'Υ' => 'Y',
+        'Χ' => 'X',
+        // Greek small letters
+        'α' => 'a',
+        'ο' => 'o',
+        'ρ' => 'p',
+        'ι' => 'i',
+        'κ' => 'k',
+        'ν' => 'v',
+        'υ' => 'u',
+        'χ' => 'x',
+        'ε' => 'e',
+        'ω' => 'w',
+        _ => return None,
+    })
+}
+
+/// The name with every Greek or Cyrillic lookalike replaced by the Latin
+/// letter it is drawn as, or `None` when there was none to replace.
+pub(crate) fn latin_skeleton(s: &str) -> Option<String> {
+    let mut changed = false;
+    let out: String = s
+        .chars()
+        .map(|r| match latin_lookalike(r) {
+            Some(l) => {
+                changed = true;
+                l
+            }
+            None => r,
+        })
+        .collect();
+    changed.then_some(out)
+}
+
+/// The form two nicknames are compared in to tell whether a table would show
+/// them as the same name: lookalikes onto Latin, then the matcher's folding
+/// (case, accents, separators).
+pub fn nickname_key(s: &str) -> String {
+    normalize_nickname(&latin_skeleton(s).unwrap_or_else(|| s.to_owned()))
+}
+
 /// Whether a character is a letter: the five Unicode letter categories.
 fn is_letter(r: char) -> bool {
     matches!(
@@ -171,7 +270,7 @@ pub(crate) fn check_nickname_charset(s: &str) -> Result<(), GameError> {
         if is_mn(r) {
             // A combining mark modifies the letter before it: it cannot open a
             // nickname and it cannot pile up.
-            if !prev_base || marks >= NICKNAME_MAX_MARKS {
+            if !prev_base || marks >= NICKNAME_MAX_MARKS || !is_allowed_mark(r) {
                 return Err(GameError::NicknameCharset);
             }
             marks += 1;
@@ -330,8 +429,15 @@ pub(crate) fn lists() -> &'static Lists {
     })
 }
 
-/// Whether the nickname carries a blocked term once normalised.
+/// Whether the nickname carries a blocked term once normalised, as written
+/// or as read: a name spelling a Latin term with Cyrillic or Greek lookalikes
+/// is matched on the Latin letters it shows, as well as on its own (the lists
+/// carry Russian terms in Cyrillic).
 pub(crate) fn blocked_nickname(n: &str) -> bool {
+    blocked_as_written(n) || latin_skeleton(n).is_some_and(|s| blocked_as_written(&s))
+}
+
+fn blocked_as_written(n: &str) -> bool {
     let l = lists();
     let plain = normalize_nickname(n);
     if plain.is_empty() {

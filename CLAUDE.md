@@ -377,16 +377,20 @@ Paths are under `server/crates/loco-hub/src/` unless a crate is named.
   bounds check.
 - **Nothing is unbounded** (`Limits`, `ops/config.rs`): `max_clients` (5000) and `max_conns_per_net`
   (64) refused in `net/serve.rs` **before the upgrade**, against the admission counter (`admit`, an
-  `AdmissionSlot` given back exactly once); `max_rooms` (2000) at `create_room`; `max_failed_joins`
-  (20) per network per minute, refused before the lookup. **Reaching one in production is a signal to
+  `AdmissionSlot` given back exactly once); `max_rooms` (2000) at `create_room` and `play_bot`, of
+  which **one network opens at most `max_tables_per_net` (32)** (`net_at_table_cap`, counted off
+  `TableHandle.opened_by`); `max_failed_joins` (20) per network per minute, refused before the lookup,
+  **charged while draining too**, in a map that refuses rather than grows (`MAX_JOIN_BUDGETS`). **A
+  ping spends the token bucket** (a browser never sends one). **Reaching one in production is a signal to
   read the logs, not a number to lower.**
 - **The network is decided once** by `privacy::client_net` (the `ClientNet` extractor, kept on
   `Client.net_key`): `NetPolicy.client_ip_headers` in order (`CF-Connecting-IP`, then `X-Real-IP`)
   **only from a trusted peer** (`trusted_proxies`), a multi-value header **refused**, anything
   unbelievable falling back to the peer (`is_routable_client`), truncated on the way in. **That order
   is a security property.** Which header a host forwards is the host's to declare
-  (`client/nginx.conf` `set $loco_cf_ip` / `$loco_real_ip`: `ws.` forwards `X-Real-IP`, the site
-  `CF-Connecting-IP`). `csp.test.ts` pins it.
+  (`client/nginx.conf` `set $loco_cf_ip` / `$loco_real_ip`: `ws.` forwards `X-Real-IP`; the site
+  `CF-Connecting-IP` **only when the peer Traefik saw is a Cloudflare range** (`geo $via_cloudflare`,
+  Cloudflare's published list), since the origin is reachable around the edge). `csp.test.ts` pins it.
 - **The upgrade checks `Origin`** (`serve::origin_allowed`); **`LOCO_ALLOWED_ORIGINS` is mandatory
   in production** and names the **page's** origin, never the socket's.
 - **A refusal must not name the roster** (`join_room` mid-game answers `game already in progress`
@@ -399,7 +403,9 @@ Paths are under `server/crates/loco-hub/src/` unless a crate is named.
   is for bots only. A `RoomCode` is parsed once, at `join_room` (`ROOM_CODE_CHARS` / `ROOM_CODE_LEN`).
 - **The nickname is validated in the domain and refused with one string**
   (`loco_game::validate_nickname`: length **in chars**, an allowlist charset, the blocked terms → `nickname
-  not allowed`, **never saying which rule fired**). Wordlists (`include_str!`) matched folded,
+  not allowed`, **never saying which rule fired**). **A name is read as it is shown**: Greek and
+  Cyrillic lookalikes fold onto Latin (`latin_skeleton`) for the blocked terms and for `NicknameTaken`
+  (`nickname_key`), and the only combining marks are `U+0300`–`U+036F` less `U+034F`. Wordlists (`include_str!`) matched folded,
   whole-token first, **as a substring only from 6 characters up**, `NICKNAME_ALLOW_SEED` for
   collisions. **Do not lower that threshold without a test proving real names still pass.**
 - **A refused action is not automatically suspicious**: handlers call `Client::note_rejection(&err)`,

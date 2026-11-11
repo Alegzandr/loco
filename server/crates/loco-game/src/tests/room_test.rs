@@ -1527,3 +1527,19 @@ fn room_skip_end_to_end() {
         "after Skip, CurrentTurn (carol)"
     );
 }
+
+// Two seats a table would show under one name are one name taken, whatever
+// the bytes: a Cyrillic "Воb" next to "Bob" is an impersonation on stream.
+#[test]
+fn room_join_refuses_a_name_that_looks_taken() {
+    let mut r = new_room("TEST");
+    r.join("Bob").expect("Join() error");
+    for twin in ["\u{412}\u{43e}b", "bob", "B.o.b", "B\u{3bf}b"] {
+        assert!(
+            matches!(r.join(twin), Err(GameError::NicknameTaken(_))),
+            "{twin:?} joined beside Bob"
+        );
+    }
+    r.join("Bobby").expect("a different name joins");
+    assert_eq!(r.seats.len(), 2);
+}

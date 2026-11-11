@@ -57,6 +57,10 @@ impl HubCore {
             c.refuse(crate::table::refusal::Refusal::ServerFull);
             return;
         }
+        if self.net_at_table_cap(c) {
+            c.refuse(crate::table::refusal::Refusal::TooManyAttempts);
+            return;
+        }
         let code = self.generate_code();
         let mut room = new_room(&code);
         if let Err(e) = room.set_max_players(2) {
@@ -99,6 +103,7 @@ impl HubCore {
                 move |t: &mut Table, cx: &TableCtx| t.deal_solo_match(cx, &c2),
             )),
         );
+        self.mark_opened_by(&code, c);
     }
 }
 

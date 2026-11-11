@@ -535,6 +535,30 @@ impl HubCore {
         tracing::info!(code, "room deleted");
     }
 
+    /// Whether this client's network already holds `Limits::max_tables_per_net`
+    /// live tables it opened. Counted off the map, so a deleted table gives its
+    /// place back with nothing else to keep in step.
+    pub(crate) fn net_at_table_cap(&self, c: &Client) -> bool {
+        let cap = self.hub.config().limits.max_tables_per_net;
+        let held = self
+            .tables
+            .values()
+            .filter(|h| h.opened_by.as_deref() == Some(c.net_key.as_str()))
+            .count();
+        if held >= cap {
+            tracing::warn!(conn = %c.conn_id, addr = %c.net_key, held, "table cap per network reached");
+            return true;
+        }
+        false
+    }
+
+    /// Records which network opened a table, once it is in the map.
+    pub(crate) fn mark_opened_by(&mut self, code: &str, c: &Client) {
+        if let Some(h) = self.tables.get_mut(code) {
+            h.opened_by = Some(c.net_key.clone());
+        }
+    }
+
     /// The table a client is sitting at, if any.
     pub fn table_of(&self, c: &Client) -> Option<&TableHandle> {
         self.tables.get(&*c.room_code()?)

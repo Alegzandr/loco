@@ -391,7 +391,15 @@ impl Room {
         if self.seats.len() >= self.max_players {
             return Err(GameError::RoomFull(self.max_players));
         }
-        if self.seat_of(nickname).is_some() {
+        // Taken as a table would show it, not byte for byte: "Bob" and a
+        // Cyrillic "Воb", or "Léa" and "Lea", are one name on screen.
+        let key = crate::nickname::nickname_key(nickname);
+        if self.seat_of(nickname).is_some()
+            || self
+                .seats
+                .iter()
+                .any(|s| crate::nickname::nickname_key(&s.nickname) == key)
+        {
             return Err(GameError::NicknameTaken(nickname.to_string()));
         }
         self.seats.push(RoomSeat::new(nickname));

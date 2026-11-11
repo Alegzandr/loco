@@ -199,6 +199,9 @@ pub struct TableHandle {
     published: Arc<Published>,
     quit: Option<oneshot::Sender<()>>,
     join: Option<JoinHandle<Table>>,
+    /// The network that opened this table, for `Limits::max_tables_per_net`.
+    /// The hub's bookkeeping about the table, never the table's state.
+    pub(crate) opened_by: Option<String>,
 }
 
 impl std::fmt::Debug for TableHandle {
@@ -243,6 +246,7 @@ impl TableHandle {
             published,
             quit: Some(quit_tx),
             join: Some(join),
+            opened_by: None,
         }
     }
 

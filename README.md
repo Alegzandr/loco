@@ -119,7 +119,7 @@ client and E2E targets do need Node (22.12+ — Vite 8 and SvelteKit 3 declare i
 | Pack the rooms' models | `make models` (from the CC0 kits unpacked under `.assets-in/unpacked/`, which git ignores; the packed result under `client/public/models/` is committed) — `make models-check` lists what is missing |
 | Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make rooms`, `make bench-server` |
 
-Without Docker: `cd server && cargo run -p loco-server` (listens on :8080; Rust 1.97, edition 2024) and `cd client && npm install && npm run
+Without Docker: `cd server && cargo run -p loco-server` (listens on :8080; Rust 1.99, edition 2024) and `cd client && npm install && npm run
 dev`. Test-by-test invocations, what each harness catches that no assertion would, and why four of
 those targets are outside CI: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 
@@ -195,7 +195,7 @@ and the server surfaces underneath all of it.
   second queue beside it
 - No spectator mode, no chat
 - The resource ceilings are compile-time defaults (`Limits` in `server/crates/loco-hub/src/ops/config.rs`:
-  `max_rooms`, `max_clients`, `max_conns_per_net`, `max_failed_joins`), not environment variables. They are set generously enough
+  `max_rooms`, `max_tables_per_net`, `max_clients`, `max_conns_per_net`, `max_failed_joins`), not environment variables. They are set generously enough
   that an operator should not need to reach for them; changing one is a rebuild
 - `max_conns_per_net` counts per `/24` (or `/48`), the same truncation the logs use. On a
   carrier-grade NAT that groups unrelated players, so the limit is deliberately high rather than tight.

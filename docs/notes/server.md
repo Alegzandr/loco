@@ -119,7 +119,11 @@ The rules that hold the split together:
 
 **What stays on the hub.** `create_room` allocates against `max_rooms`. `join_room` spends the
 wrong-code budget and looks the code up, then hands the rest to the table (`Table::join_at_table`),
-which makes two people typing the same code at once a queue, not a race for the last chair.
+which makes two people typing the same code at once a queue, not a race for the last chair. **The
+table refuses a socket already seated at it** (`already in a room`): the hub's `already_seated`
+cannot see a seat the table has not bound yet, so two `join_room`s pipelined from one socket both
+pass it, and the second would seat the socket again and leave the first chair a nameless ghost
+(`tests/hardening.rs: pipelined_joins_seat_a_socket_once`).
 `find_match`, `play_bot` and `leave_room` are split: the queue is the hub's, the seat the table's,
 and the two halves are **ordered** (the table releases the seat, then posts the enqueue back), since
 being in a room and in the queue at once is a state neither side can recover from.
@@ -233,6 +237,7 @@ in production is a signal to read the logs, not a number to lower.**
 | `max_conns_per_net` | 64 | `serve_ws`, before the upgrade | HTTP 429 |
 | `max_rooms` | 2000 | `handle_create_room`, `open_solo_table` | `the server is full, try again in a moment` |
 | `max_failed_joins` | 20 / min / network | `handle_join_room` | `too many attempts, wait a moment` |
+| `max_tables_per_net` | 32 live tables opened / network | `handle_create_room`, `open_solo_table` | `too many attempts, wait a moment` |
 
 - **Admission is decided before the upgrade** (`serve::admit`), against its own counter, never the
   `clients` metric the loop maintains: the gap between upgrade and register is exactly where a flood
@@ -242,7 +247,18 @@ in production is a signal to read the logs, not a number to lower.**
   unregister, or by drop when the upgrade never completed. A hand-written decrement on every early
   return drifts upwards until the ceiling is reached by nobody.
 - **The room cap is on `create_room` and `play_bot`**, the messages that allocate something
-  outliving the connection.
+  outliving the connection. **So is a per-network share of it** (`max_tables_per_net`,
+  `HubCore::net_at_table_cap`): a table left empty stands for `empty_room_timeout`, so one network
+  alternating `create_room` and `leave_room` would otherwise hold all 2000 and refuse a table to
+  everybody. Counted off the map (`TableHandle.opened_by`, the hub's bookkeeping about a table, never
+  the table's state), so a deleted table gives its place back with nothing to keep in step. 32 is half
+  of `max_conns_per_net`, room enough for a carrier-grade NAT; saturating the server takes 63
+  networks. Matchmade tables are not charged: the queue pairs, nobody opens them.
+- **The wrong-code budget map is the bound, never the insert** (`MAX_JOIN_BUDGETS`): full after a
+  sweep of expired entries, a new network is refused its guess (`join_throttled`) rather than guessing
+  free, and a wrong code is charged **while draining too**, or a drain is a free sweep.
+- **A ping spends the token bucket like a message** (`read_pump`): the WebSocket layer writes a pong
+  for each, a browser never sends one, and a socket over the bucket on pings is closed.
 - `max_conns_per_net` is keyed by the same truncated prefix the logs use (`/24`, `/48`). 64 covers a
   household, a LAN party or an office.
 
@@ -286,13 +302,18 @@ The forwarded address is truncated on the way in like every other. IPv6 arrives 
 nothing on that path sets or strips `CF-Connecting-IP`: forwarding it there would let a client write
 its own network key on every socket and void every per-network ceiling, the wrong-code budget
 included. So each server block `set`s `$loco_cf_ip` / `$loco_real_ip` to the one header its path
-guarantees and `""` for the other (an empty value omits the header): the site's host vouches for
-`CF-Connecting-IP`, `ws.` for `X-Real-IP`. `client/src/test/csp.test.ts` pins the variables, both
-`set` pairs and the absence of any `$http_` on those lines.
+guarantees and `""` for the other (an empty value omits the header): `ws.` vouches for `X-Real-IP`.
 
-**Residual, and not this repository's to close**: Traefik is public, so anyone who finds the origin
-address can reach the site's vhost directly and write a `CF-Connecting-IP` it vouches for. The fix is
-an allowlist of Cloudflare's ranges on the host Traefik's `websecure` entrypoint.
+**The site's host vouches for `CF-Connecting-IP` only when Cloudflare delivered the request.** The
+origin's address is public (`ws.` resolves to it), so a client can reach the site's vhost around the
+edge and write its own. `client/nginx.conf` decides it per request: `geo $http_x_real_ip
+$via_cloudflare` over Cloudflare's published ranges (X-Real-IP is the peer Traefik saw, overwritten
+on every request), then two `map`s — through the edge `CF-Connecting-IP` travels and `X-Real-IP` (the
+edge's own address) is emptied; around it `CF-Connecting-IP` is dropped and the request is keyed on
+the address Traefik saw. **When Cloudflare publishes a new range, add it there**: a request from a
+missing range is keyed on the edge's address, and its players share one network's ceilings.
+`client/src/test/csp.test.ts` pins the variables, both `set` pairs, the gate and the absence of any
+`$http_` on the proxy lines.
 
 `conns_refused` is a load signal, not an incident, until it climbs.
 
@@ -430,6 +451,17 @@ words, and `-_.'`. That one rule excludes zero-width characters, bidi overrides 
 make a name read as somebody else's), control characters, emoji and the Mathematical Alphanumeric
 block (styled letters that render as words). At most one combining mark per base letter (Zalgo
 paints over the seat above and is unreadable at 720p). At least one letter or digit.
+
+**Only marks that draw something**: the combining marks allowed are the Combining Diacritical Marks
+block (`U+0300`–`U+036F`) less the grapheme joiner `U+034F` (`is_allowed_mark`); a variation selector
+or any other invisible mark would let two names that look the same differ.
+
+**A name is read as it is shown.** Greek and Cyrillic letters drawn exactly like a Latin one
+(`latin_lookalike`, case-sensitive: `Н` is an H, `н` is not) are folded onto it, and a name is
+blocked if it carries a term **as written or as read** (`latin_skeleton`; the lists carry Russian in
+Cyrillic, so the written form is matched too). The same fold decides **`NicknameTaken`**: two seats
+are one name when `nickname_key` (lookalikes, then the normalisation below) agrees, so a Cyrillic
+`Воb` cannot sit beside `Bob`, nor `Lea` beside `Léa`. Neither fold touches what is stored or shown.
 
 **Normalisation keeps the list short**: diacritics stripped (both precomposed and decomposed),
 lower-cased, leet undone (`0o 1i 3e 4a 5s 7t @a $s !i +t |i`, deliberately conservative — `2` is

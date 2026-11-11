@@ -63,6 +63,14 @@ impl HubCore {
     pub(crate) fn join_throttled(&mut self, c: &Client) -> bool {
         let window = self.hub.config().timings.failed_join_window;
         let Some(b) = self.join_budgets.get(&c.net_key) else {
+            // A full map has no room to charge a new network's guesses in, so
+            // a new network is not let guess for free: it waits for a sweep.
+            if self.join_budgets.len() >= MAX_JOIN_BUDGETS {
+                let now = Instant::now();
+                self.join_budgets
+                    .retain(|_, b| now.saturating_duration_since(b.window_start) <= window);
+                return self.join_budgets.len() >= MAX_JOIN_BUDGETS;
+            }
             return false;
         };
         if b.window_start.elapsed() > window {
@@ -88,6 +96,10 @@ impl HubCore {
                 if self.join_budgets.len() >= MAX_JOIN_BUDGETS {
                     self.join_budgets
                         .retain(|_, b| now.saturating_duration_since(b.window_start) <= window);
+                    // Still full: the map is the bound, never the insert.
+                    if self.join_budgets.len() >= MAX_JOIN_BUDGETS {
+                        return;
+                    }
                 }
                 self.join_budgets.insert(
                     c.net_key.clone(),
@@ -130,6 +142,10 @@ impl HubCore {
             c.refuse(crate::table::refusal::Refusal::ServerFull);
             return;
         }
+        if self.net_at_table_cap(c) {
+            c.refuse(crate::table::refusal::Refusal::TooManyAttempts);
+            return;
+        }
         let code = self.generate_code();
         let mut room = new_room(&code);
         if let Err(e) = room.join(&nickname) {
@@ -151,6 +167,7 @@ impl HubCore {
         }));
         // Last, when the hub has finished filling it in.
         self.open_table(t);
+        self.mark_opened_by(&code, c);
     }
 
     /// A code no live table holds.
@@ -182,12 +199,14 @@ impl HubCore {
             return;
         }
         let Some(t) = self.tables.get(&code) else {
+            // Charged even while draining, or a drain would be a window in
+            // which a sweep of the code space costs nothing.
+            self.note_failed_join(c);
             // While draining, a code this process does not have is very likely
             // one the previous process had: not the player's mistake.
             if self.refuse_while_draining(c) {
                 return;
             }
-            self.note_failed_join(c);
             c.refuse(crate::table::refusal::Refusal::RoomNotFound);
             return;
         };
@@ -243,6 +262,14 @@ impl Table {
             cx.hub
                 .post_to_router("failed_join", move |core| core.note_failed_join(&c2));
             c.refuse(crate::table::refusal::Refusal::GameAlreadyInProgress);
+            return;
+        }
+        // Two `join_room`s pipelined from one socket both pass the hub's
+        // `already_seated` (the seat is bound here, on the table), so the second
+        // would find this socket already in a chair and seat it again, leaving
+        // the first chair a nameless ghost. A socket holds one seat.
+        if c.room_code().as_deref() == Some(self.code.as_str()) {
+            c.refuse(crate::table::refusal::Refusal::AlreadyInRoom);
             return;
         }
         if let Err(e) = self.room.join(nickname) {

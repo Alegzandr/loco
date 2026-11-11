@@ -418,7 +418,19 @@ impl Client {
                     self.note_pong(now);
                     continue;
                 }
-                Message::Ping(_) => continue, // answered by the WebSocket layer
+                // Answered by the WebSocket layer, which writes a pong per
+                // ping, so pings spend the same bucket as messages. A browser
+                // never sends one; a socket that floods them is closed.
+                Message::Ping(_) => {
+                    if limiter.allow(Instant::now()) {
+                        continue;
+                    }
+                    self.shared
+                        .metrics
+                        .messages_rate_limited
+                        .fetch_add(1, Ordering::Relaxed);
+                    break "ping flood".into();
+                }
                 Message::Close(_) => break "close frame".into(),
             };
             let now = Instant::now();
