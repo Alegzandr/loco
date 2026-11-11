@@ -98,8 +98,6 @@ describe('what moves in a room', () => {
         }
       }
       expect([...new Set(crossings.map((s) => s.replace(/ at \[.*?\] behind/, ' behind')))]).toEqual([])
-      // Every room is built once per viewport: a second or two on a desktop,
-      // past vitest's 5s default on a loaded CI runner.
-    }, 30_000)
+    })
   }
 })

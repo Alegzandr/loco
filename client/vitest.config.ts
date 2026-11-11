@@ -12,6 +12,10 @@ export default mergeConfig(
       globals: true,
       environment: 'jsdom',
       setupFiles: './src/test/setup.ts',
+      // The scene tests (occlusion, sky actors…) build every room per
+      // viewport: a couple of seconds here, past the 5s default on a loaded CI
+      // runner, where 140 files share the cores. A hung test still fails.
+      testTimeout: 30_000,
     },
     resolve: {
       // Svelte ships a `browser` export condition and a server one. Under jsdom
