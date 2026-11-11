@@ -447,6 +447,13 @@ impl Table {
         for s in &mut self.seats {
             s.afk = 0;
         }
+        // Everything the match armed goes with it: the turn clock, the map
+        // gate, the reveal, every bot move and reaction. What is about the
+        // table rather than the match stays — the cleanup, and the holds of
+        // seats still away, which settle those seats after the match.
+        self.deadlines.retain(|k| {
+            k.kind == crate::rooms::CLEANUP.kind || k.kind == crate::presence::RECONNECT_EXPIRY
+        });
         cx.hub
             .metrics()
             .matches_finished

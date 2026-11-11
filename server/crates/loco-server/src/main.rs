@@ -194,6 +194,16 @@ async fn main() -> std::process::ExitCode {
     code
 }
 
+/// The second signal: the operator will not wait for the drain. The log is
+/// still flushed first, within `LOG_CLOSE_GRACE` like the normal exit, or the
+/// lines saying why the process went down — this one included — die in the
+/// queue with it. Returns the exit code.
+fn abandon_drain(sink: &AsyncLog) -> i32 {
+    tracing::warn!("second signal, exiting without waiting for the drain");
+    let _ = sink.close();
+    1
+}
+
 async fn serve(sink: &AsyncLog) -> std::process::ExitCode {
     let cfg = HubConfig::from_env(&env);
     if cfg.debug_mode {
@@ -268,10 +278,14 @@ async fn serve(sink: &AsyncLog) -> std::process::ExitCode {
     shutdown_signal().await;
     // A second signal from here on ends the process the old way: the escape
     // hatch for an operator who will not wait for the drain.
-    tokio::spawn(async {
+    let hatch_sink = sink.clone();
+    tokio::spawn(async move {
         shutdown_signal().await;
-        tracing::warn!("second signal, exiting without waiting for the drain");
-        std::process::exit(1);
+        // The flush blocks (bounded), so it runs where blocking is allowed.
+        let code = tokio::task::spawn_blocking(move || abandon_drain(&hatch_sink))
+            .await
+            .unwrap_or(1);
+        std::process::exit(code);
     });
     // Before the drain: a gateway request still in flight has no reason to
     // exist, and the poller has nothing to hand over.
@@ -311,6 +325,51 @@ mod tests {
         for (name, raw, want) in cases {
             assert_eq!(parse_drain_timeout(raw), want, "{name}");
         }
+    }
+
+    /// A writer whose first write waits for a gate: a reader of stderr that is
+    /// behind, so lines are still queued when the second signal lands.
+    #[derive(Clone)]
+    struct SlowWriter {
+        out: Arc<std::sync::Mutex<Vec<u8>>>,
+        gate: Arc<std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>>,
+    }
+
+    impl std::io::Write for SlowWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            if let Some(rx) = self.gate.lock().unwrap().take() {
+                let _ = rx.recv();
+            }
+            self.out.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // The escape hatch still flushes what is queued before the process exits:
+    // exiting at once lost the lines that say why it went down.
+    #[test]
+    fn the_second_signal_flushes_the_log_before_exiting() {
+        let (open, gate) = std::sync::mpsc::channel();
+        let w = SlowWriter {
+            out: Arc::default(),
+            gate: Arc::new(std::sync::Mutex::new(Some(gate))),
+        };
+        let sink = AsyncLog::new(w.clone(), 64);
+        sink.write_line(b"first\n");
+        sink.write_line(b"second\n");
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = open.send(());
+        });
+        assert_eq!(abandon_drain(&sink), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&w.out.lock().unwrap()),
+            "first\nsecond\n",
+            "the queued lines were not written before the exit"
+        );
     }
 
     async fn serve_app(app: Router) -> SocketAddr {

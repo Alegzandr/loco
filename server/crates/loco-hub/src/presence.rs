@@ -15,6 +15,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::time::Instant;
 
+/// The kind of every reconnect hold's deadline. A seat's hold outlives the
+/// match it began in (a forfeit leaves it to settle the seat).
+pub(crate) const RECONNECT_EXPIRY: &str = "reconnect_expiry";
+
 impl HubCore {
     /// A socket has gone. The queue is the hub's and is left first; the seat
     /// is the table's, and is handed to it.
@@ -131,7 +135,7 @@ impl Table {
     /// be re-based onto each other's seat numbers, and the expiry finds its
     /// hold by the instant it began, never by the seat it was armed with.
     pub fn schedule_reconnect_expiry(&mut self, seat: usize, at: Instant) {
-        let key = self.unique_key("reconnect_expiry");
+        let key = self.unique_key(RECONNECT_EXPIRY);
         let fire = at + self.reconnect_hold();
         self.deadlines.arm(key, fire, move |t, cx| {
             t.handle_expire_reconnect(cx, seat, at)

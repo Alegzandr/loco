@@ -218,8 +218,10 @@ impl std::ops::Deref for TableHandle {
 impl TableHandle {
     /// Gives a fully built table its task. Its phase is published before the
     /// task exists, so a table restored mid-match counts against the drain
-    /// from its first instant rather than from its first message.
-    pub(crate) fn start(table: Table, hub: Hub) -> TableHandle {
+    /// from its first instant rather than from its first message. `first`, if
+    /// any, is the task's first job: handed to it rather than posted, so no box
+    /// can refuse it the way it can refuse a post.
+    pub(crate) fn start(table: Table, hub: Hub, first: Option<TableJob>) -> TableHandle {
         let (tx, rx) = mpsc::channel(TABLE_BOX_DEPTH);
         let (quit_tx, quit_rx) = oneshot::channel();
         let sender = TableSender {
@@ -235,7 +237,8 @@ impl TableHandle {
         // Every line the table writes carries `code=`, from this span rather
         // than from each call site.
         let span = tracing::info_span!("table", code = %table.code);
-        let join = tokio::spawn(run(table, rx, quit_rx, ctx, published.clone()).instrument(span));
+        let join =
+            tokio::spawn(run(table, first, rx, quit_rx, ctx, published.clone()).instrument(span));
         TableHandle {
             sender,
             published,
@@ -278,11 +281,18 @@ impl TableHandle {
 
 async fn run(
     mut table: Table,
+    first: Option<TableJob>,
     mut rx: mpsc::Receiver<TableJob>,
     mut quit: oneshot::Receiver<()>,
     ctx: TableCtx,
     published: Arc<Published>,
 ) -> Table {
+    if let Some(job) = first {
+        let start = Instant::now();
+        run_job(&mut table, &ctx, job);
+        ctx.hub.metrics().note_event(0, start.elapsed());
+        published.publish(&table);
+    }
     loop {
         let next = table.deadlines.next();
         tokio::select! {
@@ -297,10 +307,21 @@ async fn run(
                 ctx.hub.metrics().note_event(queued, start.elapsed());
             }
             _ = tokio::time::sleep_until(next.unwrap_or_else(Instant::now)), if next.is_some() => {
+                // Several deadlines can fall due together. A deletion that
+                // lands between two of them stops the rest: a deleted table
+                // runs nothing after the job it was in.
+                let mut deleted = false;
                 for job in table.deadlines.take_due(Instant::now()) {
+                    if quit.try_recv().is_ok() {
+                        deleted = true;
+                        break;
+                    }
                     let start = Instant::now();
                     run_job(&mut table, &ctx, job);
                     ctx.hub.metrics().note_event(0, start.elapsed());
+                }
+                if deleted {
+                    break;
                 }
             }
         }
@@ -437,6 +458,11 @@ impl Deadlines {
     /// the match before.
     pub fn clear(&mut self) {
         self.slots.clear();
+    }
+
+    /// Disarms every deadline whose key `keep` refuses.
+    pub fn retain(&mut self, mut keep: impl FnMut(&DeadlineKey) -> bool) {
+        self.slots.retain(|k, _| keep(k));
     }
 
     pub fn len(&self) -> usize {

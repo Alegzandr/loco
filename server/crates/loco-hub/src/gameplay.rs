@@ -5,12 +5,12 @@
 use crate::actor::TableCtx;
 use crate::client::Client;
 use crate::clock;
-use crate::convert::{card_dtos, dto_to_card};
+use crate::convert::dto_to_card;
 use crate::table::Table;
 use loco_game::{Card, CatchCharge, Color, ErrorKind, GameError, Kind, Millis};
 use loco_protocol::{
-    CardColor, CardDTO, CardDrawnMsg, CatchLockedMsg, CounterDrawMsg, GameStartedMsg, MatchEndMsg,
-    RoundEndMsg, SeatMsg, ServerMsg,
+    CardColor, CardDTO, CatchLockedMsg, CounterDrawMsg, GameStartedMsg, MatchEndMsg, RoundEndMsg,
+    SeatMsg, ServerMsg,
 };
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -175,29 +175,8 @@ impl Table {
         }
         // A forced draw does not cost the turn: the clock re-arms on every draw.
         self.schedule_turn_timer(cx);
-        let dl = self.turn_deadline_ms();
         let state = self.room.state.as_ref().expect("drawn");
-        let new_cards = &state.hands[seat].cards[prior..];
-        let base = CardDrawnMsg {
-            player_index: Some(seat as i32),
-            turn: state.current_turn as i32,
-            pending_draw: Some(state.pending_draw as i32),
-            has_drawn: Some(state.has_drawn),
-            turn_deadline: dl,
-            interrupt_open: Some(state.interrupt_open),
-            ..Default::default()
-        };
-        c.send(ServerMsg::CardDrawn(CardDrawnMsg {
-            cards: card_dtos(new_cards),
-            ..base.clone()
-        }));
-        self.broadcast(
-            ServerMsg::CardDrawn(CardDrawnMsg {
-                drawn_count: new_cards.len() as i32,
-                ..base
-            }),
-            Some(c),
-        );
+        self.announce_cards_drawn(seat, &state.hands[seat].cards[prior..], true);
         self.maybe_schedule_bot(cx);
     }
 

@@ -465,8 +465,12 @@ Everything below lives in `server/crates/loco-hub/src/` unless a crate is named.
   dropped and counted (`messages_dropped_busy`), and the drops that would leak something retry the
   same job once (`post_critical`). **Nothing but the table's own task touches a `Table`**; the hub
   reads only the `Phase` the table publishes.
-- **A table is started only once the hub has finished filling it in** (`TableHandle::start`), and it
-  **stops existing and stops running at the same moment** (`delete_room`). Stopping hands its state
+- **A table is started only once the hub has finished filling it in** (`TableHandle::start`); work
+  that must be its first job is handed to the task as it starts (`open_table_with`), never posted
+  into a box that could refuse it. **Deleting a table removes it and stops it in one step on the
+  loop** (`delete_room`, which never waits on the task): the one job the task may be inside finishes
+  — a job is synchronous and is never cut in half — and **after it the task runs nothing**, no job
+  left in its box and no deadline, not even one due in the same batch. Stopping hands its state
   back, which is how the drain snapshot reads every table without a lock.
 - **A panic is caught on the table as well as on the hub** (`actor::run_job`, `catch_unwind`, and
   `panic = "unwind"` in the release profile): a dead table task does not fail, it goes quiet.
@@ -483,7 +487,9 @@ Everything below lives in `server/crates/loco-hub/src/` unless a crate is named.
 - **Removing a seat re-bases everything the scoreboard is drawn from** (`Room::remove_lobby_player`),
   and the `player_left` carries the re-based `scoreboard` and `round_history`.
 - **Every path that grows a hand goes through `send_hand_growth`**: the affected player gets the
-  cards, everyone else the count.
+  cards, everyone else the count. `card_drawn` is built in one place (`announce_cards_drawn`, which a
+  voluntary draw and a bot's draw call directly because they announce even an empty draw);
+  `tests/funnels.rs` fails on a second builder.
 - **A zero is a value, not an absence.** `turn` and `drawn_count` are always written; `pending_draw`,
   `has_drawn`, `player_index` and `player_id` are `Option`s, so seat 0 and `false` survive. The
   shapes are `loco-protocol`'s (`docs/protocol.md`).
@@ -558,7 +564,9 @@ Everything below lives in `server/crates/loco-hub/src/` unless a crate is named.
 **Leaving, and nobody waiting for somebody who is not there**
 - A matchmade room holds a dropped seat 15s and treats 2 turn timeouts as away
   (`MatchmakingTimings`); **both expiries forfeit**, as does `leave_room`. Ordinary rooms keep 60s
-  and 4. **The scoreboard is left alone.** Every room allows `leave_room` in its waiting room behind
+  and 4. **The scoreboard is left alone.** A forfeit disarms every deadline the match armed (turn
+  clock, gate, reveal, bots) and keeps the table's own: the cleanup and the holds of seats still
+  away. Every room allows `leave_room` in its waiting room behind
   one in-place confirmation, the only one in the game.
 - **`WALK_OUT_FLOOR` = 2 is what a match needs to keep being a match**, not a permission
   (`can_walk_out`, `Room::retire_seat`). **Evaluated once, at the ask.** Above it the seat is
@@ -574,7 +582,8 @@ Everything below lives in `server/crates/loco-hub/src/` unless a crate is named.
   `retire_absent_seat`). `tests/expiry_settle.rs`.
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`drain.rs`): nothing
   starting a new match is accepted, the queue is emptied with an explanation, **every table is told
-  once — every table, not only the ones playing**, **everything already running is left completely
+  once — every table, not only the ones playing**, through `post_critical` so a full box is retried
+  rather than skipped, **everything already running is left completely
   alone**, and the refusal list is chosen so the drain terminates. The rest goes to
   `LOCO_SNAPSHOT_PATH` (`snapshot.rs`): only matches in flight travel, as `loco_game::SavedRoom`; a
   snapshot is never replayed, and a foreign `SNAPSHOT_SCHEMA_VERSION` (5) or an age past
@@ -645,7 +654,8 @@ Everything below lives in `server/crates/loco-hub/src/` unless a crate is named.
 - **The log never touches the event loop.** `main` installs a `logsink::AsyncLog` as the tracing
   writer (`logsink::install`). The queue is bounded, **overflow is dropped rather than waited on**,
   counted on `/metrics` (`log_lines_dropped`) and admitted in the log itself. Never route that notice
-  back through the log. `main` closes the sink last.
+  back through the log. `main` closes the sink last, **and so does the second signal**
+  (`abandon_drain`): the escape hatch flushes, bounded by `LOG_CLOSE_GRACE`, before it exits.
 
 ## Client
 Detail: [`docs/notes/client.md`](docs/notes/client.md).

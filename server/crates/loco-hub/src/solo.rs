@@ -88,13 +88,17 @@ impl HubCore {
         m.matches_solo.fetch_add(1, Ordering::Relaxed);
         tracing::info!(code = %code, nickname = %nickname, bot = %bot_name, "solo match started");
         let c2 = c.clone();
-        let handle = self.open_table(t);
         // The deal and the gate are the table's first job: they arm deadlines,
-        // which only a running table can sleep on.
-        let _ = handle.post(TableJob::new(
-            "solo_deal",
-            move |t: &mut Table, cx: &TableCtx| t.deal_solo_match(cx, &c2),
-        ));
+        // which only a running table can sleep on. Handed to the task as it
+        // starts rather than posted, so there is no box that could refuse it
+        // and no answer to ignore.
+        self.open_table_with(
+            t,
+            Some(TableJob::new(
+                "solo_deal",
+                move |t: &mut Table, cx: &TableCtx| t.deal_solo_match(cx, &c2),
+            )),
+        );
     }
 }
 
