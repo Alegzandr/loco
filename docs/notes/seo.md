@@ -1,997 +1,552 @@
 # Being findable: what is indexable, and what it is worth
 
-> Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
-> reasoning, the edge cases, and the bugs that produced them.
+## The premise
 
-## The honest premise
+LOCO! has no brand demand to harvest, so search can only answer the descriptive queries — the "free
+online card game with friends, no signup" family — currently served by thin, natively optimised
+sites that are beatable on quality, but only with pages. The ceiling of the pages is real but
+bounded. **The unbounded part is off-site and is not an SEO task**: a table link that opens a game in
+one click from a Discord paste, an IGDB entry so Twitch has a category, browser-game directories.
 
-The obvious comparable is Gartic Phone, and looking at it closely argues against copying it.
-51.76% of its traffic is **direct**, search is under 10%, and its top five organic keywords are all
-brand terms ("gartic phone", "garticphone", "gartic" and their Russian spellings). Technically the
-site is a Next.js shell with no content in it. What it actually owns is 70.9K backlinks across
-5.18K referring domains and a social feed from Discord, YouTube and VK. Gartic Phone manufactured
-its demand **off Google**, and Google merely harvests it.
+Two constraints on every page:
 
-LOCO has no brand demand to harvest, so it cannot run that play yet. What it can do is answer the
-descriptive queries — the "free online card game with friends, no signup" family — which today are
-served by thin but natively-optimised sites (unoonline.io, playunofree.com, pizz.uno,
-scuffeduno.online, buddyboardgames.com/uno). They are beatable on quality, but only with pages, and
-until this work the site had exactly one URL whose entire text lived in JavaScript.
-
-So: the pages below are worth building and their ceiling is real but bounded. **The unbounded part
-is off-site and is not an SEO task**: a table link that opens a game in one click from a Discord
-paste, an IGDB entry so Twitch has a category to select at all, and browser-game directories. Those
-are what produced the 5.18K referring domains, and none of them is a meta tag.
-
-Two standing constraints on every page:
-
-- **A content page never says UNO.** This is stricter than "do not claim to be UNO", and it is the
-  same rule the game itself obeys (`CLAUDE.md`, Legal): the disclaimer that names the mark in order
-  to disclaim it is only true while no other player-facing string carries it, and a page indexed by
-  Google is about as player-facing as it gets. `legal.test.ts` asserts this over the i18n copy;
-  `seo.test.ts` extends it over `PAGES`, `UI` and every file under `src/content/` — except
-  `legal.ts`, which carries the disclaimer that names the mark in order to disclaim it, and which is
-  the reason the rule exists.
-
-  It costs the single highest-volume keyword in the category, knowingly. The pages are written to
-  answer the descriptive queries — "free online card game with friends, no signup" — which is the
-  ground LOCO can hold anyway, since it cannot outrank Mattel on Mattel's own name.
-- **The voice is the game's, not a website's** (`client.md`). Players open a **table**, French is
-  tutoiement, and a page explains rather than sells.
+- **A content page never says UNO.** The disclaimer that names the mark is only true while no other
+  player-facing string carries it, and an indexed page is player-facing. `legal.test.ts` asserts it
+  over the i18n copy; `seo.test.ts` over `PAGES`, `UI` and every file under `src/content/` except
+  `legal.ts`, which carries the disclaimer. It costs the category's biggest keyword, knowingly: LOCO!
+  cannot outrank Mattel on Mattel's name anyway.
+- **The voice is the game's** (`client.md`): players open a **table**, French is tutoiement, a page
+  explains rather than sells.
 
 ## The registry is the single source
 
-`client/src/seo/meta.ts` holds `PAGES`, and every page appears there once with its path, title and
-description **per language**. The sitemap, the `hreflang` sets, the canonical and `src/test/seo.test.ts`
-all read it. This shape exists because the failures in this area are silent by nature: a page
-declared but never built, a `hreflang` set that does not point back, two pages sharing a title. None
-of them shows up locally, none of them fails CI on its own, and all of them surface months later as
-"the French page never got indexed".
+`client/src/seo/meta.ts` holds `PAGES`: each page once, with path, title and description **per
+language**. The sitemap, the `hreflang` sets, the canonical and `src/test/seo.test.ts` all read it,
+because every failure here is silent: a page declared but never built, a `hreflang` set that does not
+point back, two pages sharing a title — each surfaces months later as "the French page never got
+indexed".
 
-`seo.test.ts` therefore asserts the properties that make one source worth having: every page has a
-non-empty title and description in every language, no title or description is ever repeated (the
-same string in both languages means one was never translated), every declared path is distinct and
-slash-terminated, and **every declared path has a source file behind it**. That last one is the
-point: the sitemap is generated from this list, so a page in the list and not on disk hands Google a
-URL that 404s.
+`seo.test.ts` asserts: a non-empty title and description in every language, none repeated (the same
+string in both languages means one was never translated), every path distinct and slash-terminated,
+and **every declared path has a source file behind it** — a page in the list and not on disk hands
+Google a sitemap URL that 404s.
+
+The registry is also imported in the browser (`state/tableInvite.ts` reads `HOME`, `DEFAULT_LANG`),
+which is why `meta.ts` reads `process.env` behind a `typeof` guard: a bare access throws in a browser.
 
 ## URLs
 
-English at the root, French under `/fr/`: the French pages are routes of their own under
-`src/routes/(game)/fr/` and `src/routes/(content)/fr/`, and the English ones sit at the root with no
-prefix. The game's own URL stays `/` deliberately: it is the address people paste, and moving it to `/en/` for
-symmetry would break every link already shared.
+English at the root, French under `/fr/` (`src/routes/(game)/fr/`, `src/routes/(content)/fr/`). The
+game stays at `/`: it is the address people paste.
 
-`trailingSlash: 'always'` (`src/routes/+layout.ts`). The build emits directories, so `/fr/` is `/fr/index.html`, and nginx serves
-that at both `/fr` and `/fr/`. Pinning the slashed form in the registry means the canonical, the
-sitemap and the `hreflang` set all name the same URL rather than competing as duplicates of each
-other.
-
-A redirect from the unslashed form would be the other way to fix that, and it is a trap worth
-recording: `/nope` has no directory either, so redirecting on a `try_files` miss sends `/nope` to
-`/nope/` to `/nope//` forever. The canonical link resolves the duplicate without that risk.
+`trailingSlash: 'always'` (`src/routes/+layout.ts`). The build emits directories and nginx serves
+`/fr/index.html` at both `/fr` and `/fr/`; pinning the slashed form makes the canonical, the sitemap
+and `hreflang` name one URL. **Never fix the duplicate with a redirect on a `try_files` miss**: `/nope`
+has no directory either, and goes `/nope` → `/nope/` → `/nope//` forever. The canonical resolves it.
 
 ## hreflang
 
-Reciprocal by construction, because both sides come out of the same `PageDef`. This matters more
-than it looks: Google **ignores** a `hreflang` set whose pages do not point back at each other, which
-is the single most common way to implement this and get nothing for it. There is exactly one
-`x-default`, pointing at the default language.
-
-Both the page head and the sitemap carry the alternates. The head links are what Google reads most
-reliably; the sitemap is what it discovers. Both come from `src/seo/meta.ts`: `layouts/Head.svelte`
-writes the head links, and `src/seo/sitemap.ts` writes `sitemap-0.xml` with the `xhtml:link` pairs
-(prerendered by `routes/sitemap-0.xml/+server.ts`). Astro's integration walked the emitted pages
-instead and missed every pair whose two paths it could not match — `/cards/` and `/fr/cartes/` went
-out with no alternates at all; built from the registry, every page carries both.
+Reciprocal by construction: both sides come out of the same `PageDef`, and Google ignores a set whose
+pages do not point back at each other. One `x-default`, at the default language. The head links
+(`layouts/Head.svelte`) are what Google reads most reliably; the sitemap (`src/seo/sitemap.ts`,
+`sitemap-0.xml` with the `xhtml:link` pairs, prerendered by `routes/sitemap-0.xml/+server.ts`) is how
+it discovers. Both are built from the registry, so every page carries both alternates.
 
 ## The language the page was served as
 
-A French URL that renders in English wastes the click it just earned, so `/fr/` has to open in
-French even for a browser set to English. The page declares itself with **`data-served-lang`**, which
-`chooseLang()` (`src/lang.ts`) reads after a stored choice.
+A French URL must open in French even in an English browser. The page declares itself with
+**`data-served-lang`**, which `chooseLang()` (`src/lang.ts`) reads after a stored choice. **Never
+`<html lang>`**: the i18n provider writes it, so reading it back detects the app's own last output
+(and in jsdom leaks one test's language into the next). `i18n.test.ts` pins the three cases: the URL
+beats the browser, a stored choice beats the URL, `<html lang>` is never an input.
 
-It is deliberately *not* `<html lang>`. The i18n provider writes that attribute on every language
-change, so reading it back would make the app detect its own last output rather than the document it
-was served — circular, and in jsdom (where one document is reused across a file's tests) it leaks the
-previous test's language into the next one. `i18n.test.ts` pins all three cases: the URL wins over
-the browser, a stored choice wins over the URL, and `<html lang>` is never an input.
+### Except at `/`, where the browser decides
 
-### Except at `/`, where the browser decides — and what that costs here
+`/` is the root and the canonical English page at once, and a visitor arriving there has said
+nothing, so `navigator.language` outranks the served language there and only there. Everywhere else
+the URL is the request.
 
-`/` is the site's root and its canonical English page at once. A visitor lands there without having
-said anything, so that is the one URL where `navigator.language` outranks the served language: a
-device set to French opens the French game, under a French footer, with `/fr/` in the address bar.
-Everywhere else the URL is the request and the browser does not get to argue with it — a French link
-opened by an English browser stays French.
+**It is not a redirect.** Google's multilingual guidance asks sites not to redirect on presumed
+language, and a crawler session with a French locale would see the root canonicalising itself away.
+It is a client-side navigation (`src/langRoute.ts`, [`client.md`](client.md)) replacing the history
+entry. A crawler asking for `/` gets the English page with its self-referential canonical and its
+`hreflang` pair. The destination is a real emitted page, so a reload or a shared link reproduces it.
+**Nothing is persisted**: a stored value is a choice, a choice outranks the URL, and persisting a
+detection would make every French link that player is later sent open in English.
 
-The mechanism is deliberately **not a redirect**, and this is the SEO decision worth recording.
-Google's multilingual guidance asks sites not to redirect on a visitor's presumed language, and
-`location.replace` on the canonical English URL is exactly that pattern: a rendering session that
-happened to run with a French locale would see the root canonicalising itself away. So the language
-is a client-side navigation instead (`src/langRoute.ts`, see [`client.md`](client.md)): the router
-renders `/fr/` in place of the history entry, which is not a canonicalisation signal. (Under Astro
-the served markup carried both languages and was translated in place; with a router, rendering the
-other page is the shorter way to the same property.) A crawler asking for `/` is answered with the English page, keeps
-its self-referential canonical and its reciprocal `hreflang` pair, and nothing about the graph
-changes.
+## The two hosts
 
-What makes the shortcut honest is that the destination exists: `/fr/` is a page the build emitted, so a
-reload fetches it, sharing the link hands it over, and the swap only ever anticipates a document
-somebody could have asked for directly. Nothing is written to storage on the way — a stored value is
-a *choice*, and a choice outranks the URL, so persisting a detection would make the next French link
-that player is sent open in English for good.
+Production is `ohloco.com`, development `loco-d.kisukesaama.com`, declared once each as `PROD_HOST`
+and `DEV_HOST` in `.gitlab-ci.yml`; everything else reads `APP_HOST`.
 
-## The two hosts, and why production has its own domain
+`APP_SUBDOMAIN` (`loco`) **names the stack, not the address**: compose project, Traefik router,
+internal network, deploy directory. Never derive a host from it or use it as a hostname.
 
-Production is `ohloco.com`, development is `loco-d.kisukesaama.com`. They are declared once each, as
-`PROD_HOST` and `DEV_HOST` in `.gitlab-ci.yml`'s global `variables:` block, and everything else reads
-`APP_HOST`.
-
-`APP_SUBDOMAIN` stayed `loco` and is **not** the address any more. It names the *stack*: the compose
-project, the Traefik router, the internal network and the deploy directory under `DEPLOY_DIR`. That
-separation is the whole reason the move cost two lines instead of a rename of every container on the
-box — but it also means the two are now free to drift, so a host is never derived from the subdomain
-and the subdomain is never used as a hostname.
-
-The dev host has to keep the `-d.` prefix. `client/nginx.conf` keys `robots.txt` on that exact
-pattern (`~*-d\.`), and it is the only thing standing between the dev deployment and the index: a dev
-host renamed without it falls into the `default` branch and starts inviting crawlers, advertising a
-sitemap of URLs that name the wrong origin. `seo.test.ts` pins the branch's contents; nothing can pin
-the name of a host that does not exist yet, so it is written here instead.
+**The dev host keeps its `-d.` prefix.** `client/nginx.conf` keys `robots.txt` on `~*-d\.`, and it is
+all that keeps dev out of the index: a dev host without it falls into the `default` branch, invites
+crawlers and advertises a sitemap naming the wrong origin. `seo.test.ts` pins the branch; nothing can
+pin a host name that does not exist yet.
 
 ## The apex is canonical and `www.` is a redirect
 
-`ohloco.com` is the site. `www.ohloco.com` exists only as a 301 to it, done at the edge (a Cloudflare
-redirect rule), and it reaches neither Traefik nor nginx.
+`www.ohloco.com` is only a 301 to the apex, done at the edge (a Cloudflare redirect rule), reaching
+neither Traefik nor nginx. One of the two must be canonical or the duplicate splits authority; the
+apex is short, fits a stream overlay, and is what people type.
 
-Picking one of the two is not optional — both would answer 200, both would be crawled, and the
-duplicate would split whatever authority the pages accumulate. Which one is arbitrary; the apex wins
-here because the domain is short, it is what fits in a stream overlay, and it is what somebody types.
+The quiet failure: an origin carrying `www.` while the redirect points the other way makes every
+canonical, `hreflang` and sitemap entry name a redirect, which Google reports as an invalid canonical
+while both URLs load fine for humans. `seo.test.ts` asserts `ORIGIN` has no `www.`; the redirect rule
+is documented in `docs/deployment.md`. (When last measured, the `www.` DNS record did not exist at
+all; nothing here points at it, so it costs only a typed hostname, and the fix is at the edge.)
 
-The failure this arrangement invites is the quiet one: an origin carrying `www.` while the redirect
-points the other way makes every canonical, every `hreflang` and every sitemap entry name a redirect
-rather than a page. Google follows it and then reports the canonical it was given as invalid. Nothing
-looks wrong to a human, because both URLs load. `seo.test.ts` asserts `ORIGIN` has no `www.`, which
-is the half of the contract living in this repo; the other half is the redirect rule, and it is
-documented in `docs/deployment.md` because there is no file here that could hold it.
+## The origin is decided at build time
 
-## The origin has to be decided at build time
-
-Crawlers do not run JS and resolve `og:image` against nothing, so a relative URL is simply not
-fetched. `VITE_PUBLIC_ORIGIN` therefore feeds both `vite.config.ts`'s `site` and `meta.ts`'s
-`ORIGIN`, and both default to production.
-
-That default was a live bug: nothing passed the variable anywhere, so the image built for
-`loco-d.kisukesaama.com` served a canonical and an `og:url` naming production. The `-d.` host's
-`Disallow: /` hid it rather than fixing it. `client/Dockerfile` now takes it as an `ARG`, and
-`.gitlab-ci.yml` passes `https://${APP_HOST}` — `DEV_HOST` on `develop` and `PROD_HOST` on a `v*`
-tag.
+Crawlers run no JS and never fetch a relative `og:image`. `VITE_PUBLIC_ORIGIN` feeds both
+`vite.config.ts`'s `site` and `meta.ts`'s `ORIGIN`, defaulting to production. `client/Dockerfile`
+takes it as an `ARG` and `.gitlab-ci.yml` passes `https://${APP_HOST}` (`DEV_HOST` on `develop`,
+`PROD_HOST` on a `v*` tag); without it the dev image would name production in its canonical and
+`og:url`.
 
 ## What nginx has to agree with
 
-- `robots.txt` is generated from `$host`: production invites indexing and advertises
-  `sitemap-index.xml`; `-d.` hosts disallow everything and, deliberately, advertise no sitemap —
-  a host that disallows everything while pointing at a sitemap is a contradiction a crawler reports.
-- `try_files $uri $uri/ =404` plus a real `404.html`. The old `try_files … /index.html` answered
-  **200 with the game** for any URL: a soft 404, which Google reports as an error and which hides
-  genuine broken links from everyone else. The 404 page is `noindex` and carries no canonical: a
-  404 naming a canonical is claiming to be a real page. It is also the one page somebody reaches by
-  accident, so it is drawn like the game and not like an error console: the mark as a way home, a
-  hand of four `<CardBack />`s nobody was dealt, the code painted the way a card glyph is painted
-  (off-white over ink, carried by the outline), and two ledged controls — a table, and the other language. Both components are
-  prerendered into the file, and the route sets `csr = false`, so the page still ships **no
-  JavaScript at all** — not even the router's bootstrap, which leaves it nothing to hash either. It
-  builds to `404.html` (`trailingSlash = 'never'` on that one route). That is on
-  purpose — this page is served when something is already broken, so it depends on nothing the
-  build might not have emitted.
-- `gzip` on text, JS, JSON, XML and SVG only. webp and woff2 are already compressed, so a second
-  pass costs CPU per request and saves nothing.
-- `Cache-Control: immutable` for a year on `/_app/immutable/`, whose names are content-hashed —
-  and not on the rest of `/_app/`: `version.json` keeps a fixed name and must stay fresh.
+- **`robots.txt` from `$host`**: production allows indexing and advertises `sitemap-index.xml`; `-d.`
+  hosts disallow everything and advertise **no** sitemap (disallowing while pointing at one is a
+  contradiction crawlers report).
+- **`try_files $uri $uri/ =404` plus a real `404.html`**, never a fallback to the game: a 200 for any
+  URL is a soft 404, an error to Google and a hiding place for real broken links. The 404 is
+  `noindex` with no canonical. It is drawn like the game (the mark as a way home, a hand of four
+  `<CardBack />`s, two ledged controls: a table, the other language), prerendered with `csr = false`,
+  so it ships **no JavaScript at all** and depends on nothing the build might not have emitted. It
+  builds to `404.html` (`trailingSlash = 'never'` on that route).
+- **`gzip`** on text, JS, JSON, XML and SVG only; webp and woff2 are already compressed.
+- **`Cache-Control: immutable`** for a year on `/_app/immutable/` (content-hashed), and not on the rest
+  of `/_app/`: `version.json` has a fixed name and must stay fresh.
 
-`seo.test.ts` asserts each of these against `nginx.conf`, because nothing else in the loop meets that
-file: unit tests read sources and the E2E suite runs against a dev server that sends none of it.
+`seo.test.ts` asserts each against `nginx.conf`: nothing else meets that file (the E2E dev server
+sends none of it).
 
-### The redirect chain, and the scheme nginx cannot see
+### Redirects name a path, never an origin
 
-`nginx.conf` declares no redirect, and the comment in it explains why adding one on the 404 branch
-would loop. nginx redirects anyway, and that one was the bug: `try_files $uri $uri/` resolving `/fr`
-to a directory makes the static module answer `301` to `/fr/`, and by default (`absolute_redirect
-on`) it writes that `Location` as `$scheme://$host/fr/`. **`$scheme` is `http` for every request
-this container will ever see.** TLS is terminated twice upstream — at Cloudflare, then at Traefik's
-`websecure` entrypoint — and the hop from Traefik to this nginx is plain HTTP on the internal
-network. So a visitor who asked for `https://ohloco.com/fr` was answered `http://ohloco.com/fr/`:
-sent out of https by the origin, and brought back only by whatever the edge does with plaintext.
+`nginx.conf` declares no redirect, but `try_files $uri $uri/` resolving `/fr` to a directory makes the
+static module answer `301` to `/fr/`, and by default (`absolute_redirect on`) it writes
+`$scheme://$host/fr/`. **`$scheme` is `http` for every request this container sees**: TLS ends at
+Cloudflare and again at Traefik, and the hop to nginx is plain HTTP. So `https://ohloco.com/fr` was
+answered `http://ohloco.com/fr/`, out of https and back only if the edge upgraded it — one dashboard
+toggle away from an `ERR_TOO_MANY_REDIRECTS` loop.
 
-Measured 2026-08-24, against the origin with the CDN excluded
-(`curl -skI --resolve ohloco.com:443:<origin> https://ohloco.com/fr`) and against the image itself
-(nginx plus a built client, in a container, `Host: ohloco.com`):
-
-| URL | before | after |
+| URL | `absolute_redirect on` | `absolute_redirect off` |
 | --- | --- | --- |
 | `/fr` | `301 → http://ohloco.com/fr/` | `301 → /fr/` |
 | `/privacy` | `301 → http://ohloco.com/privacy/` | `301 → /privacy/` |
 | `/fr/confidentialite` | `301 → http://ohloco.com/fr/confidentialite/` | `301 → /fr/confidentialite/` |
-| `/fr/`, `/privacy/`, `/fr/confidentialite/`, `/` | `200` | `200` |
 
-Followed end to end through the CDN the chain still terminated — `https://…/fr` → `http://…/fr/` →
-(Cloudflare "Always Use HTTPS") → `https://…/fr/` → `200`, three hops where one was needed — because
-the path changes at the same hop as the scheme. That is the part worth being clear about: it
-terminated **by luck of the path**, and how many hops a visitor got, or whether they got a finite
-number at all, was a dashboard toggle rather than a property of this repository. A downgrade to
-plaintext answered by an upgrade back is the exact shape of every ERR_TOO_MANY_REDIRECTS a static
-site produces; here it was one edge setting away from being one, and every unslashed URL was
-travelling through plaintext in the meantime.
+**`absolute_redirect off;`**: the client keeps its scheme and host, and the chain is one hop. Rejected:
 
-`absolute_redirect off;` settles it: nginx answers with a path, the client keeps the scheme and the
-host it already had, and the chain is one hop from anywhere.
+- **An explicit `rewrite ^(.*[^/])$ $1/ permanent;`** — the `/nope//` loop above.
+- **Rebuilding the scheme from `X-Forwarded-Proto`** — every redirect would trust a header a client
+  writes itself when it reaches Traefik bypassing the CDN, the trust problem `privacy::client_net`
+  keeps out of address handling. A relative `Location` needs to know nothing.
+- **Relying on the edge's "Always Use HTTPS"** — not in this repository, not tested here.
 
-Three alternatives were rejected:
+`client/src/test/redirects.test.ts` reads the emitted page tree, replays every public URL (both
+spellings, `PAGES` plus the invitation) through a model of nginx's rules and an edge that upgrades
+plaintext, and fails on a chain that revisits a URL, leaves https, or ends anywhere but an existing
+page. With `absolute_redirect on` it fails 17 of them.
 
-- **An explicit `rewrite ^(.*[^/])$ $1/ permanent;`** — the trap `nginx.conf` already documents.
-  `/nope` has no directory either, so a rewrite on the miss sends `/nope` to `/nope/` to `/nope//`
-  forever, which is a real loop where this was a latent one.
-- **Rebuilding the scheme from `X-Forwarded-Proto`** (`map` it into a variable and keep an absolute
-  `Location`). It makes the correctness of every redirect depend on a header a client writes for
-  itself the moment it reaches Traefik without going through the CDN, which is the same class of
-  trust problem `hub.clientNet` exists to keep out of the address handling. A relative `Location`
-  needs to know nothing, which is why it is the right answer rather than merely the shorter one.
-- **Turning the edge setting into the fix** ("Always Use HTTPS" is on, leave it). It is not in this
-  repository, nothing here tests it, and depending on it is precisely what produced a redirect chain
-  nobody could reason about from the source.
+## Titles and descriptions have a length
 
-`client/src/test/redirects.test.ts` is the regression: it reads the emitted page tree, replays every
-public URL — both spellings, from `PAGES` plus the invitation — through a model of nginx's own rules
-and of an edge that upgrades plaintext, and fails if a chain revisits a URL, leaves https, or ends
-anywhere but a page that exists. On the configuration this section describes it fails 17 of them.
-
-One thing measured the same day is **not** in this repository and is left as it is: `www.ohloco.com`
-does not resolve at all. The rule above and `seo.test.ts` both say the apex is canonical and `www.`
-only 301s to it at the edge; today the `www.` half of that sentence is a DNS record nobody created.
-Nothing here points at it — no canonical, no `hreflang`, no sitemap entry, which is what the rule is
-for — so it costs a typed hostname rather than a page, and it is a record to add at the edge, not a
-change to make here.
-
-## Titles and descriptions have a length, and it is not a suggestion
-
-A `<title>` past ~60 characters and a `<meta name="description">` past ~155 are cut mid-word in the
-result, and the half that goes is usually the half carrying the point. Every string in `PAGES` was
-over that line — the home page's description by 30 characters — and nobody had noticed, because
-these are the strings no one on the team ever sees rendered. `seo.test.ts` now bounds them: title
-≤ 60, description between 100 and 155.
-
-The floor matters as much as the ceiling. Google rewrites a description it finds too thin, and a
-page whose snippet it authors is a page whose pitch it authors. French runs about 15% longer than
-English for the same sentence, so both languages share one ceiling and the French copy is **written
-to it** rather than translated into it.
+A title past ~60 characters and a description past ~155 are cut mid-word in results. `seo.test.ts`:
+title ≤ 60, description 100–155, both languages. The floor matters too: Google rewrites a thin
+description, and then authors the pitch. French runs ~15% longer, so it is **written to** the ceiling,
+not translated into it.
 
 ## The home page's `<h1>` is served markup, and it is not the wordmark
 
-`/` is a game. What stands where a title would is the LOCO logotype, which is a *drawing* carrying
-`role="img"`, and the only real heading on the page was one the lobby mounted from the bundle. A
-crawler does not wait for that, so every audit read the site's most important URL as a page with no
-heading at all — the same reason the footer prose is served markup and not mounted.
+`/` is a game, and the logotype is a drawing (`role="img"`), so without help a crawler sees no
+heading on the most important URL. The game's layout (`routes/(game)/+layout.svelte`) serves one
+`<h1>` in text with `.sr-only` (`tokens.css`) before anything mounts, in words somebody would type —
+never the word LOCO alone. `.sr-only` clips rather than `display: none`, so screen readers get it too.
 
-So the game's layout (`routes/(game)/+layout.svelte`) serves one `<h1>` with `.sr-only` (`tokens.css`), in text, before anything
-mounts. It says what the page is in the words somebody would have typed, never the word LOCO alone:
-a heading repeating the logo is the logo again. `.sr-only` clips rather than `display: none`, which
-would take it out of the accessibility tree too — a screen reader arriving before the bundle lands
-gets the heading as well.
-
-The other half of the rule is that it stays the *only* one: the app's screens (`Lobby`, `Searching`,
-`MapLoadingScreen`) head themselves at `<h2>`, and `seo.test.ts` fails on an `<h1>` anywhere under
-`src/components/`. Googlebot renders JS, so a second one mounting a moment later is a page with two
-headings, and the one that describes the page is the one that loses.
+**It stays the only one**: app screens (`Lobby`, `Searching`, `MapLoadingScreen`) head at `<h2>`, and
+`seo.test.ts` fails on an `<h1>` under `src/components/`. Googlebot renders JS, and a second `<h1>`
+mounting later makes the descriptive one lose.
 
 ## Structured data
 
-`VideoGame` + `WebSite` + `WebPage` on the game pages, stating the two properties this category is
-actually searched on: that it is free, and that a group can play it in a browser. Saying it in prose
-alone leaves it to be inferred.
+`VideoGame` + `WebSite` + `WebPage` on the game pages, stating what this category is searched on: free,
+and playable by a group in a browser.
 
-**Free is `isAccessibleForFree`, never an `Offer`.** A `VideoGame` carrying `offers`,
-`applicationCategory` and `operatingSystem` is a `SoftwareApplication` as far as a validator is
-concerned, and Google's software requirements then make `aggregateRating` mandatory: the block came
-back with a *critical error* on every audit, and the only way to satisfy it would have been to
-publish ratings nobody has left. The boolean says the same thing to the same crawlers and asks for
-nothing that does not exist. `seo.test.ts` fails on any of those four property names reappearing.
+- **Free is `isAccessibleForFree`, never an `Offer`.** `offers`, `applicationCategory` and
+  `operatingSystem` make a validator treat the `VideoGame` as a `SoftwareApplication`, which then
+  requires `aggregateRating` — ratings nobody has left. `seo.test.ts` fails on those four property
+  names.
+- **A content page is a `WebPage`, never an `Article`.** `Article` requires `author`, `datePublished`
+  and `image`, which this site has no honest value for: no editorial identity ([`legal.md`](legal.md)),
+  evergreen pages.
+- What renders in results is the **breadcrumb** (`LOCO › Rules` in place of the URL) and the FAQ's
+  `FAQPage`. The FAQ's `FAQPage` replaces its `WebPage` node and still reads `breadcrumbJsonLd`.
+- **Every node joins the one `#website` and `#game`** the home page declares, so a crawler reads one
+  entity across pages. The `@id`s are strings on both sides, so a typo is silent; the test compares
+  them.
 
-**A content page is a `WebPage`, not an `Article`.** Same failure from the other direction: `Article`
-is a *supported* type, so a validator holds it to Google's article requirements and reports `author`,
-`datePublished` and `image` as errors — three fields this site has no honest value for. There is no
-editorial identity to name (`legal.md`) and these are evergreen documents with no publication date.
-`WebPage` states the same thing with nothing invented.
-
-What actually renders is the **breadcrumb**, which replaces the raw URL under the title with
-`LOCO › Rules`, and the FAQ's `FAQPage`, which can put an answer straight into a result. Every page
-now carries the trail; the FAQ was the one page without it, because it built its own graph. It still
-does — `FAQPage` *is* a `WebPage` and replaces that node rather than sitting beside it — but it
-reads `breadcrumbJsonLd` and joins the same `@id`s.
-
-Those `@id`s are the point of the graph: every page points at the one `#website` and the one `#game`
-the home page declares, so a crawler reads seven pages about a single entity rather than seven
-unrelated documents. They are strings on both sides, so a typo is invisible — the block stays valid
-and the pages simply stop being related — which is why the test compares them rather than eyeballing
-the output.
-
-The block is written inline by `layouts/Head.svelte` (with `<` escaped, so no string in the data can
-close the element), which is required — structured data has to be in the document to be read — and
-safe: `script-src` does not apply to a script whose type is not a JavaScript MIME type, because such
-a block is data and is never executed. `csp.test.ts` refuses every other hand-written inline script.
+The block is written inline by `layouts/Head.svelte`, `<` escaped so no string closes the element.
+`script-src` does not apply to a non-JavaScript MIME type: the block is data and never executes.
+`csp.test.ts` refuses every other hand-written inline script.
 
 ## The content pages
 
-`src/routes/(content)/+layout.svelte` is the shell: header, one column, footer bar. `src/content/` holds
-the prose and the data behind it, and is **never imported by the app** — `en.ts` and `fr.ts` are
-already 28 KB and 17 KB shipped to every player, and none of this is rendered inside the game.
+`src/routes/(content)/+layout.svelte` is the shell; `src/content/` holds the prose and data and is
+**never imported by the app** — `en.ts` and `fr.ts` are already shipped to every player.
 
-### The shell: one width, one bar, no backdrop
+### The shell
 
-Three things were wrong with the first version of it, and all three were the kind that make a page
-read as cheap without any one element being obviously broken.
+**One width.** `--shell` is declared once on `.page`; header, column and bar all take it, so the
+logo, the `<h1>` and the bar's text start at the same x. Only the lede and the body measure set their
+own max-width (reading, not alignment).
 
-**Three container widths.** The header was 62rem, the column 46rem and the footer 62rem, so the logo,
-the `<h1>` and the footer text each started at a different x and the page read as three unrelated
-strips. `--shell` is declared once on `.page` and header, column and bar all take it. Nothing below
-sets a max-width of its own except the two that are about *reading* rather than about alignment: the
-lede and the body measure.
+**Flat canvas, opaque chrome.** `body.doc` paints `--color-canvas` and nothing else; no gradient, no
+`background-attachment: fixed`. The header band and the bar are **opaque canvas**: backdrop blur
+belongs to the modal scrim alone (DESIGN.md's No-Glass Rule). `contentPages.test.ts` fails if either
+comes back. **The landings are flat: the den's gradient and colour orbs behind content pages are
+refused — a landing is a page to read, and glow behind prose competes with it.** `/` (`#root`) and the
+404 (`.page`) are flat for the same reason.
 
-**A gradient pinned to the viewport.** `tokens.css` painted the candy gradient with
-`background-attachment: fixed`, so the prose slid over a backdrop that never moved. The board earns
-that gradient — it sits in a room. A page of prose does not, so `body.doc` is the flat canvas colour
-and the attachment is gone from `tokens.css` entirely (the game page is one viewport, so it never
-scrolled against it anyway). `contentPages.test.ts` fails if either comes back.
+**The prose sits on the game's panels**: every top-level `<section>`, FAQ entry and room is the game's
+card (`--color-surface-card`, ink outline, `--shadow-pop`, `--radius-xl`). Raised things inside a panel
+(deck tables, the live page's steps, card entries) drop to the sunken slot treatment, so a ledge never
+stands on a ledge; the friends page's opening steps keep their own panels. The header's `Play` and the
+live page's link to the Twitch category are `Lobby.svelte`'s primary button (`.cta`, `.btnPrimary`):
+it is the one thing on the page somebody came to press.
 
-**Navigation in the header.** The home page puts its links in a footer row, and a player arriving
-from `/` met a completely different arrangement one click later. The pages now live in a **fixed
-footer bar** on every content page: the same links, in the same order, at the same quiet weight,
-with `Play` standing exactly where the home page's sheet button stands. It is `position: fixed`
-because on `/` that row is always in sight — that page is exactly one viewport — and a page that
-scrolls only keeps the promise by staying put. The bar is opaque rather than frosted, and the column
-reserves `--bar` of bottom padding so no line of text ends up under it.
+**The header stays.** `.headerBar` is `position: sticky` (first child of the flex column, so it costs
+nothing and `--bar` remains the only reserved room), full-width, opaque, its `.siteHeader` row on
+`--shell`, vertical padding 0.85rem. It carries the mark back to `/`, `Play`, and under 46rem the
+burger. `html:has(body.doc)` takes a `scroll-padding-top`, or the skip link and every anchor land under
+the band. `contentPages.test.ts` pins the sticky, the nesting and the scroll padding.
 
-**And a header that stays.** The bar answers where the *pages* are; the header carries everything
-else that leaves the document — the mark back to `/`, the `Play` CTA, and under 46rem the burger that
-is the whole navigation, since the bar is hidden at that width. Scrolling it away meant a reader
-three screens into the rules had to travel back to the top of the document to reach any of it, which
-on a phone was the only route out of the page. `.headerBar` is `position: sticky` rather than fixed:
-it is the first child of the flex column, so pinning it costs the column nothing and `--bar` stays
-the only room the page has to reserve. The band is full-width and opaque, for the same reason the bar
-is, and the `.siteHeader` row inside it keeps `--shell` so the logo still starts at the `<h1>`'s x.
-Its vertical padding drops from 1.5rem to 0.85rem: a band that never leaves is height taken off every
-screenful. `html:has(body.doc)` takes a `scroll-padding-top`, or the skip link and every in-page
-anchor land on a heading the band is sitting on. `contentPages.test.ts` pins the sticky, the nesting
-and the scroll padding.
+**One bar for the whole site** (`layouts/SiteFooter.svelte`, one ruleset in `content.css`, rendered by
+both layouts): same destinations, **privacy at the right-hand end in `.footerEnd` beside the globe**,
+the hairline, opaque canvas. Each page passes its left-hand end: `Play` on a content page, the sheet
+of prose on `/`. On a content page it is `position: fixed` and the column reserves `--bar` of bottom
+padding; on `/` it is in the flow (`.onHome`), closing the one viewport, and unpositioned so the
+game's panels open above it. **The two are one height** (the closed sheet's `<details>` is a flex box,
+or it takes the body's line box and adds 8px), and `view-transition-name: site-footer` holds the bar
+still across the router's cross-fade (`routes/+layout.svelte`). The seated case is one rule in
+`GamePage.css` (`:root[data-seated] .siteFooter.onHome`).
 
-**One bar for the whole site, and it does not move between pages.** It was two: this one, and a row
-under the game that `GamePage` styled itself, on the argument that the home copy had two jobs this one
-did not — vanishing on `data-seated`, and keeping the page inside one viewport — and that two short
-rulesets that look alike beat one that has to be true of both. They drifted exactly the way that
-argument invites: different padding, a hairline on one only, privacy inside the list on `/` and at
-the end here, a language globe on one side only. Since SvelteKit the router moves between the two
-without a reload, and the drift became the one thing that changed on screen: crossing from the rules
-to the game read as crossing into another site.
+**A way back up.** `.toTop` (`layouts/ToTop.svelte`) appears about a screenful down, above the bar. It
+ships `hidden` and is revealed on mount; `href="#top"` is real, so it works without the handler. The
+handler adds the smooth scroll and moves focus to the skip link with **`focus({ preventScroll: true })`**:
+`.skip` sits far off-screen, and focusing it without that scrolls instantly, cancelling the smooth
+scroll in flight.
 
-So it is one component, `layouts/SiteFooter.svelte`, and one ruleset in `content.css`, rendered by
-both layouts. What each page needs at the left-hand end is passed in — `Play` here, the sheet of prose
-on `/` — and everything else is the same object: the destinations, **privacy at the right-hand end in
-`.footerEnd` beside the globe** (where the far end of the bar is settings rather than empty space),
-the hairline, the opaque canvas. On a content page it is `position: fixed`; on `/` it is in the flow
-(`.onHome`), closing the one viewport, and unpositioned there, so the game's own panels always open
-above it (with a stacking order of its own it once painted over an open modal while the screen under
-it was arriving). **The two are one height** — the closed sheet's `<details>`
-took the body's line box and made the home bar 8px taller until it was made a flex box itself — and
-the bar carries `view-transition-name: site-footer`, so the router's cross-fade
-(`routes/+layout.svelte`) leaves it exactly where it was. The two jobs the home copy had are a class
-(`.onHome`) and a rule in `GamePage.css` (`:root[data-seated] .siteFooter.onHome`): one ruleset was
-true of both after all.
+**Anchors glide.** `scroll-behavior: smooth` on the scrolling element covers fragment links, the skip
+link, `#top` and `scrollTo`. It hangs off `html[data-scroll="smooth"]`, written live by the content
+layout from the system preference, because `@media` on that preference is refused client-wide
+(`reducedMotionCss.test.ts`) and `data-motion` is the game's. Without a script nothing glides, the
+safe fallback. `contentPages.test.ts` pins both halves.
 
-**And a way back up.** These pages are long and their navigation is pinned to the *bottom*, so the
-return trip was a full scroll or a key a phone does not have. `.toTop` appears once the reader is
-about a screenful down, above the bar and out of the column. It is `hidden` in the markup and
-revealed once a script runs (`layouts/ToTop.svelte`): without a script it could
-neither know it was wanted nor animate the return, and that reader still has the browser's own way
-home. The `href="#top"` is real, so the control works even if the handler does not; the handler only
-adds the smooth scroll (skipped when the system asks for reduced motion — there is no `data-motion`
-here, that attribute is the game's) and moves focus back to the skip link.
+`body.doc` restores text selection, which `styles/base.css` disables for the board.
 
-**And the smooth scroll had to be made to survive that focus call.** The button animated nothing for
-as long as it existed, and `window.scrollTo` was never the problem: the line after it focused
-`.skip`, which sits at `top: 0` nine thousand pixels off to the left, so the browser scrolled it into
-view — instantly — and an instant scroll cancels a smooth one already in flight. The animation
-started every time and never got a frame. `focus({ preventScroll: true })` is the whole fix; the
-keyboard reader still lands at the top of the document.
+### The phone: one burger, one drawer
 
-**An anchor glides too**, which is the same problem one press earlier: the rules page's table of
-contents and the privacy page's jump list moved the reader several screens with nothing to say the
-page had not been replaced under them. `scroll-behavior: smooth` on the scrolling element covers
-every route at once — a fragment link, the skip link, `#top`, and the handler's own `scrollTo`. It
-hangs off `html[data-scroll="smooth"]`, written by the content layout from the system preference,
-because a reduced-motion reader has to keep the instant jump and neither answer is available to this
-stylesheet: `@media` on that preference is refused across the whole client by
-`reducedMotionCss.test.ts`, and `data-motion` is written by the game's `initMotion()`, which these
-pages never mount. The listener is live rather than read once at boot, and with the script off
-nothing glides, which is the safe half of the fallback. `contentPages.test.ts` pins both halves —
-either alone is silent.
+Under 46rem the bar's ten items do not fit one line, and every version that kept the bar either missed
+thumbs or spent a third of the screen. So under 46rem the bar goes and everything moves into a
+**drawer behind one burger, top left**, the same component on the content pages and on `/`
+(`layouts/SiteDrawer.svelte`):
 
-`body.doc` also puts text selection back: the reset in `styles/base.css` disables it for the board, where
-dragging a card must not select the table, and a page of rules nobody can quote is a different kind
-of broken.
+- **Content pages**: the burger in the header; the drawer carries `Play`, every page, privacy and the
+  globe, as 2.75rem rows.
+- **`/`**: the burger fixed over the board on the line the chip row sits on (`Lobby.svelte`'s
+  `.topBar` offsets). No `Play`; `home` swaps it for the `About` row (`#navAbout`, which opens the
+  sheet) and adds the `Preferences` action (`#navPrefs`). It ends on the same globe as every drawer.
 
-### The phone: one burger, one drawer, both halves of the site
+**The drawers differ in their list and nothing else.** No prose inside a drawer: a menu is a list of
+destinations, and the prose keeps its own control, the sheet.
 
-The bar above is right wherever its ten items fit on one line. Under 46rem they do not. It folded
-into two rows of 12px text, jammed together at a 0.15rem gap, with **nothing on it taller than the
-type** — six links, a legal link whose French label is 28 characters, and two icons, all sharing one
-strip a thumb has to hit. Every fix that kept the bar made it worse: bigger targets pushed it to
-three rows, and three rows of navigation on a phone is a third of the screen spent on getting
-somewhere else.
+**Both open on the wordmark and carry exactly one action** (`.navPopCta`): `Play` where you are going,
+`Preferences` what you came to change. The head is `<LocoLogo />` inside a **`<div class="navPopTitle">`,
+never a `<p>`**: the logo renders a `<div>`, the parser closes the paragraph before it, and the mark
+becomes a sibling that `space-between` centres wrongly (`mobile.spec.ts` measures the rendered box).
+Scope the action as `.navPop .navPopCta`: `.navPopLinks a` (class + type) beats a bare class.
 
-So under 46rem the bar goes entirely and everything it held moves into a **drawer behind one burger,
-top left**. The same control, in the same corner, on the content pages and on `/`:
+`#navPrefs` ships `hidden` and is revealed on hydration (`hidden={!hydrated}`): the panel belongs to
+the game. It closes the popover and dispatches `loco:preferences`, which `<Preferences />` listens for
+— an event, because the drawer is the page's and the panel the root layout's, and neither is in the
+other's tree.
 
-- **Content pages**: the burger sits in the header, the drawer carries `Play`, every page in the
-  bar, privacy and the globe — the whole bar, in order, as rows of 2.75rem.
-- **The game page**: the burger is fixed over the board at the offsets `Lobby.svelte`'s `<style>`
-  gives `.topBar`, so it lands on the line the gear, the speaker and the "?" already sit on. The drawer
-  carries the same pages and privacy. **No `Play`** — this is where playing happens — and it ends on
-  the same globe as every other drawer: the language is reached the same way on every page that is
-  not a seat (it used to be behind the lobby's gear alone on `/`; the gear still has it). The bar's
-  row costs the board no height at all at that width.
+Both are `popover="auto"`, so Escape and a tap outside close them with **no script**. Five ways to get
+it wrong, four silent:
 
-They are one component, `layouts/SiteDrawer.svelte`, for the reason the bar is: two copies drift.
-The game page passes `home`, which swaps `Play` for the `About` row and adds the `Preferences` CTA.
+- **`display` belongs on `:popover-open` only.** Any author `display` beats the UA's
+  `[popover]:not(:popover-open) { display: none }` (cascade origin, not specificity), and the drawer
+  stands open on every page.
+- **Height must be stated.** The UA gives a popover `height: fit-content`; `top: 0; bottom: 0` alone
+  stops the drawer at its last link.
+- **The bar may only be hidden inside `@supports selector([popover])`.** Without the API the burger
+  opens nothing; in the `@supports not` branch the burger and drawer hide and the bar stays.
+- **The bar is hidden with `display: contents`, never `display: none`.** `#langPop` lives in the
+  footer, and a `none` ancestor removes its subtree from rendering even in the top layer, so the
+  phone's only language switch would show nothing. The rows (`.footerPlay`, `.footerNav`,
+  `.footerEnd`) go; the `<footer>` stays as a box-less wrapper. Same trap for anything else moved
+  into that element.
+- **Widening the window closes it.** CSS cannot close a popover; `SiteDrawer.svelte` calls
+  `hidePopover()` from a `matchMedia` effect (checked once on arrival, since the native drawer can open
+  before hydration) and after every navigation (`afterNavigate`). That **second copy of the 46rem
+  breakpoint** is asserted against `content.css` by `contentPages.test.ts`.
 
-**Both open on the wordmark, and both carry exactly one action.** The head used to read "Menu",
-which named the panel to somebody already looking at it and left this the one branded surface on the
-site with no brand on it — on the game page especially, where the drawer covers the board and there
-is no header behind it. It is `<LocoLogo />`, rendered statically, so it is the same drawing as the
-one on the cards. Write it in a **`<div class="navPopTitle">`, never a `<p>`**: the logo renders a
-`<div>`, an HTML parser closes a paragraph before one, and the mark landed as a *sibling* of the
-title — which made `.navPopHead` a three-item row and had `space-between` centre the logo between an
-empty `<p>` and the ✕. It rendered perfectly and sat in the wrong place, and no test reading the
-source was ever going to see it; `mobile.spec.ts` measures the rendered box instead.
+Bar and drawer are both built from `NAV` and `LEGAL`, so they cannot list different pages; the links
+are in the document twice, which is why `seo.spec.ts` scopes home-page assertions to `.footerRow`.
+**`GamePage.css` styles no part of the drawer**: a `.navPop*` rule there is a divergence by definition.
 
-The action is `.navPopCta`. A drawer that is six destinations and nothing else is a grey corridor,
-and the content pages had `Play` in it while the game page had nothing — one menu with the game's
-colour in it, one without. Each has one now, at opposite ends because they mean opposite things:
-`Play` is where you are going, `Preferences` is what you came into the menu to change. The scoping
-matters — `.navPop .navPopCta`, not `.navPopCta`, because `.navPopLinks a` is a class *and* a type
-and beats a bare class on specificity whatever the order. It went unnoticed while the only CTA was
-white against an ink colour that is also near white.
+### One palette
 
-`#navPrefs` is the seam between the page and the game. It ships `hidden` and the drawer reveals it
-once a script runs (`hidden={!hydrated}`), for the reason the content pages' back-to-top does: the
-panel it opens belongs to the game, and a scriptless page is better off without a button than with
-one that does nothing. It closes the popover and dispatches `loco:preferences`; `<Preferences />`
-listens. An event rather than a shared module: the drawer is rendered by the page, the panel by the
-game in the root layout, and neither is in the other's tree.
-
-**The two drawers differ in their list and in nothing else.** The game's used to end with the home
-page's prose under its links, on the reasoning that the burger is the only thing a phone opens on `/`
-and everything the footer offered had to be inside it. What that produced was two menus: a phone
-tapping `Menu` on `/` got two rows of destinations and a page of copy, tapped `Rules`, and one screen
-later the same button in the same corner opened a short list. A menu is a list of destinations, and a
-site where it is that on one half and a document on the other has two of them. The prose keeps its
-own control — the sheet — and stays in the served HTML at every width, so nothing a crawler reads
-changed. The cost is real and small: a phone can no longer read the home page's two paragraphs from
-`/` itself, and the pages the drawer lists are what it goes to instead.
-
-Both are `popover="auto"`, so Escape and a tap outside close them with **no script**, which is the
-constraint these pages are built under. Five things about that are easy to get wrong, and four of
-them fail silently:
-
-- **`display` belongs on `:popover-open` and nowhere else.** A closed popover is hidden by
-  `[popover]:not(:popover-open) { display: none }` in the UA stylesheet, and *any* author `display`
-  on the element beats it — cascade **origin**, not specificity. `.navPop { display: flex }` left the
-  drawer standing open over every page at every width. `.langPop` gets away with declaring none.
-- **Height has to be stated.** The UA gives a popover `height: fit-content`, so `top: 0; bottom: 0`
-  alone left the drawer stopping at its last link with the scrim carrying on underneath.
-- **The bar may only be hidden inside `@supports selector([popover])`.** Without the API the drawer
-  is an ordinary `<div>` in the middle of the page and the burger opens nothing; hiding the bar there
-  would leave the page with no navigation whatsoever. Both the burger and the drawer are hidden in
-  the `@supports not` branch instead, and the bar stays at every width — which is what the file did
-  before the drawer existed.
-- **The bar is hidden by `display: contents`, not by `display: none`.** `#langPop` is a child of the
-  footer bar, and the drawer's globe is the only way to it on a phone. Under `display: none` the
-  panel was promoted to the top layer and painted nothing — an ancestor set to `none` takes its whole
-  subtree out of the render tree whatever the top layer thinks — so the one control that switches
-  language on a phone did precisely nothing, silently. The bar's three rows (`.footerPlay`,
-  `.footerNav`, `.footerEnd`) are what goes; the `<footer>` stays as a box-less wrapper around the
-  panel it holds. Same trap for anything else that ever moves into that element.
-- **Widening the window has to close it.** CSS cannot close a popover: drag a window out, or turn a
-  tablet on its side, and the drawer stands over a page whose own bar is already showing underneath,
-  with the button that closes it no longer on screen. `layouts/SiteDrawer.svelte` answers it with one
-  `matchMedia` effect calling `hidePopover()` (checked once on arrival too, since the native drawer can
-  be opened before the page hydrates), and shuts the drawer after every navigation (`afterNavigate`).
-  It holds a **second copy of the 46rem breakpoint**, which `contentPages.test.ts` asserts against the
-  one in `content.css`.
-
-Both renderings of the navigation are built from `NAV` and `LEGAL`, so the bar and the drawer cannot
-list different pages; only one is ever on screen. That does put the same links in the document twice,
-which is ordinary — a site with a header nav and a footer nav does the same — and it is why
-`seo.spec.ts` scopes its home-page assertions to the bar's row (`.footerRow`) rather than to the bar.
-
-**`GamePage.css` styles no part of the drawer.** The panel, the heading, the rows, the settings row
-are all `content.css`, which is what makes the two menus one design rather than two that resemble
-each other; a rule for `.navPop*` in that file is a divergence by definition, and the prose block that
-used to justify one is gone.
-
-### One palette, and the game's own canvas
-
-The content pages used to carry a theme switch beside the globe, and `tokens.css` declared the dark
-palette twice so the first frame of a page was right before the script that wrote `[data-theme]` had
-run. The site has one palette now (see `visual.md`, "One palette"): nothing here keys on a theme,
-nothing boots a theme, and `noLightTheme.test.ts` fails on any of it coming back.
-
-What the pages paint instead is the flat canvas, `--color-canvas` on `body.doc` and nothing else.
-The den's gradient and its three colour orbs were tried twice here — pinned to the viewport, then
-anchored to the first screenful so the top of every page was the home page's sky — and both times the
-verdict was the same: a landing is a page to read, and a coloured glow behind prose is ambience
-competing with it. The decision is now explicit and it is the same one `/` (`#root`) and the 404
-(`.page`) already took: **the landings are flat, no glow, no orb**. The header band and the footer
-bar are frosted glass over that flat canvas (92% of the canvas over a 14px blur), which costs nothing
-on a solid ground and keeps them the same object as the game's. **And the prose sits on the game's panels**:
-every top-level `<section>`, FAQ entry and room is the card every screen of the game puts its
-content on — `--color-surface-card`, the ink outline, `--shadow-pop`, `--radius-xl` — which is
-what makes the text legible over the gradient and what stopped the pages reading as a documentation
-site that happened to share a font. Things a panel holds that were raised themselves (the deck
-tables, the steps on the live page, the card entries) drop to the sunken treatment the game gives a
-slot cut into a bar, so a ledge never stands on a ledge; the steps on the friends page, which open
-the page rather than sit in a chapter, keep their own panels. The header's `Play` and the live
-page's way to the Twitch category are `Lobby.svelte`'s primary button to the declaration
-(`.cta`, `.btnPrimary`): gradient, ledge, the label's own shadow, the press travelling into the
-ledge — that link was a line of underlined words under the list, which is a footnote, and it is the
-one thing on the page somebody came to press.
+The site has one palette (`visual.md`, "One palette"): nothing keys on a theme and
+`noLightTheme.test.ts` fails on any theme machinery.
 
 ### The language chooser is a popover
 
-`English` / `Français` sat in the bottom-right corner as raw text. It is a globe button and a modal
-now, and the modal is a **native `[popover]`**: Escape and a click outside both dismiss it with no
-script on the page, which is the constraint these pages are built under (`<dialog>` would need one).
-The globe is drawn SVG, never `🌐` — same rule as the game's preference icons, and for the same
-reason: an emoji is a different object on every platform.
+A globe button (drawn SVG, never `🌐`) opening a native `[popover]`: Escape and an outside click
+dismiss it with no script (`<dialog>` would need one). In the bar the globe stands **alone** with an
+`aria-label`; the language names belong on the two links inside the panel. In the drawer it keeps its
+text label, as a row among rows.
 
-In the bar the globe stands **alone**: the language name that used to sit beside it named the
-language the reader was already reading, so it restated the page and added a third run of 12px text
-next to the privacy link. The names belong on the two links inside the panel,
-where the choice is actually made. The button keeps its `aria-label`, which is what a control with
-no text owes a screen reader. The drawer's copy of the button keeps its label, because there it is a
-row in a list of rows and an unlabelled icon in that column would be the only one.
+It carries its own **✕** (`popovertarget="langPop" popovertargetaction="hide"`, still no script;
+`seo.spec.ts` presses it with JavaScript disabled), because a phone has neither Escape nor an easy
+"outside". Write **`popover="auto"` in full**: an invalid value falls back to `manual`, which has
+neither dismissal and looks like a panel that will not close.
 
-It also carries its own **✕**, because the two native dismissals are both invisible and neither is
-reachable on a phone: there is no Escape key, and the panel is centred on a scrim whose "outside" a
-thumb has to find. The button is `popovertarget="langPop" popovertargetaction="hide"`, which is the
-same native control in the other direction and therefore still costs no script — `seo.spec.ts`
-presses it inside the JavaScript-disabled block. The `popover` attribute is written `popover="auto"`
-in full rather than as a bare word: an invalid value on that attribute falls back to the *manual*
-state, which silently has neither Escape nor light dismiss, and the failure looks exactly like a
-panel that will not close.
+Both languages are ordinary `<a href>`s with `hreflang` and `lang`, in the document open or shut
+(a popover hides, it does not withhold), so crawlers follow them and `seo.spec.ts` finds them under
+`footer a[href$=…]` with scripts off. `@supports not selector([popover])` degrades the panel to the
+row it would have opened.
 
-What must not change is what is inside it. Both languages are ordinary `<a href>`s carrying
-`hreflang` and `lang`, present in the document whether the panel is open or not, because a popover
-hides its contents rather than withholding them — a crawler that has never heard of the API still
-follows the link, and `seo.spec.ts` still finds it under `footer a[href$=…]` with scripts disabled.
-`@supports not selector([popover])` degrades the panel to the row it would have opened, so a browser
-without the API shows both languages in the bar rather than losing the switch.
+### Pages that restate what the game knows
 
-The exceptions run the other way, and they are the point of the whole arrangement:
+- **The rules page maps `t.rules`**, the same array `RulesModal.svelte` maps; `contentPages.test.ts`
+  asserts both do. It opens on `content/contrasts.ts`, whose numbers come from the server.
+- **`t.cardNames`** names every card (`cardLabel()` only returns a glyph); it lives in the i18n bundle
+  because the game uses it too.
+- **The deck table restates facts the server owns.** `contentPages.test.ts` reads
+  `loco-game/src/deck.rs` and counts the deck, and compares every point value with `card.rs`'s
+  `card_value` (through `src/test/serverSource.ts`). A server-side scoring change goes red here.
+- Card names do **not** come from `docs/rules.md`, which keeps SOLO's names ("Miss a Turn", "Change
+  Cards All Round") and describes SOLO's 600-point game that its §14 replaces; only its §2
+  composition and §10 values are used.
 
-- **The rules page maps `t.rules`**, the same array `RulesModal.svelte` maps. It is not a copy: a rule
-  reworded for the modal is reworded on the page in the same edit. `contentPages.test.ts` asserts
-  both still map it.
-- **`t.cardNames`** was added because `cardLabel()` only ever returns a glyph (`⊘ ⇄ +2 W +4 ⇋ ↻`)
-  and the names existed nowhere but buried in the sentences of `t.rules`. Nothing could name a card
-  in a table or a heading. It lives in the i18n bundle because the game has a use for it too.
-- **The deck table is a second statement of facts the server owns**, which is the drift risk this
-  page carries. `contentPages.test.ts` therefore reads `loco-game/src/deck.rs` and counts the deck it
-  builds, and reads `loco-game/src/card.rs`'s `card_value` and compares every point value (both
-  through `src/test/serverSource.ts`). A scoring
-  change made server-side without touching the page goes red.
-
-The names in that table deliberately do **not** come from `docs/rules.md`: that file is the
-implementation spec, still calls these by their SOLO names ("Miss a Turn", "Change Cards All Round")
-and still describes a 600-point threshold that `CLAUDE.md` §14 abandoned. Only §2's composition and
-§10's values were taken from it.
-
-Every cell is `white-space: nowrap` and the wrapper scrolls. Letting the last column wrap is the
-obvious-looking choice and is wrong on a phone: the narrow columns hold their width, the last absorbs
-the whole squeeze, and every row grows to three or four lines.
+Every table cell is `white-space: nowrap` and the wrapper scrolls; wrapping the last column on a phone
+grows every row to three or four lines.
 
 ### The cards page draws the real cards
 
-`<Card />` is the game's own component, prerendered into the page: the card on the page is the card
-in the hand, gradient, mark and glyph included, and it is in the served HTML whether a script runs or
-not. Its face is sized in container-query units against the
-element, so passing a width and height as a style is all it takes to draw one bigger. This is why
-`CardArt.svelte` carrying its own `<style>` block and importing nothing mattered enough to check
-before the migration.
-
-36 numbers, 16 actions and 3 wilds: the deck without its duplicates, which is what a reference wants.
-Rows scroll rather than wrap, because nine numbers in a suit are one run and a wrapped run reads as
-two suits. The E2E counts row children rather than `<svg>` elements: one card draws several.
-
-Each entry carries an `effect` sentence of its own rather than the matching line of `t.rules`. That
-line is a rulebook bullet read in sequence ("Skip: the next player loses their turn."); this one is
-read alone by somebody who arrived looking for one card. Mapping a kind to a bullet would mean
-parsing a name out of a sentence, which breaks on the first rewording. The *facts* are not
-duplicated: copies and points still come from `DECK` and are still checked against the server.
+`<Card />`, prerendered: the card on the page is the card in the hand, in the served HTML. Its face is
+sized in container-query units, so a width and height are all it takes. 36 numbers, 16 actions and 3
+wilds — the deck without duplicates. Rows scroll rather than wrap (nine numbers in a suit are one
+run). The E2E counts row children, not `<svg>`s (one card draws several). Each entry has its own
+`effect` sentence, written to be read alone; copies and points still come from `DECK`, checked
+against the server.
 
 ### The tables page
 
-Names and taglines from `t.maps`, the table's materials and the room's accent from `MAPS`, the hours
-and the skies from the same lists the server draws from — the same copy the loading screen shows and
-the same registry the board paints from. Nothing here describes a room a second time.
+Names and taglines from `t.maps`, materials and accents from `MAPS`, hours and skies from the lists
+the server draws from: nothing describes a room twice.
 
-**The room is a photograph of the render, with the board's table over it.** A content page ships
-no script, so it cannot render the room; `make rooms` (`tools/rooms/shoot.mjs`) opens the
-`room-still-<id>` showcase scene for each room — the room alone at its signature hour, 16:9, the
-camera solved and the table built under exactly the ellipse the page's CSS table draws — and writes
-`src/assets/rooms/<id>.webp`, committed like `og.png` because CI has no browser. The page serves
-each through `@sveltejs/enhanced-img` (`<enhanced:img>`, three widths written at build time, lazy, with the hour's sky gradient behind it while it
-loads) and lays `.roomTable` / `.roomGlow` over it — a transcription of `GameBoard.svelte`'s
-table, no plinth since the render carries what stands under the felt — and tells the rest: the hours and skies the
-room can be dealt under. `roomsPage.test.ts` pins the hour written on the page to the
-hour the scene is shot at and fails on a room with no still; the E2E counts six.
+**Each room is a photograph of the render, with nothing over it.** A content page cannot render the
+room, so `make rooms` (`tools/rooms/shoot.mjs`) opens each `room-still-<id>` showcase scene at the
+room's signature hour, 16:9, table included, and writes `src/assets/rooms/<id>.webp`, committed
+because CI has no browser. The page serves it through `@sveltejs/enhanced-img` (three widths, lazy,
+the hour's sky gradient behind it while it loads); `.roomTable` / `.roomGlow` are drawn only when a
+still is missing. `roomsPage.test.ts` pins the hour on the page to the hour shot and fails on a room
+with no still; the E2E counts six.
 
-**Those are two named rows, and they are values rather than chips.** A definition list: the label
-in the first column, its plates in the second, and under 46rem the label above its own row. One
-flat run of ten words made the reader do the sorting the lede had already promised — a room, *an
-hour*, *a sky* — and the four hours were told from the six skies by a border colour alone, which a
-screen reader does not read and a wrap on a phone destroys: a line could open on "Ciel dégagé"
-with nothing saying the subject had changed. Nothing in the row is pressable, so nothing in it
-wears the ink outline and the hard ledge `.chipRow a` wears two hundred lines up in the same
-file — the plates are filled instead, which is also what retired a 2px hairline that measured
-1.57:1 on the canvas, the ghost outline that file had already been fixed for once. The labels are
-the page's own words (`tablesHours` / `tablesSkies` in `content/ui.ts`); the values stay the
-game's. `roomsPage.test.ts` fails on a plate that grows a border or a ledge, and on a label
-written into the markup instead of taken from the copy.
-
-It replaced a CSS table under a bare sky gradient, which was honest about what a scriptless page can
-draw and told a reader nothing about the place — and before that, eight photographs composited by
-`tableImageRect()` against a felt measured off the running board. The stills are the photographs
-back, with the difference that they are photographs *of the render*: there is no art to drift from,
-only a tool to re-run.
+**Hours and skies are two named rows of values, not chips**: a definition list (label then plates;
+label above its row under 46rem), so a wrap on a phone never leaves "Ciel dégagé" with nothing saying
+the subject changed. Nothing is pressable, so nothing wears the ink outline and ledge; the plates are
+filled. Labels are the page's (`tablesHours` / `tablesSkies` in `content/ui.ts`), values the game's.
+`roomsPage.test.ts` fails on a plate with a border or ledge, or a label written into the markup.
 
 ### The FAQ is data first
 
-`FAQPage` is the one structured-data type on this site that can put content **directly** into a
-result rather than decorate one, which is the whole reason a FAQ page earns its place: the questions
-*are* the queries. So `src/content/faq.ts` is the schema.org payload and the page is rendered from
-it, not the other way round — a question answered in the markup and not in the data, or the reverse,
-cannot happen. The E2E parses the emitted `ld+json` and checks every question it declares is on the
-page.
+`FAQPage` can put content directly into a result, and the questions are the queries. So
+`src/content/faq.ts` is the schema.org payload and the page renders from it; the E2E parses the
+emitted `ld+json` and checks every question is on the page. Every answer describes real server
+behaviour (the 60-second seat hold, 15 in a matchmade 1v1; the turn clock and its four-timeout limit;
+bots; 2–10 players), so **this file changes when that behaviour does**. The friends page reuses three
+entries and leads with three numbered steps, because the order is the answer.
 
-Every answer describes behaviour the server actually has: the 60-second hold on a dropped seat (15
-in a matchmade 1v1), the turn clock and its four-timeout limit, the bots, the 2-to-10 range. That
-makes the file a promise as much as copy, and one of the places that has to change when those do.
+### The home page's prose: a sheet in the bar
 
-The friends page reuses three of those entries rather than answering them a second time. It leads
-with three numbered steps because the order *is* the answer: whoever lands there is trying to get a
-game going right now, not browsing a feature list.
+`/` and `/fr/` are what everyone links to, so they carry prerendered prose — what LOCO! is, three
+things that make it different, links to every content page (the only path from the game to the rest).
+**The page is exactly one viewport**: `body.game` is a flex column, `#root` takes what is left, and the
+bar closes it. The prose is in a sheet the bar's left-hand end opens.
 
-### The footer under the game
+The sheet is a **native `<details>`**: the prose stays in served HTML (content inside a disclosure is
+indexed normally) and out of the bundle, and it opens with no JavaScript (`seo.spec.ts` clicks it with
+scripts disabled). `routes/(game)/+layout.svelte` adds only Esc, the scrim click and the ✕, via
+`bind:open` — never driving it. `HomeProse.svelte` is rendered once, in the sheet, and heads its
+sections at `<h3>` under the sheet's `<h2>`.
 
-`/` and `/fr/` are the pages everyone links to, and until this they had nothing to index. Prerendered
-markup answers that: what LOCO is, the three things that make it different, and links to every
-content page. It is in the served HTML, so it is read without running a script — and those links are
-the **only** path from the game to the rest. The sitemap lists them; a link is what carries weight
-between them.
+**Open, it is the rules modal**: `components/RulesModal.svelte` is where every measurement comes from,
+and `contentPages.test.ts` reads them off that file (desktop and phone halves). A player who opens
+both meets one idea of a panel. Under 46rem that means the game's sheet (`client.md`). Three details
+fail silently if undone:
 
-It was a block under the fold, and that was the wrong shape. Nothing else in this game is reached by
-scrolling, the entry screen is one viewport by design, and parking two hundred words below it made
-the home page behave like a site that happened to have a game at the top. So the page is now exactly
-one viewport, always: `body.game` is a flex column, `#root` takes what is left, and the site's bar
-(the same one every content page carries, see "The shell" above) closes it at the bottom. The prose
-moved into a sheet the bar's left-hand end opens.
+- **The card is the `<details>` itself.** `<summary>` must be its first child, so `order: 1` sends it to
+  the foot where the modal's button is.
+- **The scrim is a sibling of the `<details>`**, never a child: a child `z-index: -1` scrim paints over
+  the card's own background.
+- **The ✕ ships `hidden={!hydrated}`**: the summary closes the sheet without a script, the ✕ cannot.
+  `.homeSheetX[hidden] { display: none }` is load-bearing; its `display: flex` otherwise beats the
+  attribute.
 
-That sheet is a native `<details>`, not a modal of ours, and both halves of that matter. It is markup,
-so the prose stays in the served HTML where a crawler reads it — content inside an expandable section
-is indexed normally, and the alternative (the copy in `i18n/`, rendered by a component) would put it
-behind a script *and* grow the bundle every player downloads. And it opens with no JavaScript at all,
-which `seo.spec.ts` proves by clicking it in a context with scripts disabled. The game's layout
-(`routes/(game)/+layout.svelte`, `bind:open`) adds only Esc, a click on the scrim and the ✕; the sheet
-is fully usable without any of them. Open, the
-`<summary>` is the close button, because a native `<details>` has exactly one control and a second one
-would need a script to work.
+`:root:has(.homeSheet[open]) .homeBurger` takes the burger off screen while the sheet is up, or it
+paints over the card's corner. Under 46rem only the *closed* sheet's button goes, so the sheet opened
+from the drawer's `About` row still shows.
 
-**Open, it is the rules modal.** Same card, same 4px stroke, same headed title with a ✕, same scrolling
-body, same single button at the foot — `components/RulesModal.svelte` is where every measurement comes
-from, and `contentPages.test.ts` reads them off that file rather than restating them. The two are the
-same object seen from two screens: a player who opens both in one session is entitled to meet one game
-and not two ideas of what a panel over the board is. It was a bordered card floating on a scrim with a
-pill fixed at the bottom edge of the *screen*, which was a third thing, resembling neither.
+The bar and the burger vanish at a seat: they are the page's markup, so `App.svelte` writes
+`data-seated` on `<html>` and `GamePage.css` hides both (no `data-seated` while the game is parked
+behind a content page: `state/gameShown.svelte.ts`). A board or a lobby that can scroll is a bug.
+`appSubscription.test.ts` owns the attribute, `seo.spec.ts` the CSS and the no-scroll guarantee.
 
-Three details make that shape work on a native disclosure, and each of them fails silently if undone:
+### Readable with no script
 
-- **The card is the `<details>` element itself.** A `<summary>` must be that element's first child, so
-  it cannot live inside a card that is one of its siblings. `order: 1` sends it to the foot of the flex
-  column, where the modal's footer button is; lose that declaration and the button sits above the
-  title with nothing else broken.
-- **The scrim is a sibling of the `<details>`, not a child of it.** As a child it would be painted over
-  the card's own background — a positioned element's background is painted by the stacking context
-  root before any child, so a full-screen `z-index: -1` scrim tints the card it is meant to sit behind.
-- **The ✕ ships `hidden` and is revealed once a script runs** (`hidden={!hydrated}`), the same contract as the drawer's Preferences
-  row: the summary closes the sheet with no bundle in flight, this one cannot. `.homeSheetX[hidden] {
-  display: none }` is load-bearing — the `display: flex` that draws it beats the attribute otherwise,
-  and the control appears with nothing behind it.
+A content page loads the router and its chunk (that is what makes the move to the game a navigation),
+but **it is prerendered whole and reads the same with scripts off**: `<LocoLogo />`, every `<Card />`,
+the drawer, the language panel and the prose are in the served HTML, the drawer and panel are native
+popovers, and an article carries no effect, no `{@html}` and no inline script (`livePage.test.ts`,
+`legal.test.ts`) — an effect draws nothing at prerender.
 
-**And under 46rem it is the rules modal there too, which is to say it is the game's sheet.** Below
-that width `RulesModal`, `Preferences` and `AudioSettings` all stop being centred cards and anchored
-dropdowns and become one object: up from the bottom edge, full width, the top two corners rounded, a
-20px title over a 40px ✕, the body scrolling between them, the footer button across the full width
-and clear of the home indicator. This sheet was the one that did not — it stayed a centred 680px card
-with a margin down each side, entered on a scale rather than from the edge, and kept a 24px title
-over a 32px ✕ — so on a phone the two surfaces carrying the same kind of prose about the same game
-were two visibly different panels. On the one screen where the difference is a whole viewport wide.
-`contentPages.test.ts` reads the phone half off `RulesModal.svelte` the way it already reads the
-desktop half.
+What a script adds belongs to the component that renders it, never to a script finding markup by
+selector: `layouts/ToTop.svelte`, `layouts/SiteDrawer.svelte` (closing on a wider window),
+`layouts/SiteFooter.svelte` (recording the language choice on the press),
+`routes/(content)/+layout.svelte` (the smooth-scroll attribute), `content/LiveArticle.svelte` (the
+live list). Every control only a script can honour ships `hidden` and is revealed on mount.
 
-The burger goes with it. It sits at the sheet's own layer and later in the document, so it was
-painted over the card's top-left corner: a floating control on a panel that already carries its ✕,
-and the one it had just been pressed on. `:root:has(.homeSheet[open]) .homeBurger` takes it off
-screen for as long as the sheet is up.
+The live list is the one fetched thing: same-origin `/live.json`, so `connect-src 'self'` and
+`img-src 'self'` are untouched; nothing built with `innerHTML`; deliberately not indexable, served
+with a sentence instead of a spinner. See [`live.md`](live.md).
 
-`HomeProse.svelte`'s sections head at `<h3>`, under the sheet's own `<h2>` title, which keeps the
-document's heading order the served `<h1>` establishes.
+### `content.css` is loaded by the game, so nothing in it may be a bare element
 
-Under 46rem none of the bar's row is on screen: the burger described above replaces it, and the
-drawer carries the links; only the *closed* sheet's button goes, so the open sheet the drawer's
-`About` row asks for still shows. The sheet is the prose's one control — it is what opens it on a wide screen, and
-`HomeProse.svelte` is rendered once, in it. The drawer held a second copy for a while; see the two
-drawers above for why it does not any more.
+Both route-group layouts import `content.css` (the game needs the bar, the drawer and the sheet), and a
+loaded stylesheet stays loaded for the life of the document. A bare `table`/`th`/`td` rule there
+styles the score table and the evening recap too (a bare `thead th` once put muted labels on ink at
+2.2:1). Every content-page table is inside `.tableWrap`, and `contentPages.test.ts` fails on any bare
+element selector in the file.
 
-The bar disappears the moment a seat is taken, and the burger with it. That is not the app's to do —
-it is the page's markup — so `App.svelte` writes `data-seated` on `<html>` and `GamePage.css` hides
-both: at a seat the board is the board, with no site chrome over the table. (While the game is
-parked behind a content page, `App.svelte` writes no `data-seated` at all — see
-`state/gameShown.svelte.ts` in `client.md`.) The body no longer needs
-`overflow: hidden` restoring, because it never lost it: a board that can be scrolled off-screen
-mid-match is a bug, and now so is a lobby that can. `appSubscription.test.ts` owns the attribute,
-`seo.spec.ts` owns the CSS and the no-scroll guarantee.
+### No link out of the rules modal
 
-### Readable with no script, and what the script adds
-
-Under Astro a content page shipped no JavaScript but `page-boot.ts`. Under SvelteKit it loads the
-router and its own page chunk — that is what makes the move to the game a navigation rather than a
-reload — so that rule is retired. **What it protected is kept: a content page is prerendered whole
-and reads the same with scripts off.** `<LocoLogo />`, every `<Card />`, the drawer, the language
-panel and the prose are in the served HTML; the drawer and the panel are native popovers; and an
-article may carry no effect, no `{@html}` and no inline script (`livePage.test.ts`,
-`legal.test.ts`), because an effect draws nothing on the server and its markup would be missing from
-the file.
-
-What a script adds is owned by the component that renders it, not wired onto the markup afterwards:
-the back-to-top (`layouts/ToTop.svelte`), the drawer shutting on a wider window
-(`layouts/SiteDrawer.svelte`), the language choice written down on the press
-(`layouts/SiteFooter.svelte`), the smooth-scroll attribute (`routes/(content)/+layout.svelte`), and
-the live list (`content/LiveArticle.svelte`). Under Astro that was one script, `page-boot.ts`,
-finding each element by selector, because an Astro page had no component in the browser to own it.
-Every control a script must honour ships `hidden` and is revealed on mount.
-
-The live list is the one thing on these pages that is fetched rather than served, and three things
-keep it inside every rule above. The fetch is **same-origin** — `/live.json` is answered by our own
-server, which asked the gateway and re-serves the previews from this origin — so `connect-src 'self'`
-and `img-src 'self'` are untouched and Twitch is never told the page was opened. Nothing is built
-with `innerHTML`: every string in that payload was written by a stranger. And what it draws is
-**deliberately not indexable** — a list of who is streaming this afternoon is wrong tomorrow, so the
-page is prose first and a list second, and the section is served with a sentence explaining an empty
-list rather than with a spinner. That sentence is also what a reader with scripts off is left with,
-which is the only reason it can be written once and mean two things. Full reasoning:
-[`live.md`](live.md).
-
-### The stylesheet is loaded by the game, so nothing in it may be a bare element
-
-`content.css` is imported by **both** route-group layouts, `(content)` and `(game)`, which needs it
-for the bar, the burger drawer and the home page's prose sheet — and a stylesheet the router has
-loaded stays loaded for the life of the document. That is deliberate — the drawer is
-styled once and the two copies of it cannot drift — and it means every selector in the file has a
-reach nobody writing a rule for the deck table is thinking about.
-
-`table`, `th`, `td` and `thead th` were written bare, so the deck table's styling was also the score
-table's and the game-over screen's evening recap's. The visible cost was `thead th { background:
-var(--color-stroke) }`: an ink band behind both of those grids' column heads, whose labels are
-`--color-muted` because their authors correctly believed they were sitting on their own panel. Muted
-violet on ink is 2.2:1, on two surfaces nobody had thought to check because the rule
-was written for a third. The 2px hairline under every cell and the `0.75rem 1rem` padding rode along
-with it, silently overridden in some places and not others.
-
-Every table on a content page is inside `.tableWrap`, so scoping the whole block to it changes
-nothing here and ends the class. `contentPages.test.ts` fails on any bare element selector in the
-file — the leak is invisible from the pages this stylesheet is named after, which is what made it
-survive.
-
-### No link out of the modal
-
-`RulesModal` links nowhere, and that is the rule rather than an omission: it opens mid-match, and
-following a link in place would unload the document, drop the socket and cost the seat — a new tab is
-no better, it is still an invitation to leave the table. `rulesModal.test.ts` asserts zero links.
-What the deck page would have been reached *for* is drawn in the modal's own Cards tab instead; see
-"Two halves" in [`client.md`](client.md).
-
-The registry is still imported from the browser, by `state/tableInvite.ts` (`HOME`, `DEFAULT_LANG`),
-which is why `meta.ts` reads `process.env` through a `typeof` guard: a bare access throws "process is
-not defined" in a browser, and hardcoding a path beside the registry is exactly the drift the
-registry exists to stop.
+`RulesModal` opens mid-match, and a link — in place or in a new tab — is an invitation to leave the
+table. `rulesModal.test.ts` asserts zero links. What the deck page would be reached for is the modal's
+own Cards half ([`client.md`](client.md)).
 
 ## Images and icons
 
-`make og` renders the preview cards, `make icons` rasterises `favicon.svg` into the manifest sizes
-plus a `favicon.ico`. Both commit their output for the same reason: CI builds the client with
-`npm run build` and has no browser.
+`make og` renders the preview cards and `make icons` rasterises `favicon.svg` into the manifest sizes
+plus `favicon.ico`. Both commit their output: CI has no browser.
 
-There are four preview cards, not two: the site's (`og.png`, `og.fr.png`) and the one a table
-invitation unfurls into (`og.invite.png`, `og.invite.fr.png` — see the invite page below). Same
-duck, same fan, one line of copy different, and `make og` with no argument re-shoots all four,
-because they are one set: a change to the mark or to a card face lands in every one of them, and
-three regenerated PNGs beside a fourth nobody remembered is the failure that default prevents. The
-line on the invitation is not written in the drawing — it is `INVITE.ogTitle`, the same string the
-`og:title` tag carries, so the sentence in the picture and the sentence beside it cannot drift.
+Four preview cards: the site's (`og.png`, `og.fr.png`) and the invitation's (`og.invite.png`,
+`og.invite.fr.png`). `make og` with no argument re-shoots all four, because a change to the mark or a
+card face lands in every one. The invitation's line is `INVITE.ogTitle`, the same string as its
+`og:title`.
 
-**The scene is mounted on `/`, so it is exposed to that page's global stylesheet.** `content.css`
-has a `.brand` (the header link on every content page, `display: inline-flex`) and the card had one
-too; Svelte scopes a component's own selectors and does nothing about a rule reaching in from
-outside, so the card's left column silently became a row and the tagline wrapped one word per line
-over the artwork. It was invisible for as long as nobody ran `make og` — the committed PNGs predated
-the collision. The classes here are prefixed now, and `ogCard.test.ts` fails on any class this scene
-uses that `content.css` also styles.
+**The scene is mounted on `/`, so `content.css` reaches into it.** Svelte scopes a component's own
+selectors but not a global rule reaching in (a global `.brand` once turned the card's column into a
+row). The card's classes are prefixed, and `ogCard.test.ts` fails on any class it shares with
+`content.css`.
+
+`favicon.ico` is a 6-byte directory, one 16-byte entry and the PNG bytes verbatim (every browser since
+Vista reads a PNG payload); crawlers and feed readers still request that path.
 
 ## The page an invitation points at
 
-`/i/?t=CODE` is the URL the waiting room hands out (`docs/notes/client.md` has the client half, and
-the reasoning for the query form). It is in the registry as `INVITE` and **deliberately not in
-`PAGES`**: no `hreflang` pair, no navigation, `noindex`, and therefore no canonical either — it is a
-duplicate of the home page's document, and one claiming a canonical would be competing with the page
-it duplicates.
+`/i/?t=CODE` is what the waiting room hands out (`client.md` has the client half and why the code is a
+query parameter). It is `INVITE` in the registry and **not in `PAGES`**: no `hreflang`, no navigation,
+`noindex`, no canonical (a duplicate of the home document must not compete with it). Staying out of
+`PAGES` keeps it out of the sitemap (`src/seo/sitemap.ts`); `src/test/invitePage.test.ts` runs the
+sitemap to prove it.
 
-It earns a document of its own for one reason: an unfurler reads the served HTML and runs no
-JavaScript, so an invitation that lives at `/?t=CODE` can only ever preview as the home page. Its
-`<head>` is the invitation's; everything under it is `GamePage` with `chrome={false}`, because the
-footer row, the sheet and the burger are the indexable half of `/` and this page is not indexed.
-
-**Staying out of `PAGES` is what keeps it out of the sitemap — now.** Astro's sitemap integration
-walked the pages it emitted, not the registry, so `/i/` shipped in `sitemap-0.xml` the first time
-this page was built and needed a filter. The sitemap is built from `PAGES` since SvelteKit
-(`src/seo/sitemap.ts`), and `src/test/invitePage.test.ts` runs it rather than restating it.
-
-`favicon.ico` is a 6-byte directory, one 16-byte entry and the PNG bytes verbatim — every browser
-since Vista reads a PNG payload directly, so there is no re-encoding and no dependency. It exists
-because crawlers and feed readers still request that exact path and read a 404 as "no icon".
+It is a document of its own because an unfurler reads served HTML and runs no JavaScript: at `/?t=CODE`
+an invitation could only preview as the home page. Its `<head>` is the invitation's; the game frame
+(`routes/(game)/+layout.svelte`) renders it with no chrome — the bar, the sheet and the burger are the
+indexable half of `/`, and this page is not indexed.
 
 ## What an audit sees
 
-Lighthouse scored this site 86-89 on accessibility and 74-90 on performance while every page looked
-exactly as designed. Nothing on that list is visible, which is the reason it sat there: three of the
-four accessibility failures are properties of a *file*, and the fourth is a number nobody can eyeball.
-`client/src/test/a11y.test.ts` pins all four against the source, because a checker runs on a deployed
-URL and by then the change that broke it is weeks old.
+Accessibility failures here are properties of a *file* or a number nobody can eyeball, so
+`client/src/test/a11y.test.ts` pins them against the source rather than waiting for a checker run on
+a deployed URL.
 
-### The wordmark was failing as prose
+### The wordmark is a logotype
 
-`color-contrast` failed on `<span class="word">LOCO!</span>` at **1.07:1**, on every page, in dark.
-The foreground it names is `#0b0618` — the ink outline, not the red. axe reads
-`-webkit-text-stroke` as the colour of the text (`getStrokeColor`, any non-zero width), and on the
-dark canvas that outline and the canvas are the same near-black.
+axe reads `-webkit-text-stroke` as the text's colour, and the ink outline on the dark canvas scored
+the wordmark 1.07:1. WCAG 1.4.3 exempts logotypes, but the tool does not:
 
-WCAG 1.4.3 exempts a logotype by name, so this is a false positive against the standard and a real
-failure against the tool. Both are answered:
+- `<LocoLogo />` carries `role="img"` and `aria-label="LOCO!"`, the word `aria-hidden` (which also stops
+  a screen reader reading it twice).
+- **The word carries no stroke; `.word::before` paints the outline over it.** LOCO Red alone is 5.4:1
+  on the canvas and passes, and the drawing is unchanged. `role="img"` and `aria-hidden` do not silence
+  the check — it is about pixels.
 
-- `<LocoLogo />` carries `role="img"` and `aria-label="LOCO!"`, with the word `aria-hidden`. That is
-  what it always was — a drawing, not a heading — and it also stops a screen reader announcing
-  "LOCO!" twice, once for the mark and once for the word.
-- In **dark only**, the word carries no stroke and a `::before` paints the outline over it. The red
-  alone is 5.4:1 against the dark canvas and passes; the outline is still drawn, so the logo is
-  pixel-for-pixel what it was. In **light** the stroke stays on the word, where it is 14.7:1 and is
-  what the eye reads the letters by — the red alone would be 2.2:1 there and would fail.
+`a11y.test.ts` asserts the outline on the pseudo-element and no stroke on the word.
 
-The `role="img"` does **not** silence the check on its own, and neither does `aria-hidden`: the rule
-is about pixels, not about the accessibility tree. Only the colours move the number.
+### White on LOCO Red is 3.43:1
 
-Declared once, on `.word::before`, and the test asserts the outline is repainted there and that the
-word itself carries no stroke.
+A pass for large text only (≥ 14pt bold, 18.66px). `.cta` and `.navPopCta` are 1.2rem; darkening the
+brand red on the brand's own controls is the rejected alternative.
 
-### White on LOCO Red, at 16.8px
+### The viewport never forbids zooming
 
-3.43:1. That is a pass for large text (3:1) and a fail for anything under 14pt bold, which is
-18.66px. `.cta` and `.navPopCta` were 1.05rem and are 1.2rem: the alternative was darkening the brand
-red on the two controls that are most obviously the brand.
-
-### The viewport forbade zooming
-
-`user-scalable=no, maximum-scale=1.0` was there to stop a double-tap zooming the board mid-match, and
-it took pinch-zoom with it — somebody's only way to read this game on a phone, and a failure on every
-page of the site. The tag now carries `width=device-width, initial-scale=1.0, viewport-fit=cover` and
-nothing else; `touch-action: manipulation` moved from the controls to `body`, which drops the
-double-tap and leaves the pinch alone.
-
-The trade that left — a board that could be pinched during a match — is answered where it belongs,
-which is the seat rather than the tag. Under `:root[data-seated]` (set from the waiting room onwards
-by `App.svelte`) the reset drops to `touch-action: pan-x pan-y`, i.e. `manipulation` minus
-pinch-zoom, so nothing that scrolls stops scrolling; and `client/src/pinchGuard.ts` refuses WebKit's
-`gesturestart` under the same attribute, read at event time. Two halves because they answer two
-engines: Chrome honours the declaration, and iOS keeps pinch-zoom as a browser gesture
-`touch-action` never reaches — which matters more than it sounds, since every iPhone browser is
-WebKit, Brave and Firefox included.
-
-The point is what stays zoomable: `/`, the prose behind its sheet, and every content page — the
-surfaces somebody reads rather than plays. The scope is the whole justification, and it is why
-reaching for the viewport tag again would be the wrong fix twice over: it is global, and Safari has
-ignored `user-scalable=no` since iOS 10, so it would cost the audit and change nothing on the device
-the complaint came from. `a11y.test.ts` pins the tag, the scoped declaration and the guard together.
+The tag is `width=device-width, initial-scale=1.0, viewport-fit=cover` and nothing else;
+`touch-action: manipulation` on `body` drops the double-tap and keeps the pinch. The board's pinch is
+answered at the seat: under `:root[data-seated]` the reset is `touch-action: pan-x pan-y`, and
+`client/src/pinchGuard.ts` refuses WebKit's `gesturestart` under the same attribute — two halves for
+two engines, since iOS treats pinch as a browser gesture `touch-action` never reaches (every iPhone
+browser is WebKit). What stays zoomable is what is read: `/`, its prose, every content page.
+`user-scalable=no` would be global and Safari has ignored it since iOS 10. `a11y.test.ts` pins the
+tag, the scoped declaration and the guard.
 
 ### A box that scrolls needs a way in
 
-The deck table and the card rows scroll sideways on a phone and hold nothing focusable, so the part
-past the right edge belonged to whoever could drag it. Both carry `tabindex="0"` and a
-`:focus-visible` outline.
+The deck table and the card rows scroll sideways and hold nothing focusable, so both carry
+`tabindex="0"` and a `:focus-visible` outline.
 
-### Three controls a thumb could not hit
+### Tap targets
 
-A mobile audit came back **1/3** on tap targets while every screen looked right, and measuring the
-built pages at 360px found three boxes under `--touch-target` (44px):
-
-- `.menuBtn`, the burger — which under 46rem is the *entire* navigation, on `/` and on every content
-  page — drawn at 2.5rem like the game's chips. It is now drawn at `--touch-target` outright rather
-  than borrowing `.hit-target`: it is the one control on the page a thumb has to find, and there is
-  no chip row here for it to match.
-- `.brand`, the way back to the game, was exactly as tall as the 25px drawing inside it. It takes a
-  `min-height` and the mark does not move.
-- `RulesButton`, the "?" chip, was the one control in the top-right row with **neither** 44px nor
-  `.hit-target` — and its CSS had no `position: relative`, without which the class does nothing at
-  all. The two chips beside it were right, which is exactly how it went unnoticed.
-
-The rule is the one in `CLAUDE.md`: anything drawn under 44px gets its target from `.hit-target`,
-and the class needs a positioned box. Measure it rather than reading the CSS — a pseudo-element that
-lands in the wrong containing block is invisible in both.
+Anything drawn under 44px (`--touch-target`) gets its target from `.hit-target`, which needs a
+positioned box. `.menuBtn`, the burger (the whole navigation under 46rem), is drawn at
+`--touch-target` outright; `.brand` takes a `min-height`; `RulesButton` needs `position: relative` or
+the class does nothing. Measure the rendered box rather than reading the CSS.
 
 ### Performance
 
-Three changes, none of them page-specific:
-
-- `inlineStyleThreshold: Infinity` in `vite.config.ts` (Astro's `build.inlineStylesheets: 'always'`
-  before it). The stylesheets are 3-22 kB and
-  all three were render-blocking requests; the game page waited 753 ms on one of them before it could
-  paint a word. `style-src` allows `'unsafe-inline'` in `client/nginx.conf`, so this is legal —
-  **scripts are not**, and must stay external (`csp.test.ts`).
-- The tables page's images, above.
-
-And one that was tried and reverted: **preloading the two Latin `woff2` files**. It is the obvious
-move — the wordmark is the LCP element on `/` and it spent its render delay waiting on a font nothing
-had asked for yet — and with the preload in place Chrome reported **no LCP candidate at all** on the
-home page. Removing it brings the candidate straight back, reproducibly, at the same paint time. It
-buys nothing now anyway: `inlineStyleThreshold` puts the `@font-face` rules in the document,
-so there is no stylesheet round trip left to race, which was the whole premise.
+- `inlineStyleThreshold: Infinity` in `vite.config.ts`: the stylesheets are small and were
+  render-blocking. `style-src` allows `'unsafe-inline'` in `client/nginx.conf`; **scripts do not**
+  and stay external or hashed (`csp.test.ts`).
+- The tables page's images through `@sveltejs/enhanced-img`.
+- **Do not preload the Latin `woff2` files.** With the preload, Chrome reported no LCP candidate on
+  `/`; it buys nothing anyway, since inlined CSS puts `@font-face` in the document.
 
 ### NO_LCP scores 0, and a fade is how you get one
 
-Worth stating on its own, because it costs more than everything else on this page put together.
-Chrome takes its LCP candidate at an element's **first** paint and skips anything painted at
-`opacity: 0`; an element that starts at zero and animates up is not reconsidered. A page with no
-candidate reports `NO_LCP` (and `NO_FCP` in the same runs) and Lighthouse scores its performance
-**0** — not "slower", zero — however fast it really is.
-
-Measured on the home page, twice over: the font preload above, and the boot fade that holds
-`#root > *`, the bar's row and `.homeBurger` at `opacity: 0` until the boot writes
-`data-booted`. With the fade neutralised and nothing else changed, `/` goes from **perf 0, no LCP**
-to **perf 95, LCP 2.6 s**. The fade is worth having — the page arrives in two halves and looked
-broken without it — so the fix is not to drop it but to invert it: fade a veil in the canvas colour
-*off the top*, leaving the content painted opaque on the first frame. The arrival looks identical
-and the candidate is registered.
-
-The trap is that nothing about this is visible. The page is fast, it looks right, and the score is
-zero.
+Chrome takes the LCP candidate at an element's **first** paint and skips anything at `opacity: 0`; an
+element fading up from zero is not reconsidered. No candidate is `NO_LCP` (and `NO_FCP`), and
+Lighthouse scores performance **0** however fast the page is. On `/`, the boot fade holding
+`#root > *`, the bar's row and `.homeBurger` at `opacity: 0` until `data-booted` measured **perf 0, no
+LCP**; with it neutralised, **perf 95, LCP 2.6 s**. The fix is to fade a canvas-coloured veil *off
+the top* and leave the content opaque on the first frame. Nothing about the failure is visible.
+**Open:** `layouts/GamePage.css` (`homeBootIn`) still fades the content itself from 0, not a veil.
 
 ### Re-running it
 
-There is no `make` target: Lighthouse needs a Chrome and CI has none, for the same reason `make og`
-commits its output. Against a build:
+No `make` target: Lighthouse needs a Chrome and CI has none. Against a build:
 
 ```
-cd client && npm run build && npx serve dist -l 4399
+cd client && npm run build && npx serve build -l 4399
 CHROME_PATH=<a chromium> npx lighthouse@12 http://localhost:4399/rules/ --output=json --quiet
 ```
 
-For accessibility alone, axe against the built pages is faster and covers more than one viewport at a
-time — Lighthouse audits one width per run. Check both 412 and 1440, and use the `wcag2a`/`wcag2aa` tags:
-axe's own best-practice rules (`region`, `landmark-one-main`) are not what Lighthouse scores.
+For accessibility alone, axe against the built pages is faster and covers more than one width (check
+412 and 1440) with the `wcag2a`/`wcag2aa` tags; axe's best-practice rules (`region`,
+`landmark-one-main`) are not what Lighthouse scores.

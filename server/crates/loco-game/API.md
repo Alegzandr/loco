@@ -24,8 +24,8 @@ crate's entry points, and the reasons they are shaped the way they are.
   parameter.
 - **Seats are `Seat = usize`, and "nobody" is `Option<Seat>`**, in memory and in the snapshot alike.
   A newtype was weighed and declined: every seat is a `Vec` index, the hub's seats are `usize`, and a
-  wrapper would be unwrapped at every one of those indexes. A `-1` sentinel was the bug class
-  (`chosen_player >= 0` checks, "last played by < 0"), and `Option` removes it. A signed seat exists
+  wrapper would be unwrapped at every one of those indexes. A `-1` sentinel invites
+  `chosen_player >= 0` checks that can be forgotten; `Option` removes the class. A signed seat exists
   only on the wire (`loco-protocol`), converted by the hub at that border.
 - **One record per seat.** `GameState.seats: Vec<SeatState>` holds what a seat owes and is owed
   (`retired`, `declared`, `last_card_at`, `catch_paid_for`, `catch_locked_until`, `near_left_at`),
