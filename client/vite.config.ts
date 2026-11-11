@@ -17,7 +17,7 @@ import { defineConfig } from 'vite'
  * The app itself is still never server-rendered, and that is still deliberate.
  * The store is seeded from `sessionStorage` before the socket opens, the
  * language comes from `localStorage`, and the whole board is measured from the
- * viewport (layout.ts: boardSpace, hooks/boardMetrics.svelte.ts). A server
+ * viewport (layout.ts: boardSpace, state/boardMetrics.svelte.ts). A server
  * knows none of those, so the game route's prerendered HTML carries the served
  * half of `/` — the heading, the footer row, the sheet of prose, the burger —
  * and an empty `#root`, which entry.ts fills in the browser.
@@ -61,7 +61,7 @@ export default defineConfig({
       // router on a prerendered page — is hashed rather than refused. SvelteKit
       // puts that hash in a `<meta http-equiv>` per page, which on its own would
       // not loosen the header policy nginx sends (both are enforced), so
-      // `tools/csp/hashes.mjs` reads the same hashes out of the built HTML into
+      // `scripts/csp-hashes.mjs` reads the same hashes out of the built HTML into
       // `client/csp-hashes.conf`, which security-headers.conf includes. The
       // header and the meta therefore allow exactly the same scripts.
       csp: {
@@ -69,15 +69,11 @@ export default defineConfig({
         directives: { 'script-src': ['self'] },
       },
 
-      // Universal hooks default to `src/hooks`, which is a directory of ours
-      // with a different meaning entirely (the reactive half of the client).
-      // Pointed at a file that does not exist so SvelteKit never reads it as one.
-      //
       // `public/` rather than SvelteKit's `static/`: the music, the models, the
       // icons and the link-preview art have lived there since the Vite days,
       // and the tools that write into it (`make og`, `make icons`, `make
       // models`) name the directory.
-      files: { hooks: { universal: 'src/hooks.universal' }, assets: 'public' },
+      files: { assets: 'public' },
 
       // Root-relative, as Astro wrote them. The 404 is served at whatever
       // address was missed, `/a/b/c` included, and a relative `./_app/` from
@@ -85,7 +81,7 @@ export default defineConfig({
       paths: { relative: false },
 
       prerender: {
-        // `/live.json` and `/live-thumb/` are the Go server's, behind nginx: a
+        // `/live.json` and `/live-thumb/` are the game server's, behind nginx: a
         // prerender has no server to ask, and a page that links to them is not
         // broken for it.
         handleHttpError: ({ path, message }) => {
@@ -142,9 +138,9 @@ export default defineConfig({
     // nginx, so without this the page's fetch would ask Vite for a file that
     // does not exist and the list would be silently empty — which is also what
     // it looks like when nobody is streaming, so the bug would be invisible.
-    // The socket is not proxied here: the client dials the Go server directly
+    // The socket is not proxied here: the client dials the game server directly
     // (see webSocketPolicy.ts). LOCO_SERVER_ORIGIN because `make dev` runs Vite
-    // and the Go server in two containers.
+    // and the game server in two containers.
     proxy: {
       '/live.json': process.env.LOCO_SERVER_ORIGIN ?? 'http://localhost:8080',
       '/live-thumb': process.env.LOCO_SERVER_ORIGIN ?? 'http://localhost:8080',

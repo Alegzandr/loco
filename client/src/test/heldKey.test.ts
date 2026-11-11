@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from './renderHook'
-import { heldKey } from '../hooks/viewEffects.svelte'
+import { heldKey } from '../state/viewEffects.svelte'
 
 type Mods = { shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean }
 

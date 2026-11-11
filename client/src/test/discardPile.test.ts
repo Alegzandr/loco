@@ -3,7 +3,7 @@ import { render, screen } from './render'
 import { act } from './renderHook'
 import DiscardPile from '../components/cards/DiscardPile.svelte'
 import GameView from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO } from '../types/protocol'
 
 const wild: CardDTO = { color: 'wild', kind: 'wild', value: 0 }

@@ -282,12 +282,12 @@ describe('structured data', () => {
     // after the table had been capped at seven, and a rich result promising
     // seats the server refuses is the one claim a player can check.
     const room = readServer('game', 'room')
-    const goConst = (name: string) => serverInt(room, name)
-    expect(Number.isInteger(goConst('serverMaxPlayers')), `serverMaxPlayers not found in ${serverLabel('game', 'room')}`).toBe(true)
+    const serverConst = (name: string) => serverInt(room, name)
+    expect(Number.isInteger(serverConst('SERVER_MAX_PLAYERS')), `SERVER_MAX_PLAYERS not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(game.numberOfPlayers).toEqual({
       '@type': 'QuantitativeValue',
-      minValue: goConst('serverMinPlayers'),
-      maxValue: goConst('serverMaxPlayers'),
+      minValue: serverConst('SERVER_MIN_PLAYERS'),
+      maxValue: serverConst('SERVER_MAX_PLAYERS'),
     })
     expect(game.numberOfPlayers?.maxValue).toBe(7)
   })

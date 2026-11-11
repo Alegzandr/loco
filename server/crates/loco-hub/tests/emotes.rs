@@ -1,5 +1,3 @@
-//! Port of `server/hub/emotes_test.go`.
-//!
 //! Three fixed things, on the game-over screen and nowhere else. Most of what
 //! the feature is, is a refusal: a closed set, one screen, and a refusal that
 //! costs its sender a message and everybody else nothing. What is deliberately
@@ -12,12 +10,11 @@ use loco_hub::testkit::*;
 use serde_json::json;
 use std::time::Duration;
 
-/// Alice hosts, Bob joins, and the host wins a BO1. Go's `winBO1`.
+/// Alice hosts, Bob joins, and the host wins a BO1.
 async fn win_bo1(th: &TestHub) -> (Ws, Ws) {
     let TwoPlayers {
         mut alice, mut bob, ..
     } = setup_two_player_game(th).await;
-    // Go's winMatchFromHostTurn.
     let win = json!({"color": "red", "kind": "number", "value": 7});
     send_msg(
         &mut alice,
@@ -48,8 +45,7 @@ async fn emote(ws: &mut Ws, e: &str) {
     send_msg(ws, json!({"type": "send_emote", "emote": e})).await;
 }
 
-/// The negative read every "refused to its sender alone" test ends on. Go's
-/// `assertNoMessage`.
+/// The negative read every "refused to its sender alone" test ends on.
 async fn assert_no_message(ws: &mut Ws) {
     assert!(
         stays_silent(ws, Duration::from_millis(300)).await,
@@ -94,7 +90,7 @@ async fn emote_refuses_an_identifier_it_does_not_know() {
 #[tokio::test]
 async fn emote_refused_before_the_match_is_over() {
     let th = hub().await;
-    // Go's openTable(t, "Alice", "Bob", "Carol").
+    // Alice hosts Bob and Carol.
     let mut host = dial_ws(&th).await;
     send_msg(
         &mut host,

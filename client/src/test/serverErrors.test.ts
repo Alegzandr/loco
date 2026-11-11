@@ -66,12 +66,12 @@ describe('resolveServerError', () => {
       'afk_forfeit',
       'afk_kicked',
       // A deploy in progress. Every action that would start a new match answers
-      // with this while the server drains; see server/crates/loco-hub/src/drain.rs.
+      // with this while the server drains; see server/crates/loco-hub/src/ops/drain.rs.
       'server updating, try again in a moment',
       // The admission ceilings, the wrong-code throttle and the answer a
       // recovered handler panic sends. All four are refusals the player did not
       // earn, and none of them may reach the screen as the wire string it is.
-      // See the caps in server/crates/loco-hub/src/config.rs.
+      // See the caps in server/crates/loco-hub/src/ops/config.rs.
       'the server is full, try again in a moment',
       'too many attempts, wait a moment',
       'server error',

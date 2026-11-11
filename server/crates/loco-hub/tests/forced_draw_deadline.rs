@@ -1,4 +1,4 @@
-//! Port of `server/hub/forced_draw_deadline_test.go`.
+//! A forced draw keeps the turn, and every message says until when.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

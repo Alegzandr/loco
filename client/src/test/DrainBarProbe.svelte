@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { drainBar } from '../hooks/drainBar.svelte'
+  import { drainBar } from '../state/drainBar.svelte'
 
   type Props = { deadline: number | null; total?: number | 'auto' }
   let { deadline, total = 'auto' }: Props = $props()

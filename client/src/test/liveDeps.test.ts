@@ -1,33 +1,119 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from './render'
 import { renderHook, act } from './renderHook'
-import { autoClear, countdown, reconnectAnimation } from '../hooks/viewEffects.svelte'
-import { drainBar } from '../hooks/drainBar.svelte'
-import { boardShake, cardPlay } from '../hooks/gamePlay.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { autoClear, countdown, reconnectAnimation } from '../state/viewEffects.svelte'
+import { drainBar } from '../state/drainBar.svelte'
+import { boardShake, cardPlay } from '../state/gamePlay.svelte'
+import { gameStore } from '../state/gameStore'
+import { game } from '../state/gameStore.svelte'
+import { live } from '../state/live.svelte'
+import { watchEffect } from './watchEffect.svelte'
 import GameView from '../components/GameView.svelte'
 import DiscardPile from '../components/cards/DiscardPile.svelte'
 import Hand from '../components/cards/Hand.svelte'
 import type { CardDTO } from '../types/protocol'
 
 /**
- * Every timing effect in the game watches **one field** of a snapshot that is
- * replaced whole several times a second.
+ * The window onto the store is one signal **per field**.
  *
- * `game.current` is a single `$state.raw` holding the entire store, so an effect
- * reading `g.errorMsg` inside it does not depend on the error: it depends on the
- * snapshot, and every message the server sends invalidates it. React compared
- * dependencies by value and re-ran nothing when `errorMsg` was the same string
- * twice; Svelte tracks the signal that was read, so the same code re-runs on
- * every card anybody plays. What that costs is not a re-render, it is the
- * cleanup: a timer that is cleared and re-armed on every message never reaches
- * the end of its own countdown, so a notice sits on a busy board forever and the
- * reconnect overlay outlives the reconnect.
+ * The store replaces its whole state on every write, several times a second, and
+ * every timing effect in the game watches one field of it. If the window were one
+ * signal, an effect reading `game.current.errorMsg` would depend on the entire
+ * match, and the cost is not a re-render but the cleanup: a timer cleared and
+ * re-armed on every message never reaches the end of its own countdown, so a
+ * notice sits on a busy board forever and the reconnect curtain outlives the
+ * reconnect. That shipped once, when the window was a single `$state.raw`.
  *
- * Each test below moves a field the hook is not watching and asserts the hook
+ * So these assert the guarantee itself, with the barest possible effect: one
+ * that reads a field and counts its runs.
+ */
+describe('the store window tracks each field on its own', () => {
+  beforeEach(() => {
+    gameStore.setState({ errorMsg: '', latencies: [], players: [] })
+  })
+
+  it('an effect reading one field ignores a write to another', () => {
+    const { result } = renderHook(() => watchEffect(() => game.current.errorMsg))
+    const before = result.runs
+
+    act(() => gameStore.setState({ latencies: [{ player_index: 1, rtt_ms: 40 }] }))
+    act(() => gameStore.setState({ currentTurn: gameStore.getState().currentTurn + 1 }))
+
+    expect(result.runs).toBe(before)
+  })
+
+  it('an effect reading one field re-runs when that field changes', () => {
+    const { result } = renderHook(() => watchEffect(() => game.current.errorMsg))
+    const before = result.runs
+
+    act(() => gameStore.setState({ errorMsg: 'illegal card play' }))
+
+    expect(result.runs).toBe(before + 1)
+  })
+
+  it('a write that hands a field back the same value notifies nobody reading it', () => {
+    const players = gameStore.getState().players
+    const { result } = renderHook(() => watchEffect(() => game.current.players))
+    const before = result.runs
+
+    act(() => gameStore.setState({ players, errorMsg: 'x' }))
+
+    expect(result.runs).toBe(before)
+  })
+
+  it('holding the window in a local keeps the narrowing', () => {
+    // `const g = $derived(game.current)` is how App and GameView read it.
+    const { result } = renderHook(() => {
+      const g = game.current
+      return watchEffect(() => g.errorMsg)
+    })
+    const before = result.runs
+
+    act(() => gameStore.setState({ latencies: [{ player_index: 1, rtt_ms: 41 }] }))
+    expect(result.runs).toBe(before)
+
+    act(() => gameStore.setState({ errorMsg: 'illegal card play' }))
+    expect(result.runs).toBe(before + 1)
+  })
+
+  it('reads the same values the store holds, whole or field by field', () => {
+    act(() => gameStore.setState({ errorMsg: 'seen', currentTurn: 3 }))
+    expect(game.current.errorMsg).toBe('seen')
+    expect({ ...game.current }).toEqual(gameStore.getState())
+    expect(game.snapshot).toBe(gameStore.getState())
+  })
+
+  it('live() narrows a derived value, which the window alone cannot', () => {
+    // A value computed from a field changes identity on every write of that
+    // field; what the effect wants is the answer, compared.
+    act(() => gameStore.setState({ players: [] }))
+    const { result } = renderHook(() => {
+      const count = live(() => game.current.players.length)
+      return watchEffect(count)
+    })
+    const before = result.runs
+
+    act(() => gameStore.setState({ players: [] }))
+    expect(result.runs).toBe(before)
+  })
+})
+
+/**
+ * Every timing effect in the game watches **one value** — and the hooks are
+ * handed it as a getter, which may name a store field, a value computed from
+ * one, or a prop.
+ *
+ * The store window narrows a top-level field on its own (above). It cannot
+ * narrow a computation or a prop: those re-evaluate whenever what they read
+ * moves, and what that costs is not a re-render, it is the cleanup — a timer
+ * cleared and re-armed on every message never reaches the end of its own
+ * countdown, so a notice sits on a busy board forever and the reconnect overlay
+ * outlives the reconnect. The hooks read their getter through `live()`.
+ *
+ * Each test below moves a value the hook is not watching and asserts the hook
  * did not notice. That is the shape of every one of these bugs, and it is the
  * one thing the per-hook tests cannot see: they hand a constant or a dedicated
- * prop, which is the case where the snapshot never moves underneath.
+ * prop, which is the case where nothing moves underneath.
  */
 describe('a timing effect ignores the fields it does not watch', () => {
   beforeEach(() => vi.useFakeTimers())

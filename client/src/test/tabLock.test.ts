@@ -8,7 +8,7 @@ import {
   resetTabLock,
   setTabSeated,
   takeOverTab,
-} from '../hooks/tabLock'
+} from '../state/tabLock'
 
 // One tab holds the game. These pin the election itself; the curtain it puts on
 // screen, and the fact that a blocked tab opens no socket, are in

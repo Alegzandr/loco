@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from './render'
 import Lobby from '../components/Lobby.svelte'
-import { gameStore } from '../hooks/gameStore'
-import { createServerMessageHandler } from '../hooks/serverMessages'
+import { gameStore } from '../state/gameStore'
+import { createServerMessageHandler } from '../state/serverMessages'
 import {
   LIVE_ROWS,
   formatViewers,
   hasLiveStreams,
   moreLiveCount,
   topLiveStreams,
-} from '../components/liveStreams'
-import { EXTERNAL_REL, TWITCH_CATEGORY, twitchCategory, twitchChannel } from '../components/twitchLinks'
+} from '../game/liveStreams'
+import { EXTERNAL_REL, TWITCH_CATEGORY, twitchCategory, twitchChannel } from '../game/twitchLinks'
 import { en } from '../i18n/en'
 import type { LiveStreamDTO, ServerMsg } from '../types/protocol'
 

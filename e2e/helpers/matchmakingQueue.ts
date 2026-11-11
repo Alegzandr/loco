@@ -53,7 +53,7 @@ const POLL_MS = 50
  * held, and how often to ask.
  *
  * Holding the mutex is not the whole guarantee. Closing a browser context tears
- * the WebSocket down, but the dequeue happens on the hub's own goroutine a
+ * the WebSocket down, but the dequeue happens on the hub's own task a
  * moment later, so the previous test's searcher can still be at the front of the
  * FIFO when the next test enqueues — and then it is paired with the first of
  * this test's two. A fixed sleep was the first shape of this and it is exactly
@@ -73,7 +73,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  *
  * This is the only place in the suite that reads an operator surface, and it is
  * worth saying why it is not a test smell: the queue's size is deliberately
- * never on the wire (see loco-hub/src/matchmaking.rs), so there is no client-visible way
+ * never on the wire (see loco-hub/src/router/matchmaking.rs), so there is no client-visible way
  * to ask "is the queue empty" — and that is precisely the question a test has to
  * answer before it can trust a pairing to be its own.
  */

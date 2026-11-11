@@ -1,5 +1,3 @@
-//! Port of `server/hub/streamermode_test.go`.
-//!
 //! Streamer mode is the one preference in this game that is not purely local.
 //! The table code is a single string shared by everybody who can see it, so a
 //! host who is streaming is exposed by their guests' screens as much as by
@@ -9,8 +7,7 @@
 use loco_hub::testkit::*;
 use serde_json::{Value, json};
 
-/// Opens a table with Alice as host and seats the named guests at it. Go's
-/// `setupLobby` (kick_test.go).
+/// Opens a table with Alice as host and seats the named guests at it.
 async fn setup_lobby(th: &TestHub, guests: &[&str]) -> (Ws, Vec<Ws>, String) {
     let mut host = dial_ws(th).await;
     send_msg(
@@ -53,7 +50,7 @@ async fn set(ws: &mut Ws, on: bool) {
     .await;
 }
 
-/// Go's `expectError` (drain_test.go).
+/// Reads the next `error` and checks its text.
 async fn expect_error(ws: &mut Ws, want: &str) {
     let msg = read_msg_of_type(ws, "error").await;
     let err = msg["error"].as_str().unwrap_or_default();

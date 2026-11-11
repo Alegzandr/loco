@@ -10,7 +10,7 @@
  * own testing section still carries as a warning.
  *
  * So every path the docs put in backticks has to resolve. They are written at
- * whatever depth the surrounding paragraph makes readable (`loco-hub/src/rooms.rs`
+ * whatever depth the surrounding paragraph makes readable (`loco-hub/src/router/rooms.rs`
  * in a server section, a bare `layout.ts` in a paragraph already about the card
  * renderer), so a token passes if it names any real file or directory in the
  * repository. What it may not do is name nothing at all.
@@ -66,34 +66,12 @@ const OUTSIDE_THE_REPO = new Set([
   // Named in order to say the build deliberately has none of them.
   'index.html',
   'vite.config.ts',
-  'main.tsx',
   '.visual', // where `make visual` writes its contact sheets
-  // Astro's dev lock, inside a directory `SKIP` walks past. It exists only while
-  // a dev server does, and the note that names it names it in order to say the
-  // client command deletes it on every boot.
-  '.astro/dev.json',
   'xx.ts', // the placeholder in "add a language: create xx.ts"
   // The CC0 kits `make models` packs from. Git ignores the whole directory: it
   // is an input the maintainer unpacks by hand, and the docs name it in order
   // to say where to put them.
   '.assets-in/unpacked',
-  // Retired by the move to SvelteKit and named by the notes in order to say what
-  // replaced them — the history of a rule is half its reasoning. A file listed
-  // here that comes back into the tree is fine; one the docs name that is in
-  // neither place is still a failure.
-  'src/entry.ts',
-  'entry.ts',
-  'src/langSwap.ts',
-  'langSwap.ts',
-  'src/homeSheet.ts',
-  'homeSheet.ts',
-  'content/page-boot.ts',
-  'page-boot.ts',
-  'content/navMenu.ts',
-  'navMenu.ts',
-  'homeLangSwap.test.ts',
-  'GamePage.svelte',
-  'ContentPage.svelte',
   // Named in order to say the boot is deliberately not there.
   'hooks.client.ts',
 ])
@@ -103,10 +81,8 @@ const OUTSIDE_THE_REPO = new Set([
  * own) or a directory (a trailing slash). Everything else with a slash in it is
  * as likely to be a Rust path (`std::sync`), a crate feature or a MIME type,
  * and guessing wrong there would make this test a nuisance rather than a guard.
- * `.go` stays on the list although no Go is left: a doc naming a Go file is
- * naming something that is not there, which is exactly what this catches.
  */
-const OURS = /\.(ts|tsx|rs|toml|go|mjs|css|astro|md|yml|json|jsonl|conf|html|webp|png|svg|txt|ico)$/
+const OURS = /\.(ts|tsx|rs|toml|mjs|css|md|yml|json|jsonl|conf|html|webp|png|svg|txt|ico)$/
 
 const looksLikePath = (t: string) =>
   !NOT_A_PATH.some((re) => re.test(t)) && (OURS.test(t) || t.endsWith('/'))

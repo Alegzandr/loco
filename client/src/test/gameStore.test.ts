@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO, GameStateDTO, ScoreboardEntryDTO } from '../types/protocol'
 
 // Reset store state between tests
@@ -634,7 +634,7 @@ describe('gameStore', () => {
   // The same record answers the other half of the question: an opponent sitting
   // on one card everybody heard called cannot be caught until that hand changes,
   // so Contre-LOCO! against them is a card paid for nothing and the centre
-  // button stops offering the wager (`components/catchAvailability.ts`).
+  // button stops offering the wager (`game/catchAvailability.ts`).
   it('applyUnoDeclared records the seat that called it, whoever it is', () => {
     gameStore.setState({ myIndex: 0, declaredSeats: [] })
     gameStore.getState().applyUnoDeclared(2)

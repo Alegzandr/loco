@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import GameOver from '../components/GameOver.svelte'
-import { EMOTE_ORDER } from '../components/emotes'
-import { gameStore } from '../hooks/gameStore'
+import { EMOTE_ORDER } from '../game/emotes'
+import { gameStore } from '../state/gameStore'
 import { en } from '../i18n/en'
 import type { PlayerDTO } from '../types/protocol'
 
@@ -81,7 +81,7 @@ describe('the three things', () => {
 
 /*
  * A seat the server plays is refused the emote in both directions
- * (`loco-hub/src/emotes.rs`), so it is not somebody to say "gg" to. At a table where
+ * (`loco-hub/src/table/emotes.rs`), so it is not somebody to say "gg" to. At a table where
  * every other seat is one, the three buttons could only ever be pressed at
  * nobody.
  */

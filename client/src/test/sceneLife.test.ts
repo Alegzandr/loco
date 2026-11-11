@@ -14,7 +14,7 @@ import { flushSync } from 'svelte'
 import { render } from './render'
 import LifeLayer from '../components/scene/LifeLayer.svelte'
 import type { PreparedScene } from '../components/scene/sceneCache'
-import { resetMotionPref, setMotionPref } from '../hooks/motionPref'
+import { resetMotionPref, setMotionPref } from '../state/motionPref'
 import {
   routeKeyframes,
   cycleMs,
@@ -224,7 +224,11 @@ describe('the layer, mounted', () => {
     flushSync()
     // Stopped where it stands on the first point of its route, and nothing runs.
     expect(running()).toHaveLength(0)
-    expect(node.style.transform).toBe(routeKeyframes(actor({ path: [[0, 0], [10, 0]], motion: 'bounce' }), 1920, 1080, tilePx(1920, 1080))[0].transform)
+    // Read back through a style, as the node's was: the DOM serialises
+    // `960.0px` as `960px`, and the comparison is of transforms, not spellings.
+    const probe = document.createElement('div')
+    probe.style.transform = routeKeyframes(actor({ path: [[0, 0], [10, 0]], motion: 'bounce' }), 1920, 1080, tilePx(1920, 1080))[0].transform as string
+    expect(node.style.transform).toBe(probe.style.transform)
 
     setMotionPref('full')
     flushSync()

@@ -8,8 +8,8 @@ const viteConfig = readFileSync(path.join(CLIENT, 'vite.config.ts'), 'utf8')
 // straight to `webSocketPolicy.ts`, which is where the names now are, so
 // scanning only the first would leave this guard asserting nothing.
 const socket = [
-  readFileSync(path.join(CLIENT, 'src', 'hooks', 'webSocket.svelte.ts'), 'utf8'),
-  readFileSync(path.join(CLIENT, 'src', 'hooks', 'webSocketPolicy.ts'), 'utf8'),
+  readFileSync(path.join(CLIENT, 'src', 'state', 'webSocket.svelte.ts'), 'utf8'),
+  readFileSync(path.join(CLIENT, 'src', 'state', 'webSocketPolicy.ts'), 'utf8'),
 ].join('\n')
 
 /**

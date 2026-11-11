@@ -11,8 +11,7 @@ edit" header and CI (`protocol_check`) fails on any difference. This page is pro
 is the one description of the wire that a program does not check: when it disagrees with the crate,
 the crate wins.
 
-The bytes are the ones the original Go server wrote, and that is held by test rather than by memory:
-see "Wire fixtures" below.
+The bytes are pinned by test rather than by memory: see "Wire fixtures" below.
 
 ### The shape
 
@@ -27,15 +26,13 @@ fields. The omission rules are fixed:
 - anything else is always written, zero included, and required (`turn` on the four messages that
   carry it, `drawn_count` on `card_drawn`, every DTO field that is never skipped).
 
-One wrinkle is kept on purpose. The original server's flat envelope never omitted `turn` or
-`drawn_count`, so it wrote `"turn":0,"drawn_count":0` on **every** message, `players_online` and
-`error` included. The serializer still writes those two zeros beside every payload that does not own
-them (`server.rs`, `Wire`), so the bytes did not move at the change of server; the generated
-TypeScript does not mention them there, and no client reads them. Dropping them is one edit there
-and a recapture of the fixtures.
+One wrinkle is kept on purpose: `turn` and `drawn_count` are written on **every** message, as
+`"turn":0,"drawn_count":0` beside payloads that do not own them (`players_online`, `error`, …;
+`server.rs`, `Wire`). The generated TypeScript does not mention them there and no client reads them.
+Dropping them is one edit there and a recapture of the fixtures.
 
 The client reads a message by switching on `msg.type`, which narrows the union: a field is only
-readable on the messages that carry it (`client/src/hooks/serverMessages.ts`). `ServerMsgOf<'x'>`
+readable on the messages that carry it (`client/src/state/serverMessages.ts`). `ServerMsgOf<'x'>`
 names one variant.
 
 Decoding a client message is strict about values and lenient about everything else: a `type` the
@@ -44,7 +41,7 @@ emote), fails at decoding rather than in the handler. Case does not matter for c
 formats, an empty `chosen_color` reads as `wild`, and stray fields are ignored.
 
 The refusal such a frame earns is worded for the client's map (`i18n/serverErrors.ts`): the read pump
-(`loco-hub/src/wire.rs`, `decode_client`) answers an unknown type with `unknown message type`, a bad
+(`loco-hub/src/net/wire.rs`, `decode_client`) answers an unknown type with `unknown message type`, a bad
 colour with `unknown color: "x"`, a bad kind with `unknown kind: "x"`, a bad format with `invalid
 match format "x": must be BO1, BO3, BO5, or BO7`, an unknown emote with `unknown emote`, and anything
 else that does not decode with `invalid message format`. None is mapped by the client (only a
@@ -52,13 +49,13 @@ hand-built frame can send one), so each lands on its generic refusal line.
 
 ### Wire fixtures
 
-`server/crates/loco-protocol/tests/fixtures/server-go.jsonl` (196 frames, every server message type)
-and `client-go.jsonl` (62 frames) are real frames captured from the Go server's whole hub suite before
-it was retired, one per distinct shape (`tools/protocol/sample-frames.mjs`). `tests/parity.rs` reads
-each into the Rust type and writes it back out: it must come out equal, as JSON, to the frame on
-file. They are the contract now, not a comparison: a change that moves the wire fails them, and a
-deliberate one replaces them with frames the current server writes (tee `Client::send_bytes` and the
-read pump's input to two files under the hub's tests, then sample them the same way).
+`server/crates/loco-protocol/tests/fixtures/server.jsonl` (196 frames, every server message type)
+and `client.jsonl` (62 frames) are golden frames, one per distinct shape
+(`tools/protocol/sample-frames.mjs`). `tests/parity.rs` reads each into the Rust type and writes it
+back out: it must come out equal, as JSON, to the frame on file. They are the wire contract: a change
+that moves the wire fails them, and a deliberate one replaces them with frames the current server
+writes (tee `Client::send_bytes` and the read pump's input to two files under the hub's tests, then
+sample them the same way).
 
 ## Client → Server
 
@@ -144,14 +141,14 @@ Every server message also carries `server_now`, the server's clock in unix milli
 
 - `card_played` carries `chosen_player` only for `swap` (target seat index). `global_switch` and other cards omit it.
 - **`interrupt_open` says whether the top discard may still be slammed**, on `card_played`, `card_drawn`, `turn_changed`, `match_ready` and in every `GameStateDTO`. It is nullable on the wire like `has_drawn` and for the same reason: false is the answer that matters, and an absent field means unchanged — a draw by the seat at turn shuts the window, a penalty growing a hand leaves it where it was, and both arrive as `card_drawn`. A client that offers a slam without reading it is answered `interrupt window closed` for a race nobody ran.
-- **Every deadline is an absolute server instant, and `server_now` is how the client reads it.** `turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until` and `forfeit_deadline` are unix milliseconds on the server's clock; a client that compared them to its own clock as they arrived was wrong by however far its clock was off, which on a phone is easily seconds — enough to hide a five-second catch window entirely, or to keep it on screen past its end and charge a card for the press. The client keeps the largest recent `server_now - Date.now()` as its offset and moves every deadline by it on arrival (`client/src/hooks/serverClock.ts`). `server_now` is stamped on every message so the estimate is always fresh; it is optional on the wire so an older fixture still validates.
+- **Every deadline is an absolute server instant, and `server_now` is how the client reads it.** `turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until` and `forfeit_deadline` are unix milliseconds on the server's clock; compared to the client's own clock they would be off by its skew, easily seconds on a phone — enough to hide a five-second catch window or to keep it on screen past its end. The client keeps the largest recent `server_now - Date.now()` as its offset and moves every deadline by it on arrival (`client/src/state/serverClock.ts`). `server_now` is stamped on every message so the estimate is always fresh; it is optional on the wire so an older fixture still validates.
 - `chosen_color` is required for **every** wild (`wild`, `wild_draw_four` **and** `global_switch`) on `play_card`, `play_cards`, `counter_draw` and `interrupt_play`. A colourless wild is rejected (`must choose a color for a wild card`); the value `wild` counts as colourless, since it matches no coloured card and would strand the whole table.
 - `interrupt_success` is emitted before the corresponding `card_played` so the client can render lead-taking distinctly.
 - `pending_draw` and `has_drawn` describe the **table** after the event, not the recipient, and `card_played` / `card_drawn` carry both to every seat. They are nullable on the wire on purpose: a hand can grow without anybody having drawn on their turn (the LOCO-catch penalty), so a missing `has_drawn` must mean "unchanged" and never be defaulted to `true` — a client that guessed it disabled its own draw button and had every pass refused with `you must draw a card before passing`.
 - `player_id` is the **recipient's own seat** and is nullable on the wire for the same reason as `player_index`: `omitempty` drops a zero, and seat 0 is the host's. A client must not default an absent `player_id` to 0: it happened to be right while every reader already had an earlier value to fall back on, and stopped being right the moment a reloaded tab reclaimed a seat with no prior state (it seated itself at -1). `player_reconnected` also carries `state.your_index`, which is the same seat and always present.
 - A reconnecting client sends `join_room` with `nickname` + `room_code` + `session_token` whether it lost the socket or the whole page; the server cannot tell the two apart, and deliberately does not need to.
 - **A reclaim spends its token.** `player_reconnected` carries a fresh `session_token` and the client must store it: the one that opened the seat stops working. The old token has been on a socket that died, it is in `sessionStorage`, and if the process restarted on the way it has also been written to the shutdown snapshot on disk, so a one-shot proof is worth more than a permanent one and costs nothing.
-- **A refused reclaim is indistinguishable from a refused join.** Both answer `game already in progress`. They used to differ (`invalid session token for reconnect` came back only when the nickname matched a seat actually held at that table), which let anyone holding a table code test names against it. The client owns the failed-reclaim case through its own restore timeout, so nothing legitimate read the difference.
+- **A refused reclaim is indistinguishable from a refused join.** Both answer `game already in progress`; a distinct answer would let anyone holding a table code test nicknames against it. The client owns the failed-reclaim case through its own restore timeout.
 - `rematch_started` is sent **per recipient**, not broadcast: the server first prunes seats with no connected client behind them (bots excepted), which can re-base every surviving `player_id`. Clients must adopt the `player_id` they receive.
 - `latency` is server-measured: the hub times its own WebSocket ping frames against the pongs the browser answers in the transport layer, smooths them (0.6 old + 0.4 new) and broadcasts every 3 s to rooms that are playing. Nothing is self-reported by the client, and a room where nothing has been measured yet is skipped rather than sent a table of `-1`.
 - **`players_online` is not the queue, and the two answer different questions.** It counts every
@@ -160,7 +157,7 @@ Every server message also carries `server_now`, the server's clock in unix milli
   is drawn. `players_online` is nullable on the wire for the same reason `player_index` is: a count
   of zero is a real answer (every other tab gone), and `omitempty` would drop it, leaving a chip on
   screen counting people who have left. The client draws it from **2 up** and nothing at all below
-  that (`components/playersOnline.ts`) — for the reason `matchmaking_queued` carries no number at
+  that (`game/playersOnline.ts`) — for the reason `matchmaking_queued` carries no number at
   all, one floor above it. What is drawn is always exactly what was sent: the floor hides the plate,
   it never rounds or rewords what is above it.
 - `round_history` is server-owned so a reconnecting player recovers the same table: cumulative scores cannot be split back into rounds client-side once a player has won twice.

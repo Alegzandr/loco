@@ -1,4 +1,4 @@
-//! Port of `server/hub/bot_declare_test.go`.
+//! A bot's LOCO! declaration, and that it can still be caught.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

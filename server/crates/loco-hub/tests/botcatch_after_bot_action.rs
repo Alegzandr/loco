@@ -1,4 +1,4 @@
-//! Port of `server/hub/botcatch_after_bot_action_test.go`.
+//! A bot's Contre-LOCO! is armed after a bot's own action too.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

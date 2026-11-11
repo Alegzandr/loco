@@ -11,21 +11,21 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { CardColor, ClientMsg } from '../types/protocol'
-  import { gameStore, UNO_CATCH_WINDOW_MS } from '../hooks/gameStore'
-  import { game } from '../hooks/gameStore.svelte'
-  import { drainBar, URGENT_AT } from '../hooks/drainBar.svelte'
+  import { gameStore, UNO_CATCH_WINDOW_MS } from '../state/gameStore'
+  import { game } from '../state/gameStore.svelte'
+  import { drainBar, URGENT_AT } from '../state/drainBar.svelte'
   import {
     countdown,
     heldKey,
     autoClear,
     reconnectAnimation,
     turnCountdownSfx,
-  } from '../hooks/viewEffects.svelte'
-  import { cardPlay, boardShake, mapGate } from '../hooks/gamePlay.svelte'
-  import { escapeKey } from '../hooks/escapeKey.svelte'
+  } from '../state/viewEffects.svelte'
+  import { cardPlay, boardShake, mapGate } from '../state/gamePlay.svelte'
+  import { escapeKey } from '../state/escapeKey.svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { resolveServerError } from '../i18n/serverErrors'
-  import type { WsStatus } from '../hooks/webSocketPolicy'
+  import type { WsStatus } from '../state/webSocketPolicy'
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
   import UnoTimer from './UnoTimer.svelte'
@@ -42,12 +42,12 @@
   import GameBoard, { type GameBoardHandle } from './cards/GameBoard.svelte'
   import { resolveScene } from './cards/maps'
   import { feltInViewport } from './cards/layout'
-  import { elementSize, viewportSize, safeAreaInsets } from '../hooks/boardMetrics.svelte'
+  import { elementSize, viewportSize, safeAreaInsets } from '../state/boardMetrics.svelte'
   import MapLoadingScreen from './MapLoadingScreen.svelte'
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
-  import { resolveSwapNoticeText } from './swapNoticeText'
-  import { formatRounds } from './matchLengthModel'
+  import { resolveSwapNoticeText } from '../game/swapNoticeText'
+  import { formatRounds } from '../game/matchLengthModel'
   import { e2ePlayCard } from '../dev/e2eBridge.svelte'
 
   type Props = {
@@ -197,7 +197,7 @@
   }
 
   // What a tap on a card means, the two prompts it can open instead, and the
-  // legality the board highlights with. See hooks/gamePlay.svelte.ts.
+  // legality the board highlights with. See state/gamePlay.svelte.ts.
   const play = cardPlay({
     myHand: () => g.myHand,
     discard: () => g.discard,
@@ -230,11 +230,9 @@
   // handed to it has to go null with it, otherwise the effect would not re-run
   // when the element finally appears, and the bar would never arm.
   //
-  // The three deadlines below are `$derived` for the same reason every hook in
-  // `hooks/` reads its arguments through `live()`: `g` is one snapshot replaced
-  // on every message, so an effect reading `g.turnDeadline` straight out of it
-  // depends on the whole match and re-arms its timer on every card anybody
-  // plays. A derivation is compared, so what changes here is the deadline.
+  // The deadlines below are `$derived`, so an effect reading one re-arms its
+  // timer only when that deadline moves; `catchDeadline` is computed from two
+  // fields, and a derivation is compared (`state/live.svelte.ts`).
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
   // Whether the centre button is pressable at all — a looser question than
   // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
@@ -302,9 +300,8 @@
     const end = catchWindowEnd
     if (end === null) return
     const remaining = end - Date.now()
-    // The action is read off the store, never off `g`: the snapshot is replaced
-    // on every message, and reading it here re-armed this timer several times a
-    // second for a deadline that had not moved.
+    // The action is read off the store, never off `g`: an action read through
+    // the window would make this effect depend on it, for nothing.
     const prune = gameStore.getState().pruneCatchWindows
     if (remaining <= 0) {
       prune()
@@ -341,7 +338,7 @@
   autoClear(() => g.errorMsg, ERROR_TOAST_MS, () => g.clearError())
 
   // The two shakes: a rattle for an interception, a vertical thump for a
-  // Contre-LOCO!. Different on purpose, see hooks/gamePlay.svelte.ts.
+  // Contre-LOCO!. Different on purpose, see state/gamePlay.svelte.ts.
   boardShake(() => containerEl, () => g.interruptFlash, () => g.catchFlash)
 
   // Ticks over the last few seconds of our own turn.
@@ -383,7 +380,7 @@
   )
 
   // Render the room while the table is shut, and tell the server the moment we
-  // are in. See hooks/gamePlay.svelte.ts.
+  // are in. See state/gamePlay.svelte.ts.
   const preload = mapGate(() => scene, () => gateOpen, send, () => anchor, () => frame)
 
   // Past the format: the server's tiebreak chain separated nobody, so it dealt
@@ -543,7 +540,7 @@
       // Name the seat: several players can owe a declaration at once after a Swap
       // or a GlobalSwitch, and the button offers the most urgent one.
       guardDoubleTap(`catch:${g.catchTarget}`, () => {
-        // Read once, into a local. `g` is a live snapshot, and the call below
+        // Read once, into a local. `g` is a live view of the store, and the call below
         // retires this window — so reading `g.catchTarget` a second time would
         // name the *next* seat on the hook and catch the wrong player.
         const target = g.catchTarget

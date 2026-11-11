@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from './renderHook'
-import { webSocket } from '../hooks/webSocket.svelte'
+import { webSocket } from '../state/webSocket.svelte'
 
 class FakeSocket {
   static CONNECTING = 0

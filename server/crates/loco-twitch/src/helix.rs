@@ -1,6 +1,5 @@
 //! The Helix half: resolving the category, asking who is live, and screening
-//! what a stranger wrote before a player is shown it. Port of
-//! `server/twitch/helix.go`.
+//! what a stranger wrote before a player is shown it.
 
 use crate::LiveStream;
 use crate::poller::Poller;

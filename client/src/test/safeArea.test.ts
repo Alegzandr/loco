@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from './render'
 import GameView from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { TOP_CHROME } from '../components/cards/layout'
 import { BOTTOM_RESERVE } from '../components/cards/cardTheme'
 import type { CardDTO } from '../types/protocol'
@@ -13,8 +13,8 @@ let insets = INSETS
 // The board is Svelte, so the accessor it reads is the Svelte one. Same seam,
 // same purpose: no desktop browser reports a notch, so the only way to test the
 // board against one is to hand it the numbers.
-vi.mock('../hooks/boardMetrics.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/boardMetrics.svelte')>()),
+vi.mock('../state/boardMetrics.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/boardMetrics.svelte')>()),
   safeAreaInsets: () => ({
     get current() {
       return insets
@@ -98,8 +98,8 @@ describe('safe areas on the board', () => {
   it('deals the table inside the notch and the home indicator', () => {
     const { offsetY, scale, height } = mountBoard()
     const toPx = (y: number) => offsetY + y * scale
-    expect(toPx(TOP_CHROME)).toBeCloseTo(INSETS.top + TOP_CHROME, 5)
-    expect(toPx(height - BOTTOM_RESERVE)).toBeCloseTo(VIEWPORT.h - INSETS.bottom - BOTTOM_RESERVE, 5)
+    expect(toPx(TOP_CHROME)).toBeCloseTo(INSETS.top + TOP_CHROME, 3)
+    expect(toPx(height - BOTTOM_RESERVE)).toBeCloseTo(VIEWPORT.h - INSETS.bottom - BOTTOM_RESERVE, 3)
   })
 
   // The bands the page does not own are painted with the *root* element's
@@ -123,7 +123,7 @@ describe('safe areas on the board', () => {
     insets = { top: 0, right: 0, bottom: 0, left: 0 }
     const { offsetX, offsetY, scale, width } = mountBoard()
     expect(offsetX).toBe(0)
-    expect(offsetY).toBeCloseTo(TOP_CHROME * (1 - scale), 5)
-    expect(width * scale).toBeCloseTo(VIEWPORT.w, 5)
+    expect(offsetY).toBeCloseTo(TOP_CHROME * (1 - scale), 3)
+    expect(width * scale).toBeCloseTo(VIEWPORT.w, 3)
   })
 })

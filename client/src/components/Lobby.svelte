@@ -11,11 +11,11 @@
   import LocoLogo from './LocoLogo.svelte'
   import HomeHands from './HomeHands.svelte'
   import { playSfx } from '../audio/sfx'
-  import { readNickname, rememberNickname } from '../hooks/nicknameMemory'
-  import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
-  import { showPlayersOnline } from './playersOnline'
+  import { readNickname, rememberNickname } from '../state/nicknameMemory'
+  import { canonicalNickname, isNicknameShapeValid } from '../game/nicknameRules'
+  import { showPlayersOnline } from '../game/playersOnline'
   import LiveStrip from './LiveStrip.svelte'
-  import { TABLE_CODE_LENGTH, isTableCodeValid, sanitizeTableCode } from './tableCodeRules'
+  import { TABLE_CODE_LENGTH, isTableCodeValid, sanitizeTableCode } from '../game/tableCodeRules'
 
   type LobbyMode = 'home' | 'find' | 'bot' | 'create' | 'join'
 

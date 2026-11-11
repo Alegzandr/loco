@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from './render'
 import { act } from './renderHook'
 import GameView from '../components/GameView.svelte'
 import { UNO_BANNER_MS } from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO } from '../types/protocol'
 
 const gs: CardDTO = { color: 'wild', kind: 'global_switch' }

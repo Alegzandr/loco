@@ -1,35 +1,33 @@
-//! The parity guard: the JSON this crate writes is the JSON the Go server
-//! wrote.
+//! The parity guard: the JSON this crate writes is the wire contract, frame
+//! for frame.
 //!
-//! `fixtures/server-go.jsonl` and `fixtures/client-go.jsonl` are real frames,
-//! captured from the Go server while its whole hub suite ran (outbound and
-//! inbound respectively), one per distinct shape (`tools/protocol/sample-frames.mjs`;
-//! the procedure is in `docs/protocol.md`). Each one is read into the Rust type
-//! and written back, and must come out equal to what the Go server put on the
-//! wire: same keys, same values, the same zeros written and the same empties
-//! left out.
+//! `fixtures/server.jsonl` and `fixtures/client.jsonl` are golden frames
+//! (outbound and inbound respectively), real traffic captured while a whole
+//! hub suite ran, one per distinct shape (`tools/protocol/sample-frames.mjs`;
+//! the procedure is in `docs/protocol.md`). They are the contract the client
+//! is built against. Each one is read into the Rust type and written back, and
+//! must come out equal to the frame: same keys, same values, the same zeros
+//! written and the same empties left out.
 //!
 //! Equal as JSON values, not as byte strings: key order is not part of the
-//! contract, and the Go envelope's order (its struct's field order) is not
-//! something any reader depends on.
+//! contract, and no reader depends on it.
 
 use loco_protocol::{ClientMsg, ServerMsg};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
-const SERVER: &str = include_str!("fixtures/server-go.jsonl");
-const CLIENT: &str = include_str!("fixtures/client-go.jsonl");
+const SERVER: &str = include_str!("fixtures/server.jsonl");
+const CLIENT: &str = include_str!("fixtures/client.jsonl");
 
 /// How a fixture is held to the Rust types.
 struct Rules {
-    /// `type`s the Go server refused as unknown. Their frames must not read.
+    /// `type`s the server refuses as unknown. Their frames must not read.
     unknown_types: &'static [&'static str],
-    /// Keys a frame may lose on the way back: fields of the Go envelope that
-    /// the message's own handler never read. Go accepted every field on every
-    /// message, so a test client sending `room_code` with `add_bot` was
-    /// answered as if it had not; serde ignores the stray the same way, and
-    /// does not write it back.
+    /// Keys a frame may lose on the way back: fields the message's own handler
+    /// never reads. Every field is accepted on every message, so a test client
+    /// sending `room_code` with `add_bot` is answered as if it had not; serde
+    /// ignores the stray and does not write it back.
     envelope_strays: &'static [&'static str],
 }
 
@@ -38,7 +36,8 @@ const SERVER_RULES: Rules = Rules {
     envelope_strays: &[],
 };
 
-/// Every field of the Go `ClientMsg` envelope (server/protocol/messages.go).
+/// Every field a client frame may carry on any message: the strays a frame
+/// may lose when its message does not read them.
 const CLIENT_RULES: Rules = Rules {
     unknown_types: &["unknown_msg_type"],
     envelope_strays: &[
@@ -100,7 +99,7 @@ fn round_trip<T: DeserializeOwned + Serialize>(
         }
         if back != original {
             failures.push(format!(
-                "{name}:{}: written back differently\n  go:   {original}\n  rust: {back}",
+                "{name}:{}: written back differently\n  want: {original}\n  got:  {back}",
                 n + 1
             ));
         }
@@ -115,8 +114,8 @@ fn round_trip<T: DeserializeOwned + Serialize>(
 }
 
 #[test]
-fn every_server_frame_the_go_server_wrote_is_written_back_unchanged() {
-    let seen = round_trip::<ServerMsg>("server-go.jsonl", SERVER, &SERVER_RULES);
+fn every_golden_server_frame_is_written_back_unchanged() {
+    let seen = round_trip::<ServerMsg>("server.jsonl", SERVER, &SERVER_RULES);
     // Every message type is covered, so a variant cannot be wrong unseen.
     let missing: Vec<_> = ServerMsg::TYPES
         .iter()
@@ -124,15 +123,15 @@ fn every_server_frame_the_go_server_wrote_is_written_back_unchanged() {
         .collect();
     assert!(
         missing.is_empty(),
-        "no Go frame covers {missing:?}: recapture the fixture"
+        "no golden frame covers {missing:?}: recapture the fixture"
     );
 }
 
 #[test]
-fn every_client_frame_the_go_server_read_is_written_back_unchanged() {
-    // Coverage is not asserted here: these frames are what the Go suite sent,
+fn every_golden_client_frame_is_written_back_unchanged() {
+    // Coverage is not asserted here: these frames are what a test suite sent,
     // and a test client sends the messages it is testing, not every one.
-    round_trip::<ClientMsg>("client-go.jsonl", CLIENT, &CLIENT_RULES);
+    round_trip::<ClientMsg>("client.jsonl", CLIENT, &CLIENT_RULES);
 }
 
 /// The two always-written zeros, stated directly rather than left to whatever

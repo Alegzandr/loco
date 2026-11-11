@@ -6,13 +6,13 @@ import { fr } from '../i18n/fr'
 import Preferences from '../components/Preferences.svelte'
 import WaitingRoom from '../components/WaitingRoom.svelte'
 import Reconnecting from '../components/Reconnecting.svelte'
-import { isStreamerMode, resetStreamerMode } from '../hooks/streamerMode'
+import { isStreamerMode, resetStreamerMode } from '../state/streamerMode'
 import {
   initMotion,
   prefersReducedMotion,
   resetMotionPref,
   setMotionPref,
-} from '../hooks/motionPref'
+} from '../state/motionPref'
 import type { PlayerDTO } from '../types/protocol'
 
 /** jsdom has no matchMedia; the motion preference asks it what the OS wants. */

@@ -1,4 +1,4 @@
-//! The LOCO! game domain, ported from `server/game/` (Go).
+//! The LOCO! game domain.
 //!
 //! Pure on purpose: no async, no I/O, no clock and no OS randomness. Time enters
 //! as data (`now`, Unix milliseconds, on every action that reads or stamps it)
@@ -10,14 +10,13 @@
 //! `&mut self` method that validates before it mutates, so a refusal leaves the
 //! room exactly as it was (see `room.rs`).
 //!
-//! `API.md` beside this crate maps every Go function to its Rust counterpart.
+//! `API.md` beside this crate maps every entry point.
 
 pub mod bot;
 pub mod card;
 pub mod deck;
 pub mod error;
 pub mod event;
-pub mod gojson;
 pub mod hand;
 pub mod maps;
 pub mod nickname;
@@ -38,7 +37,7 @@ pub use event::{EventKind, GameEvent};
 pub use hand::Hand;
 pub use maps::{MapId, TimeOfDay, Weather};
 pub use nickname::validate_nickname;
-pub use room::{CatchCharge, MatchFormat, Player, Room, SavedRoom, Status};
+pub use room::{CatchCharge, MatchFormat, Room, RoomSeat, SavedRoom, Status};
 pub use rules::can_play;
 pub use screen::contains_blocked_term;
 pub use state::{GameState, SeatState};
@@ -48,7 +47,7 @@ pub use state::{GameState, SeatState};
 pub type Millis = i64;
 
 /// A seat: an index into the table's hands and seat records, as the hub and
-/// every `Vec` index it. "Nobody" is `Option<Seat>::None`, never a sentinel;
-/// the -1 Go used survives only in JSON (`gojson::opt_seat`), where the wire
-/// and the snapshot still carry it.
+/// every `Vec` index it. "Nobody" is `Option<Seat>::None`, never a sentinel,
+/// and the snapshot writes it as `null`. Only the wire carries a signed seat
+/// (`loco-protocol`), and the hub converts at that border.
 pub type Seat = usize;

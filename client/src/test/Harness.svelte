@@ -3,7 +3,7 @@
   /**
    * A component whose only job is to be a component.
    *
-   * Several of the modules under `hooks/` are `$effect` and nothing else — the
+   * Several of the modules under `state/` are `$effect` and nothing else — the
    * held key, the countdown, the drain bar, the reconnect overlay — and an effect
    * only runs inside a component. The React suite spelled that as a throwaway
    * function component per test file; this is the one Svelte equivalent, so a test
@@ -22,7 +22,7 @@
      * `setup` is handed an accessor for it rather than its value, because that
      * is what makes it live: read inside the hook's own effect, the accessor
      * tracks this prop and the effect re-runs when a `rerender` moves it. It is
-     * also exactly the `Live<T>` shape the hooks already accept, so a test hands
+     * also exactly the `Live<T>` shape the modules under `state/` already accept, so a test hands
      * the accessor straight through — see `renderHook`.
      */
     hookProps?: unknown

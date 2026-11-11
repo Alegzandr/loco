@@ -1,6 +1,3 @@
-//! Ported from `server/game/retire_test.go`. `retireRoom` lives in
-//! `support.rs` as `retire_room`.
-//!
 //! Walking out of a match in progress.
 //!
 //! The rule the hub enforces is "three seats have to be left able to play"; this
@@ -93,15 +90,15 @@ fn retire_seat_closes_its_catch_window() {
 #[test]
 fn retire_seat_leaves_the_scoreboard_alone() {
     let mut r = retire_room(4);
-    r.scores = vec![40, 10, 90, 0];
-    r.rounds_won = vec![1, 0, 1, 0];
+    set_scores(&mut r, &[40, 10, 90, 0]);
+    set_rounds_won(&mut r, &[1, 0, 1, 0]);
     r.retire_seat(2, NOW)
         .unwrap_or_else(|e| panic!("RetireSeat: {e}"));
     assert!(
-        r.scores[2] == 90 && r.rounds_won[2] == 1,
+        r.seats[2].score == 90 && r.seats[2].rounds_won == 1,
         "score = {}/{}, want 90/1",
-        r.scores[2],
-        r.rounds_won[2]
+        r.seats[2].score,
+        r.seats[2].rounds_won
     );
     assert!(!r.match_over, "leaving must not end the match");
 }
@@ -141,7 +138,7 @@ fn retire_seat_is_dealt_nothing_in_the_next_round() {
 #[test]
 fn retire_seat_never_opens_the_next_round() {
     let mut r = retire_room(4);
-    r.scores = vec![50, 40, 0, 30];
+    set_scores(&mut r, &[50, 40, 0, 30]);
     r.retire_seat(2, NOW)
         .unwrap_or_else(|e| panic!("RetireSeat: {e}"));
     let got = r.biggest_loser();

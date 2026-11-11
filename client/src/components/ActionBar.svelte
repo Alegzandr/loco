@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Translations } from '../i18n/en'
-  import { drainBar } from '../hooks/drainBar.svelte'
+  import { drainBar } from '../state/drainBar.svelte'
   import { pressToAct } from './press'
 
   type Props = {

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { i18n } from '../i18n/i18n.svelte'
-  import { escapeKey } from '../hooks/escapeKey.svelte'
-  import { muffleBedWhile } from '../hooks/bedMuffle.svelte'
+  import { escapeKey } from '../state/escapeKey.svelte'
+  import { muffleBedWhile } from '../state/bedMuffle.svelte'
   import Card from './cards/Card.svelte'
-  import { CARD_CATALOGUE } from './cardCatalogue'
+  import { CARD_CATALOGUE } from '../game/cardCatalogue'
 
   type Tab = 'rules' | 'cards'
   /** `tab` is the tab it opens on, which only the dev gallery ever sets. */

@@ -1564,9 +1564,9 @@ function litMaterial(env: Texture | null, mirror: Mirror, pools: PoolUniforms): 
       .replace(
         '#include <lights_fragment_maps>',
         THREE_CHUNK_LIGHTS_MAPS.replace('iblIrradiance += getIBLIrradiance( geometryNormal );', '').replace(
-          'radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+          'radiance += iblRadiance;',
           // Water takes its sky explicitly (`MIRROR_OUT`), over its own colour.
-          'radiance += vGloss * (1.0 - vWater) * getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+          'radiance += vGloss * (1.0 - vWater) * iblRadiance;',
         ),
       )
       .replace('#include <opaque_fragment>', `${POOLS_OUT}\n${MIRROR_OUT}\n#include <opaque_fragment>`)

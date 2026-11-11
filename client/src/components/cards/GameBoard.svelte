@@ -16,7 +16,7 @@
 
 <script lang="ts">
   import type { CardColor, PlayerDTO } from '../../types/protocol'
-  import { elementSize, safeAreaInsets } from '../../hooks/boardMetrics.svelte'
+  import { elementSize, safeAreaInsets } from '../../state/boardMetrics.svelte'
   import Deck from './Deck.svelte'
   import DiscardPile from './DiscardPile.svelte'
   import Hand from './Hand.svelte'
@@ -62,10 +62,10 @@
     dealStagger,
     flightFor,
   } from './cardTheme'
-  import type { SwapNotice, LastPlay, LastDraw, CatchFlash } from '../../hooks/gameStore'
-  import { CATCH_PENALTY_CARDS } from '../../hooks/gameStore'
+  import type { SwapNotice, LastPlay, LastDraw, CatchFlash } from '../../state/gameStore'
+  import { CATCH_PENALTY_CARDS } from '../../state/gameStore'
   import { untrack } from 'svelte'
-  import { prefersReducedMotion } from '../../hooks/motionPref'
+  import { prefersReducedMotion } from '../../state/motionPref'
 
   type Props = {
     myHand: CardDTO[]

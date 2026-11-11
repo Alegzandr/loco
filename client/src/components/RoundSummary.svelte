@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { RoundScoreEntry } from '../hooks/gameStore'
+  import type { RoundScoreEntry } from '../state/gameStore'
   import { countUp } from './countUp'
   import type { ScoreboardEntryDTO, MatchFormat } from '../types/protocol'
   import type { Translations } from '../i18n/en'
-  import { formatRounds } from './matchLengthModel'
+  import { formatRounds } from '../game/matchLengthModel'
   import OutcomeMark from './OutcomeMark.svelte'
 
   function placementSuffix(rank: number, tr: Translations): string {

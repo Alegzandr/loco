@@ -8,6 +8,7 @@
 //! with it. A change to what any of those emits, or to their order, shows up
 //! here as a reviewed diff rather than as a hub test failing three crates away.
 
+use super::support::{rounds_won, scores};
 use crate::card::{Card, Color, Kind};
 use crate::deck::Deck;
 use crate::error::GameError;
@@ -178,9 +179,9 @@ fn scripted_round_events() {
         "status": room.status.as_str(),
         "winner": room.winner,
         "match_winner": room.match_winner,
-        "scores": room.scores,
-        "rounds_won": room.rounds_won,
-        "round_history": room.round_history,
+        "scores": scores(&room),
+        "rounds_won": rounds_won(&room),
+        "round_history": room.round_history(),
         "hand_sizes": st.hands.iter().map(Hand::len).collect::<Vec<_>>(),
         "cards_on_the_table": st.hands.iter().map(Hand::len).sum::<usize>() + st.deck.cards.len() + st.discard.len(),
     });

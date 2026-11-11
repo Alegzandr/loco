@@ -2,7 +2,7 @@
   import { untrack } from 'svelte'
   import type { MatchFormat } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
-  import { seatColor, seatInitial } from './playerColors'
+  import { seatColor, seatInitial } from '../game/playerColors'
   import LocoLogo from './LocoLogo.svelte'
 
   type Props = {

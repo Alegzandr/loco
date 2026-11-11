@@ -43,7 +43,7 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // made uniform (a rolling deploy is exactly that window). Current servers
   // answer a stale token with `game already in progress` instead, on purpose:
   // the old pair of strings told anyone with a table code which nicknames were
-  // seated at it. See server/crates/loco-hub/src/rooms.rs (join_room).
+  // seated at it. See server/crates/loco-hub/src/router/rooms.rs (join_room).
   [/invalid session token/i, 'sessionInvalid'],
   // Before `not in a room`: the two differ by one word and the broader rule
   // would otherwise have to be trusted not to drift into matching both.
@@ -121,7 +121,7 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // The admission ceilings and the recovered-panic answer. All three are
   // refusals a player can be handed without having done anything, so the copy
   // says what to do (wait, retry) rather than what happened. See the caps in
-  // server/crates/loco-hub/src/config.rs.
+  // server/crates/loco-hub/src/ops/config.rs.
   [/server is full/i, 'serverFull'],
   [/too many attempts/i, 'tooManyAttempts'],
   [/^server error$/i, 'serverError'],
@@ -133,7 +133,7 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // A deploy in progress. Above nothing in particular, but it must never fall
   // through to the generic: the whole point of the string is that the player
   // learns their table code was fine and the wait is short. See
-  // server/crates/loco-hub/src/drain.rs.
+  // server/crates/loco-hub/src/ops/drain.rs.
   [/server updating/i, 'serverUpdating'],
   // The one entry here the server never sends: a seat reclaim that timed out is
   // decided client-side (useRestoreTimeout), and it lands in the same errorMsg

@@ -23,7 +23,7 @@
   import CardBack from './CardBack.svelte'
   import { radToDeg, SEAT_SPECS } from './cardTheme'
   import { fanExtent, seatFan, type SeatPlace } from './layout'
-  import { prefersReducedMotion } from '../../hooks/motionPref'
+  import { prefersReducedMotion } from '../../state/motionPref'
 
   type Props = {
     nickname: string

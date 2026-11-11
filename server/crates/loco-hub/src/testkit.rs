@@ -1,5 +1,5 @@
-//! The WebSocket harness: `hub_test.go`'s helpers, for the handler tests to
-//! stand on. Behind the `testkit` feature, which the crate's own tests turn on.
+//! The WebSocket harness the handler tests stand on. Behind the `testkit`
+//! feature, which the crate's own tests turn on.
 //!
 //! Everything here goes through a real socket on loopback, because what a
 //! handler test claims is about the server a player is connected to. That is
@@ -22,10 +22,10 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 /// A client socket, as a test holds it.
 pub type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// How long a read waits before the test fails, like Go's 3s read deadline.
+/// How long a read waits before the test fails.
 pub const READ_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// A running hub behind a real listener on loopback. Go's `newTestHub`.
+/// A running hub behind a real listener on loopback.
 pub struct TestHub {
     pub hub: Hub,
     pub addr: SocketAddr,
@@ -49,8 +49,8 @@ pub async fn new_test_hub() -> TestHub {
     new_test_hub_with(HubConfig::default()).await
 }
 
-/// A hub on `cfg` — how a test narrows a ceiling or shortens a clock, where Go
-/// assigned a package variable and restored it.
+/// A hub on `cfg`: how a test narrows a ceiling or shortens a clock, without
+/// touching anything another test can see.
 pub async fn new_test_hub_with(cfg: HubConfig) -> TestHub {
     let hub = Hub::start(cfg);
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -64,7 +64,7 @@ pub async fn new_test_hub_with(cfg: HubConfig) -> TestHub {
     TestHub { hub, addr, server }
 }
 
-/// Opens a socket. Go's `dialWS`.
+/// Opens a socket.
 pub async fn dial_ws(th: &TestHub) -> Ws {
     try_dial_ws(th, &[]).await.expect("dial")
 }
@@ -97,7 +97,7 @@ pub fn refusal_status(err: &tungstenite::Error) -> Option<u16> {
     }
 }
 
-/// Sends one client message. Go's `sendMsg`.
+/// Sends one client message.
 pub async fn send_msg(ws: &mut Ws, msg: Value) {
     ws.send(Message::text(msg.to_string()))
         .await
@@ -111,7 +111,7 @@ pub async fn send_text(ws: &mut Ws, text: &str) {
         .expect("write");
 }
 
-/// The next server message, whatever it is. Go's `readRaw`.
+/// The next server message, whatever it is.
 pub async fn read_raw(ws: &mut Ws) -> Value {
     loop {
         let frame = tokio::time::timeout(READ_TIMEOUT, ws.next())
@@ -128,7 +128,7 @@ pub async fn read_raw(ws: &mut Ws) -> Value {
 }
 
 /// The next server message that is not `players_online`, which answers nothing
-/// and can land in front of any reply. Go's `readMsg`.
+/// and can land in front of any reply.
 pub async fn read_msg(ws: &mut Ws) -> Value {
     for _ in 0..10 {
         let m = read_raw(ws).await;
@@ -139,8 +139,7 @@ pub async fn read_msg(ws: &mut Ws) -> Value {
     panic!("nothing but players_online in 10 messages");
 }
 
-/// Reads until a message of `typ` arrives, skipping up to ten others. Go's
-/// `readMsgOfType`.
+/// Reads until a message of `typ` arrives, skipping up to ten others.
 pub async fn read_msg_of_type(ws: &mut Ws, typ: &str) -> Value {
     for _ in 0..10 {
         let m = read_msg(ws).await;
@@ -200,7 +199,7 @@ pub async fn http_get(th: &TestHub, path: &str) -> (u16, String, String) {
 }
 
 /// Polls `cond` until it holds or `within` passes. For a counter the loop
-/// updates on its own schedule, where Go slept 10 ms and hoped.
+/// updates on its own schedule, rather than sleeping and hoping.
 pub async fn eventually(within: Duration, mut cond: impl FnMut() -> bool) -> bool {
     let deadline = tokio::time::Instant::now() + within;
     loop {
@@ -214,11 +213,11 @@ pub async fn eventually(within: Duration, mut cond: impl FnMut() -> bool) -> boo
     }
 }
 
-// ── the game, as hub_test.go drove it ───────────────────────────────────────
+// ── the game ────────────────────────────────────────────────────────────────
 
 /// Takes every connection through the map-loading handshake between
-/// `game_started` and the first legal move. Go's `completeMapLoad`: the real
-/// handshake, never a disabled gate.
+/// `game_started` and the first legal move: the real handshake, never a
+/// disabled gate.
 pub async fn complete_map_load(conns: &mut [&mut Ws]) {
     for c in conns.iter_mut() {
         send_msg(c, serde_json::json!({"type": "map_ready"})).await;
@@ -228,14 +227,12 @@ pub async fn complete_map_load(conns: &mut [&mut Ws]) {
     }
 }
 
-/// The LOCO! call a seat owes before the card that takes the round. Go's
-/// `declareBeforeWinning`.
+/// The LOCO! call a seat owes before the card that takes the round.
 pub async fn declare_before_winning(ws: &mut Ws) {
     send_msg(ws, serde_json::json!({"type": "declare_uno"})).await;
 }
 
-/// Two players at a dealt, loaded table. Go's
-/// `setupTwoPlayerGameWithTokens`.
+/// Two players at a dealt, loaded table.
 pub struct TwoPlayers {
     pub alice: Ws,
     pub bob: Ws,
@@ -276,7 +273,7 @@ pub async fn setup_two_player_game(th: &TestHub) -> TwoPlayers {
     }
 }
 
-/// A seat's integer field, -1 when absent: Go's `Seat()` / `OwnSeat()`.
+/// A seat's integer field, -1 when absent.
 pub fn seat_of(m: &Value, field: &str) -> i64 {
     m.get(field).and_then(Value::as_i64).unwrap_or(-1)
 }

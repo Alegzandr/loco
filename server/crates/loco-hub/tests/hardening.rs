@@ -1,5 +1,3 @@
-//! Port of `server/hub/hardening_test.go`.
-//!
 //! Hardening: the refusals that stand between a stranger with a socket and this
 //! process. Every test here is a security property, not a game rule: send
 //! something no honest client sends, and assert the server answers rather than
@@ -236,8 +234,8 @@ async fn one_mistyped_code_does_not_lock_a_player_out() {
     th.stop().await;
 }
 
-/// A host and a guest at a dealt table (the map gate left shut, as Go's
-/// fixture did). Returns the host, the guest, the room_created and the
+/// A host and a guest at a dealt table (the map gate left
+/// shut). Returns the host, the guest, the room_created and the
 /// room_joined.
 async fn dealt_table(th: &TestHub) -> (Ws, Ws, Value, Value) {
     let (mut host, created) = create(th, "Hote").await;
@@ -331,6 +329,90 @@ async fn reconnect_rotates_the_session_token() {
     assert_eq!(
         msg["type"], "error",
         "a replayed token reclaimed the seat: {msg}"
+    );
+    th.stop().await;
+}
+
+// --- One network filling the server with tables ---
+//
+// Opening a table and walking away left it standing for the empty-room
+// timeout, so one network alternating create_room and leave_room could hold
+// every table the server allows and refuse a new one to everybody else.
+#[tokio::test]
+async fn one_network_cannot_hold_every_table() {
+    let mut c = HubConfig::default();
+    c.limits.max_tables_per_net = 2;
+    let th = new_test_hub_with(c).await;
+    let from = |ip: &'static str| [("Cf-Connecting-Ip", ip)];
+
+    let mut held = Vec::new();
+    for name in ["Un", "Deux"] {
+        let mut ws = try_dial_ws(&th, &from("203.0.113.7")).await.expect("dial");
+        send_msg(&mut ws, json!({"type": "create_room", "nickname": name})).await;
+        read_msg_of_type(&mut ws, "room_created").await;
+        held.push(ws);
+    }
+
+    // The third from that network is refused, solo included.
+    for msg in [
+        json!({"type": "create_room", "nickname": "Trois"}),
+        json!({"type": "play_bot", "nickname": "Trois"}),
+    ] {
+        let mut ws = try_dial_ws(&th, &from("203.0.113.9")).await.expect("dial");
+        send_msg(&mut ws, msg.clone()).await;
+        let got = read_msg(&mut ws).await;
+        assert_eq!(
+            got["type"], "error",
+            "{msg}: a third table was opened: {got}"
+        );
+        assert_eq!(got["error"], "too many attempts, wait a moment");
+    }
+
+    // Another network still opens its own.
+    let mut other = try_dial_ws(&th, &from("198.51.100.4")).await.expect("dial");
+    send_msg(
+        &mut other,
+        json!({"type": "create_room", "nickname": "Autre"}),
+    )
+    .await;
+    read_msg_of_type(&mut other, "room_created").await;
+    th.stop().await;
+}
+
+// --- Two joins pipelined from one socket ---
+//
+// Both passed the hub's "already seated" check before the table had bound the
+// first, so the second seated the socket again and left the first chair a
+// nameless ghost, dealt a hand at the start.
+#[tokio::test]
+async fn pipelined_joins_seat_a_socket_once() {
+    let th = new_test_hub().await;
+    let (mut host, created) = create(&th, "Hote").await;
+    let code = created["room_code"].as_str().expect("room_code").to_owned();
+
+    let mut guest = dial_ws(&th).await;
+    for name in ["Fantome", "Revenant", "Spectre"] {
+        send_msg(
+            &mut guest,
+            json!({"type": "join_room", "nickname": name, "room_code": code}),
+        )
+        .await;
+    }
+    let joined = read_msg_of_type(&mut guest, "room_joined").await;
+    assert_eq!(
+        joined["players"].as_array().map(Vec::len),
+        Some(2),
+        "room_joined = {joined}"
+    );
+    for _ in 0..2 {
+        let got = read_msg_of_type(&mut guest, "error").await;
+        assert_eq!(got["error"], "already in a room", "got {got}");
+    }
+    let seen = read_msg_of_type(&mut host, "player_joined").await;
+    assert_eq!(seen["players"].as_array().map(Vec::len), Some(2));
+    assert!(
+        stays_silent(&mut host, std::time::Duration::from_millis(300)).await,
+        "the host heard a second arrival from the same socket"
     );
     th.stop().await;
 }

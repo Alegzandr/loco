@@ -39,7 +39,7 @@ impl RoomCode {
     /// `ROOM_CODE_LEN` characters of `ROOM_CODE_CHARS`, either case. The one
     /// place a table code is validated.
     pub fn parse(raw: &str) -> Result<RoomCode, InvalidRoomCode> {
-        use crate::rooms::{ROOM_CODE_CHARS, ROOM_CODE_LEN};
+        use crate::router::rooms::{ROOM_CODE_CHARS, ROOM_CODE_LEN};
         let code = raw.to_ascii_uppercase();
         if code.len() == ROOM_CODE_LEN
             && code

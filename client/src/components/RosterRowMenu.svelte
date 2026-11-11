@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
-  import { escapeKey } from '../hooks/escapeKey.svelte'
+  import { escapeKey } from '../state/escapeKey.svelte'
 
   type Props = {
     nickname: string

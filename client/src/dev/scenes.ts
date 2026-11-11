@@ -9,7 +9,7 @@
  * Adding a screen or a visual state? Add a scene here in the same change set.
  */
 import type { CardDTO, LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
-import type { RoundScoreEntry } from '../hooks/gameStore'
+import type { RoundScoreEntry } from '../state/gameStore'
 
 // ─── Mock builders ──────────────────────────────────────────────────────────
 
@@ -152,7 +152,7 @@ export interface Scene {
   /** Lobby: the table code a shared link arrived with, already in the field. */
   lobbyCode?: string
   /** Seconds already spent searching, so the three stages of the copy can each
-   *  be captured (see components/searchStages.ts: 0-10s, 10-20s, 20s+). */
+   *  be captured (see game/searchStages.ts: 0-10s, 10-20s, 20s+). */
   searchingFor?: number
   /** Simulated transport state for the game screen. */
   wsStatus?: 'connecting' | 'open' | 'closed'

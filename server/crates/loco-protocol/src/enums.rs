@@ -10,9 +10,8 @@
 //! off the wire is one of five things, and the client's pickers, its suit shapes
 //! and its active-colour chip are all written against that.
 //!
-//! Every value travels as the same lower-case (or `BO`n) string the Go server
-//! wrote. Reading is as forgiving as the Go server's `parseColor` / `parseKind`
-//! / `parseMatchFormat` were: case does not matter, and an empty colour reads as
+//! Every value travels as a lower-case (or `BO`n) string. Reading is
+//! forgiving: case does not matter, and an empty colour reads as
 //! [`CardColor::Wild`], which is what a card carries before its owner names one.
 //! Writing is always the canonical spelling.
 
@@ -79,8 +78,7 @@ impl CardColor {
     }
 }
 
-// An empty colour reads as Wild, exactly as the Go server's parseColor did:
-// every entry point still refuses a wild that reaches a play without a colour.
+// An empty colour reads as Wild: every entry point still refuses a wild that reaches a play without a colour.
 forgiving_deserialize!(CardColor, ALL_CARD_COLORS, |s| if s.is_empty() {
     "wild".to_owned()
 } else {
@@ -239,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_is_as_forgiving_as_the_go_server() {
+    fn reading_is_forgiving() {
         let c: CardColor = serde_json::from_str("\"RED\"").unwrap();
         assert_eq!(c, CardColor::Red);
         let c: CardColor = serde_json::from_str("\"\"").unwrap();

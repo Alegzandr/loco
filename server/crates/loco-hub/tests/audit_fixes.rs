@@ -1,4 +1,4 @@
-//! Port of `server/hub/audit_fixes_test.go`.
+//! Regressions the hub's audit found, each pinned through real sockets.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 
@@ -30,7 +30,7 @@ async fn alice_and_a_bot(th: &TestHub) -> (Ws, Value, Value) {
     (ws, created, gs)
 }
 
-/// Go's `queueUp`.
+/// `find_match`, and the acknowledgement read back.
 async fn queue_up(th: &TestHub, nickname: &str) -> Ws {
     let mut ws = dial_ws(th).await;
     send_msg(&mut ws, json!({"type": "find_match", "nickname": nickname})).await;
@@ -38,7 +38,7 @@ async fn queue_up(th: &TestHub, nickname: &str) -> Ws {
     ws
 }
 
-/// Go's `pairedMatch`: two players queued and taken through to an open table.
+/// Two players queued and taken through to an open table.
 async fn paired_match(th: &TestHub) -> (Ws, Ws) {
     let mut a = queue_up(th, "Alice").await;
     let mut b = queue_up(th, "Bob").await;
@@ -50,7 +50,7 @@ async fn paired_match(th: &TestHub) -> (Ws, Ws) {
     (a, b)
 }
 
-/// Go's `finishRoundForSeat`: `winner` (seat 0) plays down to an empty hand
+/// `winner` (seat 0) plays down to an empty hand
 /// through the debug seam.
 async fn finish_round_for_seat(winner: &mut Ws, other: &mut Ws) {
     send_msg(

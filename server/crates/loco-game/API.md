@@ -1,8 +1,9 @@
 # `loco-game` API
 
-This crate is `server/game/` in Rust. The rules, the reasoning and the bugs behind them are in
-[`docs/notes/domain-rules.md`](../../../docs/notes/domain-rules.md); this file is the map from the Go
-entry points to the Rust ones, and the reasons the Rust ones are shaped differently.
+The pure domain: the rules of LOCO!, with no clock, no I/O and no OS randomness. The rules, the
+reasoning and the bugs behind them are in
+[`docs/notes/domain-rules.md`](../../../docs/notes/domain-rules.md); this file is the map of the
+crate's entry points, and the reasons they are shaped the way they are.
 
 ## The shape
 
@@ -10,95 +11,112 @@ entry points to the Rust ones, and the reasons the Rust ones are shaped differen
   method that validates first and mutates second, so a command that returns `Err` has left the room
   exactly as it was (the proptests hold every command to that). The task reads what it broadcasts off
   the room afterwards; a command returns only what the room cannot tell it later (`was_host`, a
-  `CatchCharge`, a lockout's end). The first port also had a functional `Room::apply(&self, Action,
-  now) -> (Room, Vec<Event>)`. Nothing used it, it cost a clone per message, and two entry points
-  that must never disagree are one too many: it is gone. A clone before the call is the "previous
+  `CatchCharge`, a lockout's end). There is no functional twin (`apply(&self) -> Room`): two
+  entry points that must never disagree are one too many. A clone before the call is the "previous
   state" wherever a test or a replay wants one.
 - **Time is data.** Every command that stamps or compares an instant takes `now: Millis` (Unix ms)
-  last. An instant that may not exist is `Option<Millis>`; Go's zero time survives only in JSON.
+  last. An instant that may not exist is `Option<Millis>`, never a sentinel instant.
 - **The room's randomness cannot be missing.** `Room::new(code, seed: [u8; 32])` (the hub draws the
   bytes from the OS) or `Room::from_u64_seed` (tests and fixtures only). `Room` is not serde: the drain
-  snapshot is `SavedRoom`, Go's JSON field for field, and `SavedRoom::restore(seed)` is the only way
-  back to a `Room`. Go seeded lazily (`ensureRNG`) because a decoded struct could arrive without a
-  source; here that state is unrepresentable. Bots take their source as a parameter.
-- **Seats are `Seat = usize`, and "nobody" is `Option<Seat>`.** Go's -1 survives only in JSON
-  (`gojson::opt_seat`). A newtype was weighed and declined: every seat is a `Vec` index, the hub's
-  seats are `usize`, and a wrapper would be unwrapped at every one of those indexes. The sentinel was
-  the bug class (`chosen_player >= 0` checks, `LastPlayBy < 0`), and `Option` removes it.
-- **One record per seat.** `GameState.seats: Vec<SeatState>` holds what Go kept in six parallel slices
-  (`Retired`, `LastCardDeclared`, `LastCardAt`, `CatchPaidFor`, `CatchLockedUntil`, `NearLeftAt`). The
-  hands stay apart on purpose: a Swap or a GlobalSwitch moves hands between seats while every
-  obligation stays with the chair. The JSON is still Go's struct-of-arrays.
-- **Refusals have one kind.** `GameError`'s `Display` is Go's text byte for byte
-  (`client/src/i18n/serverErrors.ts` matches it by regex); `GameError::kind()` returns an
-  `ErrorKind` where Go asked four `errors.Is` predicates.
-- **Values that cannot be wrong.** `MatchFormat` is an enum (`TryFrom<i64>` owns Go's
-  `invalid match format: N`); `Color`, `Kind`, `Status` serialise as Go's `iota` integers through
-  `serde_repr`; maps, hours and skies are serde enums with `FromStr`/`Display` instead of
-  `Valid()`/`String()`.
+  snapshot is `SavedRoom`, which carries no source, and `SavedRoom::restore(seed)` is the only way
+  back to a `Room`. A room without a source is unrepresentable. Bots take their source as a
+  parameter.
+- **Seats are `Seat = usize`, and "nobody" is `Option<Seat>`**, in memory and in the snapshot alike.
+  A newtype was weighed and declined: every seat is a `Vec` index, the hub's seats are `usize`, and a
+  wrapper would be unwrapped at every one of those indexes. A `-1` sentinel invites
+  `chosen_player >= 0` checks that can be forgotten; `Option` removes the class. A signed seat exists
+  only on the wire (`loco-protocol`), converted by the hub at that border.
+- **One record per seat, at both levels.** `Room`'s seats are one `Vec<RoomSeat>` (`nickname`,
+  `score`, `rounds_won`, `lost_hand_total`, `retired`, `round_points`): what the match keeps about a
+  chair, so removing or swapping a lobby seat is one `Vec::remove` / `Vec::swap` and no column can be
+  left behind. The round history is each seat's `round_points` (one entry per finished round, every
+  seat alike), and `Room::round_history()` reads it back by round for the wire. A seat's number is
+  its place in the list; nothing stores it. Within a round, `GameState.seats: Vec<SeatState>` holds
+  what a seat owes and is owed (`retired`, `declared`, `last_card_at`, `catch_paid_for`,
+  `catch_locked_until`, `near_left_at`). Both serialise as they are. The hands stay apart on
+  purpose: a Swap or a GlobalSwitch moves hands between seats while every obligation stays with the
+  chair.
+- **The snapshot is plain serde.** `SavedRoom`, `GameState`, `SeatState`, `Hand`, `Deck`, `Card` and
+  `GameEvent` derive it with their field names as written: instants are integer `Millis`, absences
+  are `null`. Nothing here is on the wire; `loco-protocol`'s DTOs are.
+- **Refusals have one kind.** `GameError`'s `Display` is a wire contract, byte for byte
+  (`client/src/i18n/serverErrors.ts` matches it by regex); `GameError::kind()` returns its one
+  `ErrorKind`.
+- **Values that cannot be wrong.** `MatchFormat` is an enum (`TryFrom<i64>` owns the
+  `invalid match format: N` refusal); `Color`, `Kind`, `Status` serialise as their integer
+  discriminants through `serde_repr`; maps, hours and skies are serde enums with `FromStr`/`Display`.
 
 ## Commands (`Room`, `src/room.rs`)
 
-| Go | Rust |
+| Command | Notes |
 | --- | --- |
-| `NewRoom(code)` | `Room::new(code, seed)` |
-| `Join(nick)` | `join(&str)` |
-| `SetFormat(f)` | `set_format(MatchFormat)`; a bad number is `MatchFormat::try_from(n)`'s refusal |
-| `SetMaxPlayers(n)` | `set_max_players(usize)` |
-| `SwapLobbyPlayers(a, b)` | `swap_lobby_players(a, b)` |
-| `RemoveLobbyPlayer(i) (bool, error)` | `remove_lobby_player(i) -> Result<bool, _>` (was the host) |
-| `Start()` | `start(now)` |
-| `PlayCard(p, card, color, target)` | `play_card(p, card, color, target: Option<Seat>, now)` |
-| `PlayCards(p, cards, color, target, declare)` | `play_cards(p, &cards, color, target, declare, now)` |
-| `InterruptPlay`, `InterruptPlayCards` | `interrupt_play(p, &cards, color, target, now)` (one card; a list so a batch can be refused) |
-| `CounterDraw(p, card, color)` | `counter_draw(p, card, color, now)` |
-| `DrawCard(p)`, `PassTurn(p)` | `draw_card(p, now)`, `pass_turn(p, now)` |
-| `DeclareLastCard(p)` | `declare_last_card(p, now)` |
-| `CatchUndeclared(c, t, now)` | `catch_undeclared(c, t, now)` |
-| `PenalizeFailedCatch(c, now) ([]Card, bool)` | `penalize_failed_catch(c, now) -> CatchCharge::{Free, Charged { drawn }}` |
-| `LockCatch(c, now)` | `lock_catch(c, now) -> Option<Millis>` |
-| `CatchLocked(c, now)`, `CatchLockedAt(c)` | `catch_locked(c, now)`, `catch_locked_at(c) -> Option<Millis>` |
-| `CatchOffered(c, now)` | `catch_offered(c, now)` |
-| `ForfeitTo(w)` | `forfeit_to(w, now)` |
-| `RetireSeat(p)`, `IsRetired(p)` | `retire_seat(p, now)`, `is_retired(p)` |
-| `BeginNextRound()` | `begin_next_round(now)` |
-| `ResetForRematch()` | `reset_for_rematch()` |
-| `json.Marshal(room)` / `Unmarshal` + `ensureRNG` | `SavedRoom::from(&room)` / `saved.restore(seed)` |
+| `Room::new(code, seed)` | A lobby |
+| `join(&str)` | |
+| `set_format(MatchFormat)` | A bad number is `MatchFormat::try_from(n)`'s refusal |
+| `set_max_players(usize)` | |
+| `swap_lobby_players(a, b)` | Lobby only. The hub calls it from `Table::swap_seats` alone |
+| `remove_lobby_player(i) -> Result<bool, _>` | Lobby or finished; `true` when the seat was the host. The hub calls it from `Table::remove_seat` alone |
+| `start(now)` | |
+| `play_card(p, card, color, target: Option<Seat>, now)` | |
+| `play_cards(p, &cards, color, target, declare, now)` | A batch, on the seat's own turn |
+| `interrupt_play(p, &cards, color, target, now)` | One card; a list so a batch can be refused |
+| `counter_draw(p, card, color, now)` | |
+| `draw_card(p, now)`, `pass_turn(p, now)` | |
+| `declare_last_card(p, now)` | |
+| `catch_undeclared(c, t, now)` | |
+| `penalize_failed_catch(c, now) -> CatchCharge::{Free, Charged { drawn }}` | |
+| `lock_catch(c, now) -> Option<Millis>` | |
+| `catch_locked(c, now)`, `catch_locked_at(c) -> Option<Millis>` | |
+| `catch_offered(c, now)` | |
+| `forfeit_to(w, now)` | |
+| `retire_seat(p, now)`, `is_retired(p)` | |
+| `begin_next_round(now)` | |
+| `reset_for_rematch()` | |
+| `SavedRoom::from(&room)` / `saved.restore(seed)` | The drain snapshot, out and back |
+
+## Reads (`Room`, `src/room.rs`)
+
+| Read | Notes |
+| --- | --- |
+| `seats() -> &[RoomSeat]`, `seat(i)`, `seat_count()` | One record per seat, in seat order |
+| `seat_mut(i)` | Writes a record; never adds, removes or moves one |
+| `nickname(i)`, `seat_of(name)` | |
+| `has_match_record()` | A match has begun since the last reset and somebody is seated: the scoreboard and the round history mean something |
+| `round_history() -> Vec<Vec<i32>>` | By round, then by seat: the seats' `round_points` |
 
 ## Reads (`GameState`, `src/state.rs`)
 
-| Go | Rust |
+| Read | Notes |
 | --- | --- |
-| `CatchableTargets(now) []int` | `catchable_targets(now) -> Vec<Seat>` |
-| `CatchWindowEnd(i)` | `catch_window_end(i) -> Option<Millis>` |
-| `LastCardDeclared[i]`, `LastCardAt[i]`, … | `seat(i).declared`, `seat(i).last_card_at`, … |
-| `LastPlayBy` (-1) | `last_play_by: Option<Seat>` |
-| `ApplyEffect`, `CanPlay` | `apply_effect`, `rules::can_play` |
-| `nextTurn`, `rotateSeats`, `isRetired`, `activeSeats` | `next_turn`, `rotate_seats`, `is_retired`, `active_seats` |
+| `catchable_targets(now) -> Vec<Seat>` | Who is on the hook |
+| `catch_window_end(i) -> Option<Millis>` | |
+| `seat(i).declared`, `seat(i).last_card_at`, … | One record per seat |
+| `last_play_by: Option<Seat>` | `None` for the deal or a closed window |
+| `apply_effect`, `rules::can_play` | |
+| `next_turn`, `rotate_seats`, `is_retired`, `active_seats` | Every one steps over a retired seat |
 
 ## Errors (`src/error.rs`)
 
-| Go predicate | `ErrorKind` |
+| `ErrorKind` | Refusals |
 | --- | --- |
-| `IsStateMismatch` (`ErrNotYourTurn`, `ErrIllegalPlay`, `ErrCardNotInHand`, `ErrMustAnswerPenalty`, the batch copy count) | `StaleState` |
-| `IsLostRace` (`ErrAlreadyDrawn`, `ErrMustDrawBeforePass`, the three interrupt refusals, `ErrCatchLocked`, `ErrMustDeclareLoco`) | `LostRace` |
-| `IsMissedCatch` (`ErrAlreadyDeclared`, `ErrCatchWindowExpired`, `ErrTargetNotSingleCard`) | `MissedCatch` |
-| `errors.Is(err, ErrNicknameRejected)` | `NicknameRejected` (the wire says `error::NICKNAME_REJECTED`) |
-| everything else | `Invalid` |
+| `StaleState` | `NotYourTurn`, `IllegalPlay`, `CardNotInHand`, `MustAnswerPenalty`, `NotEnoughCopies` |
+| `LostRace` | `AlreadyDrawn`, `MustDrawBeforePass`, the three interrupt refusals, `CatchLocked`, `MustDeclareLoco` |
+| `MissedCatch` | `AlreadyDeclared`, `CatchWindowExpired`, `TargetNotSingleCard` |
+| `NicknameRejected` | The three nickname rules (the wire says only `error::NICKNAME_REJECTED`) |
+| `Invalid` | Everything else |
 
-`ErrorKind::is_honest()` is `LostRace | MissedCatch`: what Go's `IsLostRace` answered for the
-suspected-cheats metric. Go left two missed catches out of it; the hub charges every missed catch
-before it could count one as suspect, so the difference was never observable, and a late catch is
-as honest as a lost interject.
+`ErrorKind::is_honest()` is `LostRace | MissedCatch`: what keeps a refusal off the suspected-cheats
+metric. A late catch is as honest as a lost interject, and the hub charges every missed catch
+before it could count one as suspect.
 
 ## Bots (`src/bot.rs`), nicknames, maps
 
-| Go | Rust |
+| Entry point | Notes |
 | --- | --- |
-| `BotThink(state, p)` | `bot_think(&state, p, &mut rng) -> BotAction` (`target: Option<Seat>`) |
-| `BotInterrupt(state, p)` | `bot_interrupt(&state, p) -> Option<BotInterruptAction>` |
-| `ValidateNickname`, `ContainsBlockedTerm` | `validate_nickname`, `contains_blocked_term` |
-| `MapIDs`, `MapWeathers`, `MapID.Valid()` | `maps::MAP_IDS`, `maps::MAP_WEATHERS`, `"x".parse::<MapId>()` |
+| `bot_think(&state, p, &mut rng) -> BotAction` | `target: Option<Seat>` |
+| `bot_interrupt(&state, p) -> Option<BotInterruptAction>` | One card |
+| `validate_nickname`, `contains_blocked_term` | |
+| `maps::MAP_IDS`, `maps::MAP_WEATHERS`, `"x".parse::<MapId>()` | |
 
 ## Constants read by client tests (plain literals, one per line)
 

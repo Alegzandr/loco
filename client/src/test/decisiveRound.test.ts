@@ -17,7 +17,7 @@ import { render, screen } from './render'
 import { act } from './renderHook'
 import GameView from '../components/GameView.svelte'
 import RoundSummary from '../components/RoundSummary.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { en } from '../i18n/en'
 import type { CardDTO, MatchFormat, ScoreboardEntryDTO } from '../types/protocol'
 

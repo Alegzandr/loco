@@ -6,7 +6,7 @@
 # the deploy chowns ${DATA_DIR}/snapshots/${DEPLOY_ENV} to it
 # (docs/deployment.md).
 
-FROM rust:1.97-alpine AS builder
+FROM rust:1.99-alpine AS builder
 
 # ring (rustls's crypto) compiles a little C; musl-dev is what makes the
 # result static.

@@ -1,10 +1,10 @@
 import type { Component } from 'svelte'
 import Root from './Root.svelte'
 import { initI18n } from './i18n/store'
-import { initTabLock } from './hooks/tabLock'
-import { initMotion } from './hooks/motionPref'
-import { initSessionRestore } from './hooks/sessionRestore'
-import { initTableInvite } from './hooks/tableInvite'
+import { initTabLock } from './state/tabLock'
+import { initMotion } from './state/motionPref'
+import { initSessionRestore } from './state/sessionRestore'
+import { initTableInvite } from './state/tableInvite'
 import { initLang } from './langRoute'
 import { initPinchGuard } from './pinchGuard'
 import { initContextGuard } from './contextGuard'
@@ -47,26 +47,21 @@ export function mountLookPanelIfAsked(): void {
 }
 
 /**
- * The home page arrives in one piece.
+ * The game page arrives in one piece.
  *
- * `/` is half prerendered markup (the bar, the phone's burger, the prose behind
- * the sheet) and half application rendered in the browser, and nothing held the
- * two together: the canvas and the static half painted on the first frame, the
- * lobby appeared whenever the game had booted. Both halves wait on this
- * attribute instead and fade in together — see the boot rules in
- * `layouts/GamePage.css`, which also carry the fallback that reveals the page if
- * this never runs.
+ * The page is half prerendered markup (the bar, the phone's burger, the prose
+ * behind the sheet) and half application rendered in the browser. A
+ * canvas-coloured veil holds both until this attribute is written, then lifts
+ * — see the boot rules in `layouts/GamePage.css`, which also carry the fallback
+ * that lifts it if this never runs. The content under the veil is opaque from
+ * its first paint, which is what keeps the page an LCP candidate.
  *
  * Two frames, not one: the render schedules the work, so the first callback
- * runs with the commit still pending and the fade would start over an empty
+ * runs with the commit still pending and the veil would lift over an empty
  * #root.
  *
- * The value is then spent. What fades is the app's rendered child rather than
- * #root itself — fading the mount point showed the body's gradient through it,
- * which no screen is ever meant to display — and every screen is a fresh child,
- * so a live reveal rule would replay on each one for the rest of the match. The
- * bare attribute is what lifts the hold and it stays; `in` is the animation and
- * it lasts one fade.
+ * The value is then spent: `in` is the fade and lasts one fade; the bare
+ * attribute that follows removes the veil for the life of the document.
  */
 const BOOT_FADE_MS = 600
 
@@ -141,14 +136,14 @@ function boot() {
   // A table link carries its code in the URL, and it has to be read before the
   // line below decides whether this tab is reclaiming a seat: following a link is
   // a fresh intent and outranks a stored record naming another table. It also
-  // takes the code straight back out of the address bar — see hooks/tableInvite.ts.
+  // takes the code straight back out of the address bar — see state/tableInvite.ts.
   initTableInvite()
 
   // Is this tab even the one holding the game? Ahead of the line below because a
   // tab that is not must do none of what it sets up: no restoring screen, no
   // `join_room` lined up for the first onopen, and above all no socket. The
   // election is one synchronous read, so nothing here waits — see
-  // hooks/tabLock.ts for why it is storage rather than a race on a channel.
+  // state/tabLock.ts for why it is storage rather than a race on a channel.
   //
   // After `initTableInvite()` on purpose: the invitation is spent out of the
   // address bar either way, and a tab that takes the game over later still has it

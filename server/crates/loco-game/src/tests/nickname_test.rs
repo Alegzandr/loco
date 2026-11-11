@@ -1,5 +1,5 @@
-//! Ported from `server/game/nickname_test.go`. Every input string is the Go
-//! literal byte for byte; the invisible characters are spelled as escapes.
+//! Nickname validation: length, charset and the blocked-term matcher. The
+//! invisible characters in the inputs are spelled as escapes.
 
 #[allow(unused_imports)]
 use super::support::*;
@@ -224,11 +224,63 @@ fn nickname_errors_are_one_wire_string() {
             err.kind() == ErrorKind::NicknameRejected,
             "{err} does not wrap ErrNicknameRejected"
         );
-        // Go's `%w` wrapping kept the sentinel's text at the head of the
-        // message; the Display carries it the same way.
+        // Every nickname refusal starts with the one text a player is shown.
         assert!(
             err.to_string().starts_with(NICKNAME_REJECTED),
             "{err} does not start with {NICKNAME_REJECTED:?}"
         );
     }
+}
+
+// A Latin term spelled with Cyrillic or Greek letters drawn the same renders
+// as the term on a stream, so it is matched on what it shows.
+#[test]
+fn lookalike_letters_do_not_hide_a_blocked_term() {
+    // Cyrillic с, і and е, and a Greek ε, each drawn as the Latin letter.
+    for name in [
+        "fu\u{441}k",
+        "b\u{456}t\u{441}h",
+        "nigg\u{3b5}r",
+        "nigg\u{435}r",
+    ] {
+        assert!(
+            validate_nickname(name).is_err(),
+            "{name:?} spells a blocked term in lookalikes and was accepted"
+        );
+    }
+    // A name honestly written in Cyrillic or Greek still passes.
+    for name in [
+        "\u{414}\u{438}\u{43c}\u{430}",
+        "\u{41c}\u{430}\u{448}\u{430}",
+        "\u{3a9}-player",
+    ] {
+        assert!(validate_nickname(name).is_ok(), "{name:?} refused");
+    }
+}
+
+// The grapheme joiner and the variation selectors are marks that draw nothing:
+// they would let two names that look the same differ.
+#[test]
+fn invisible_marks_are_refused() {
+    for name in ["Bo\u{34f}b", "Bob\u{fe0f}", "Bo\u{fe00}b", "Bo\u{180b}b"] {
+        assert!(validate_nickname(name).is_err(), "{name:?} accepted");
+    }
+    // A real accent, decomposed, still passes.
+    assert!(validate_nickname("Le\u{301}a").is_ok());
+}
+
+#[test]
+fn nickname_key_reads_a_name_as_it_is_shown() {
+    assert_eq!(
+        nickname::nickname_key("Bob"),
+        nickname::nickname_key("\u{412}\u{43e}b")
+    );
+    assert_eq!(
+        nickname::nickname_key("L\u{e9}a"),
+        nickname::nickname_key("Lea")
+    );
+    assert_ne!(
+        nickname::nickname_key("Alex"),
+        nickname::nickname_key("Alex2")
+    );
 }

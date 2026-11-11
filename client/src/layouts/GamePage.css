@@ -43,57 +43,53 @@ body.game {
 
 /* One arrival, not two.
 
-   The bar is prerendered markup and the game is mounted from a bundle, so
-   with nothing holding them together this page came up in pieces: the canvas
-   and the links on a wide screen, the canvas and the burger on a phone, then
-   the lobby a few hundred milliseconds later when the bundle landed. Both
-   halves now wait for the mount and fade in together — `data-booted` is
-   written on <html> by boot.ts once the game has painted.
+   The bar is prerendered markup and the game is mounted from a bundle, so with
+   nothing holding them together the page would come up in pieces: the canvas
+   and the links first, the lobby when the bundle lands. A canvas-coloured veil
+   covers the viewport until boot.ts writes `data-booted` on <html> once the
+   game has painted, then lifts off the top.
 
-   Gated on `scripting: enabled`, because with no script there is no mount to
-   wait for and the prose behind the sheet is the only thing on `/` a crawler
-   reads: it may never be hidden behind a reveal that cannot fire. The delay on
-   the same animation below is the other half of that promise — a bundle that
-   fails to load shows the page anyway rather than leaving a blank screen.
+   **The veil fades, never the content.** Chrome takes the LCP candidate at an
+   element's first paint and skips anything at `opacity: 0`; content fading up
+   from zero leaves no candidate (NO_LCP, a performance score of 0). Under the
+   veil everything is painted opaque on the first frame. The veil is the
+   canvas's own colour, so the hold reads as the page background — and the
+   body's gradient, which the flat `#root` and bar hide, is never seen.
 
-   **Nothing that paints the page's background is ever what fades.** `#root`
-   and the bar (`.siteFooter`) are both filled with `--color-canvas`, and the body under
-   them carries the candy gradient — which those two flat fills are the reason
-   nobody ever sees. Fading either of them let it through for a third of a
-   second, so the load flashed a gradient that is not part of any screen. The
-   animation is therefore on what arrives — the app's mounted child, the
-   bar's row (`.footerRow`), the phone's burger — and never on the surfaces they
-   arrive onto. The canvas is painted on the first frame and does not move
-   again.
-
-   Opacity only, deliberately: a transform here would make each of these a
-   containing block for the fixed burger and for every panel the app renders,
-   for as long as the animation runs.
+   Gated on `scripting: enabled`: with no script there is no mount to wait for,
+   and the prose behind the sheet must never sit under a veil that cannot lift.
+   The delay is the other half of that promise — a bundle that fails to load
+   lifts the veil anyway.
 
    `data-booted="in"` is the reveal and it is spent: boot.ts blanks the value
-   once the fade is over. Every screen is a fresh child of #root, so a reveal
-   rule left standing would replay on every screen change for the rest of the
-   match. The bare attribute is what lifts the hold, and it stays.
-
-   Reduced motion keeps the wait and loses the fade — the blanket rule in
-   tokens.css cuts every animation's duration and leaves its delay alone. */
+   once the fade is over, which removes the veil. Opacity only on the veil; it
+   takes no press (`pointer-events: none`). Reduced motion keeps the wait and
+   loses the fade (tokens.css cuts durations, never delays). */
 @media (scripting: enabled) {
-  :root:not([data-booted]) #root > *,
-  :root:not([data-booted]) .onHome .footerRow,
-  :root:not([data-booted]) .homeBurger {
-    animation: homeBootIn 0.34s var(--ease-out) 3s both;
+  :root:not([data-booted]) body.game::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: var(--color-canvas);
+    pointer-events: none;
+    animation: homeVeilOff 0.34s var(--ease-out) 3s both;
   }
 }
 
-:root[data-booted='in'] #root > *,
-:root[data-booted='in'] .onHome .footerRow,
-:root[data-booted='in'] .homeBurger {
-  animation: homeBootIn 0.34s var(--ease-out) both;
+:root[data-booted='in'] body.game::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: var(--color-canvas);
+  pointer-events: none;
+  animation: homeVeilOff 0.34s var(--ease-out) both;
 }
 
-@keyframes homeBootIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+@keyframes homeVeilOff {
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }
 
 /* The bar itself is the site's (`.siteFooter` in content.css): same height,

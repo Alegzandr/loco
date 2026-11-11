@@ -2,15 +2,15 @@
   import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { playSfx } from '../audio/sfx'
-  import { seatColor, seatInitial } from './playerColors'
+  import { seatColor, seatInitial } from '../game/playerColors'
   import LocoLogo from './LocoLogo.svelte'
   import Preferences from './Preferences.svelte'
   import FullscreenButton from './FullscreenButton.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
-  import { searchStage, formatElapsed } from './searchStages'
-  import { showPlayersOnline } from './playersOnline'
+  import { searchStage, formatElapsed } from '../game/searchStages'
+  import { showPlayersOnline } from '../game/playersOnline'
 
   type Props = {
     /** Date.now() when the search began. */

@@ -1,15 +1,13 @@
-//! What the hub's hot paths cost, measured: `make bench-server`. The Go
-//! numbers to compare against are `go test ./hub/ -run '^$' -bench .`
-//! (`server/hub/loop_bench_test.go`), whose cases these mirror one for one:
+//! What the hub's hot paths cost, measured: `make bench-server`. The cases:
 //! a whole card play through the table's dispatch, the personalised fan-out
 //! after a Swap, the card_played broadcast alone, one recipient's state.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use loco_game::{Card, Color, Kind};
-use loco_hub::actor::DeadlineKey;
-use loco_hub::room::new_room;
-use loco_hub::wire::ClientMsg;
-use loco_hub::wire::msg;
+use loco_hub::net::wire::ClientMsg;
+use loco_hub::net::wire::msg;
+use loco_hub::table::actor::DeadlineKey;
+use loco_hub::table::room::new_room;
 use loco_hub::{AsyncLog, Client, Hub, HubConfig, Table};
 use std::hint::black_box;
 use std::sync::Arc;
@@ -20,12 +18,12 @@ fn benches(c: &mut Criterion) {
     let _guard = rt.enter();
     let hub = Hub::start(HubConfig::default());
 
-    // Go: 0.15 µs through the sink, 0.9–7.3 µs straight to stderr.
-    let log = AsyncLog::new(std::io::sink(), loco_hub::logsink::LOG_QUEUE_DEPTH);
+    // A log line handed to the sink, never to stderr on the caller's time.
+    let log = AsyncLog::new(std::io::sink(), loco_hub::ops::logsink::LOG_QUEUE_DEPTH);
     c.bench_function("log line through the async sink", |b| {
         b.iter(|| {
             log.write_line(black_box(
-                b"2026/11/10 12:00:00 card played code=ABCDEF seat=1\n",
+                b"2026-11-10T12:00:00Z card played code=ABCDEF seat=1\n",
             ))
         })
     });
@@ -38,7 +36,7 @@ fn benches(c: &mut Criterion) {
         })
     });
 
-    // Go: broadcastCardPlayed 1.04 µs at four seats (a bigger message).
+    // The fan-out of one small message to four seats.
     let mut table = Table::new("ABCDEF", new_room("ABCDEF"));
     let mut rxs = Vec::new();
     for seat in 0..4 {
@@ -59,7 +57,7 @@ fn benches(c: &mut Criterion) {
         let now = tokio::time::Instant::now();
         b.iter(|| {
             table.deadlines.arm(
-                DeadlineKey::seat("turn", 1),
+                DeadlineKey::BotMove(1),
                 now + Duration::from_secs(30),
                 |_, _| {},
             );
@@ -72,7 +70,7 @@ fn benches(c: &mut Criterion) {
 }
 
 /// A dealt table of `n` seats, every seat a detached client whose queue the
-/// bench drains between iterations (Go drained it on a goroutine).
+/// bench drains between iterations.
 fn bench_table(
     hub: &Hub,
     n: usize,
@@ -97,7 +95,7 @@ fn bench_table(
         clients.push(c);
         rxs.push(rx);
     }
-    t.room.start(loco_hub::clock::now_ms()).expect("start");
+    t.room.start(loco_hub::ops::clock::now_ms()).expect("start");
     (t, loco_hub::TableCtx::detached(hub, code), clients, rxs)
 }
 
@@ -107,8 +105,8 @@ fn drain(rxs: &mut [tokio::sync::mpsc::Receiver<axum::extract::ws::Utf8Bytes>]) 
     }
 }
 
-/// Go: `BenchmarkDispatchPlayCard` — a wild played by whoever's turn it is,
-/// through the whole table-side dispatch (8.1 / 8.6 / 9.6 µs at 2 / 4 / 10).
+/// A wild played by whoever's turn it is, through the whole table-side
+/// dispatch, at 2, 4 and 10 seats.
 fn dispatch_play_card(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("runtime");
     let _guard = rt.enter();
@@ -153,8 +151,8 @@ fn dispatch_play_card(c: &mut Criterion) {
     g.finish();
 }
 
-/// Go: `BenchmarkBroadcastPersonalizedGameState` and
-/// `BenchmarkBroadcastCardPlayed` and `BenchmarkPlayerGameState`.
+/// The personalised fan-out after a Swap, the `card_played` broadcast, and
+/// one recipient's state.
 fn broadcasts(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("runtime");
     let _guard = rt.enter();

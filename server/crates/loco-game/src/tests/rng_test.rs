@@ -1,4 +1,4 @@
-//! Ported from `server/game/rng_test.go`, against ChaCha.
+//! The room's source of randomness, against the clock-seed attack.
 //!
 //! The deal is hidden state, so the source that produces it has to be
 //! unguessable. This runs the actual attack rather than asserting a property of
@@ -20,7 +20,7 @@ use crate::card::Card;
 use crate::maps::MapId;
 use crate::room::Room;
 use crate::tests::support::NOW;
-use rand_core::RngCore;
+use rand_core::Rng;
 use std::collections::HashSet;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};

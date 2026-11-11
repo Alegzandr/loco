@@ -1,5 +1,4 @@
-//! Maps: the room a match is played in, and the moment it is played at
-//! (`server/game/maps.go`).
+//! Maps: the room a match is played in, and the moment it is played at.
 //!
 //! A map is a scene, a table, an accent colour and a name. It changes no rule,
 //! no card, no timing; the domain carries it purely so that the *choice* is the
@@ -24,7 +23,7 @@ pub struct UnknownName {
     pub name: String,
 }
 
-/// The room a match is played in (Go: `MapID`).
+/// The room a match is played in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MapId {
@@ -42,7 +41,7 @@ pub enum MapId {
     Marina,
 }
 
-/// The hour a match is dealt at (Go: `TimeOfDay`). Presentation only.
+/// The hour a match is dealt at. Presentation only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TimeOfDay {
@@ -52,7 +51,7 @@ pub enum TimeOfDay {
     Night,
 }
 
-/// The sky a match is dealt under (Go: `Weather`). Presentation only.
+/// The sky a match is dealt under. Presentation only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Weather {
@@ -105,7 +104,7 @@ impl Weather {
 }
 
 /// `Display` and `FromStr` off `as_str` and the list of every value, so the
-/// spelling is written once (Go: `String()` and `Valid()`).
+/// spelling is written once.
 macro_rules! named {
     ($t:ident, $all:ident, $what:literal) => {
         impl fmt::Display for $t {
@@ -131,8 +130,7 @@ macro_rules! named {
 named!(MapId, MAP_IDS, "map");
 named!(TimeOfDay, TIMES_OF_DAY, "time of day");
 named!(Weather, WEATHERS, "weather");
-/// Every map a match can be dealt into, and the list the draw reads (Go:
-/// `MapIDs`).
+/// Every map a match can be dealt into, and the list the draw reads.
 pub const MAP_IDS: [MapId; 6] = [
     MapId::Neon,
     MapId::Rune,
@@ -142,7 +140,7 @@ pub const MAP_IDS: [MapId; 6] = [
     MapId::Marina,
 ];
 
-/// Every hour a match can be dealt at (Go: `TimesOfDay`).
+/// Every hour a match can be dealt at.
 pub const TIMES_OF_DAY: [TimeOfDay; 4] = [
     TimeOfDay::Dawn,
     TimeOfDay::Day,
@@ -150,7 +148,7 @@ pub const TIMES_OF_DAY: [TimeOfDay; 4] = [
     TimeOfDay::Night,
 ];
 
-/// Every weather any map can be dealt under (Go: `Weathers`).
+/// Every weather any map can be dealt under.
 pub const WEATHERS: [Weather; 6] = [
     Weather::Clear,
     Weather::Cloudy,
@@ -160,9 +158,9 @@ pub const WEATHERS: [Weather; 6] = [
     Weather::Fog,
 ];
 
-/// The weather each room can be dealt under, and the list its draw reads (Go:
-/// `MapWeathers`). A room says what its sky can do: it does not snow on a moon
-/// with no air. Every list is non-empty and carries `clear`.
+/// The weather each room can be dealt under, and the list its draw reads. A
+/// room says what its sky can do: it does not snow on a moon with no air.
+/// Every list is non-empty and carries `clear`.
 pub const MAP_WEATHERS: [(MapId, &[Weather]); 6] = [
     (
         MapId::Neon,
@@ -223,7 +221,7 @@ pub const MAP_WEATHERS: [(MapId, &[Weather]); 6] = [
 ];
 
 impl MapId {
-    /// The skies this room can be dealt under (Go: `MapID.Weathers`). Every map
+    /// The skies this room can be dealt under. Every map
     /// has a list, which `maps_test` pins.
     pub fn weathers(self) -> &'static [Weather] {
         MAP_WEATHERS
@@ -234,43 +232,19 @@ impl MapId {
     }
 }
 
-/// `Option<T>` as Go's string type, where `""` is "not drawn yet".
-pub(crate) mod empty_is_none {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S: Serializer, T: Serialize>(v: &Option<T>, s: S) -> Result<S::Ok, S::Error> {
-        match v {
-            Some(t) => t.serialize(s),
-            None => s.serialize_str(""),
-        }
-    }
-
-    pub fn deserialize<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: Deserialize<'de>,
-    {
-        let s = Option::<String>::deserialize(d)?.unwrap_or_default();
-        if s.is_empty() {
-            return Ok(None);
-        }
-        T::deserialize(serde::de::value::StrDeserializer::<D::Error>::new(&s)).map(Some)
-    }
-}
-
 impl Room {
     /// Draws the room for a match, from the room's own source so a seeded room
-    /// deals a reproducible map beside its reproducible hands. (Go: `pickMap`.)
+    /// deals a reproducible map beside its reproducible hands.
     pub(crate) fn pick_map(&mut self) -> MapId {
         MAP_IDS[rng::below(self.rng_mut(), MAP_IDS.len())]
     }
 
-    /// Draws the hour, from the same source. (Go: `pickTime`.)
+    /// Draws the hour, from the same source.
     pub(crate) fn pick_time(&mut self) -> TimeOfDay {
         TIMES_OF_DAY[rng::below(self.rng_mut(), TIMES_OF_DAY.len())]
     }
 
-    /// Draws the sky among the ones the room allows. (Go: `pickWeather`.)
+    /// Draws the sky among the ones the room allows.
     pub(crate) fn pick_weather(&mut self, m: MapId) -> Weather {
         let list = m.weathers();
         list[rng::below(self.rng_mut(), list.len())]

@@ -34,7 +34,7 @@
   import { bootGame, markBooted, mountLookPanelIfAsked } from '../boot'
   import { initLang } from '../langRoute'
   import { redetectLang } from '../i18n/store'
-  import { gameShown } from '../hooks/gameShown.svelte'
+  import { gameShown } from '../state/gameShown.svelte'
 
   const { children }: { children: Snippet } = $props()
 

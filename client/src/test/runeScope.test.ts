@@ -1,7 +1,7 @@
 /**
  * A rune only exists where the compiler looks for one.
  *
- * `src/hooks/` splits in two on purpose: `.svelte.ts` is anything owning
+ * `src/state/` splits in two on purpose: `.svelte.ts` is anything owning
  * reactive state or an effect, and everything else is framework-free so a
  * content page can import it without dragging Svelte onto a document that mounts
  * nothing. The extension is the whole declaration — and it is enforced by the
@@ -79,7 +79,7 @@ describe('runes stay where they are compiled', () => {
   // empty set: a rename that turned every `.svelte.ts` into a plain module would
   // otherwise read as compliance.
   it('finds the reactive half where it belongs', () => {
-    const reactive = readdirSync(path.join(SRC, 'hooks')).filter((f) => f.endsWith('.svelte.ts'))
+    const reactive = readdirSync(path.join(SRC, 'state')).filter((f) => f.endsWith('.svelte.ts'))
     expect(reactive.length).toBeGreaterThan(5)
   })
 })

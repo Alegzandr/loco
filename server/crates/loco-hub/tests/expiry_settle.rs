@@ -1,5 +1,3 @@
-//! Port of `server/hub/expiry_settle_test.go`.
-//!
 //! What a hold running out does to the table it ran out at. In a running
 //! ordinary match the seat used to stay in the round with its cards, and at a
 //! finished table dropping the first expired seat re-based the members without

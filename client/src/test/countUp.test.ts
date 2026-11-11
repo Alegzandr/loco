@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { countUp, COUNT_UP_MS } from '../components/countUp'
-import { setMotionPref } from '../hooks/motionPref'
+import { setMotionPref } from '../state/motionPref'
 
 // Frames driven by hand: each call to `tick` is one animation frame at the
 // given time, so the climb is asserted without a clock.

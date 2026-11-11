@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from './render'
 import { act } from './renderHook'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { ClientMsg } from '../types/protocol'
 
 // A matchmade table with nobody left at it cannot deal a rematch: the agreement
@@ -15,11 +15,11 @@ const stableSend = (msg: ClientMsg) => {
   sent.push(msg)
 }
 const stableForceClose = () => {}
-vi.mock('../hooks/webSocket.svelte', () => ({
+vi.mock('../state/webSocket.svelte', () => ({
   webSocket: () => ({ send: stableSend, wsStatus: 'open', forceClose: stableForceClose }),
 }))
-vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+vi.mock('../state/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/appEffects.svelte')>()),
   gameAudio: () => {},
 }))
 
@@ -77,7 +77,7 @@ describe('a matchmade table nobody is left at', () => {
 
 describe('the two ways off a finished 1v1', () => {
   // Relaunching the search is one message: the server gives the seat up inside
-  // find_match (loco-hub/src/matchmaking.rs), so a leave_room ahead of it would only add
+  // find_match (loco-hub/src/router/matchmaking.rs), so a leave_room ahead of it would only add
   // an ordering bug — and its left_room runs resetToHome, which would reset the
   // store out from under the search screen this just opened.
   it('relaunches the search without leaving the room first', () => {

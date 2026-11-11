@@ -1,660 +1,349 @@
 # Audio
 
-Every sound effect is synthesised at runtime. The music is nineteen CC0 loops, served from this origin.
+Every sound effect is synthesised at runtime. The music is nineteen CC0 loops, served from this
+origin. The rules are in `CLAUDE.md`; this note carries the reasons and the edge cases.
 
-> Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
-> reasoning, the edge cases, and the bugs that produced them.
+A sound effect is a reaction and has to answer a tap in the same frame, so it cannot afford a fetch:
+nothing to download, nothing to licence, no cache-miss silence. A bed is not a reaction, so it can.
 
-## Audio
-**Every sound effect is synthesised at runtime** — nothing to download, nothing to licence, no
-cache-miss silence on the first play of a cue that has to answer a tap in the same frame.
+## The engine (`audio/engine.ts`)
 
-**The music is not, any more.** It is nineteen loops by Abstraction, released CC0, normalised and encoded
-to MP3 under `client/public/music/`. What that bought and what it cost is the section below; the
-short version is that a sound effect is a reaction and a bed is not, so only one of the two can
-afford a fetch.
+A lazy `AudioContext` (browsers refuse one outside a user gesture; every play before `unlock()` is a
+silent no-op), master → sfx/music buses, settings persisted under `loco_audio`, and a per-frame voice
+budget (`budgetVoice`, six) so a batch play cannot stack a dozen voices.
 
-- `audio/engine.ts` — lazy `AudioContext` (browsers refuse one outside a user gesture; every play
-  before `unlock()` is a silent no-op), master → sfx/music buses, settings persisted under
-  `loco_audio`, per-frame voice budget so a batch play can't stack a dozen voices.
-- **Mobile Safari loses the context in three ways, and all three fail as silence rather than as an
-  error**, which is why nothing in the suite went red on them for months.
-  `src/test/audioLifecycle.test.ts` owns all three.
-  - **`unlock()` resumes anything that is not `running`, never just `suspended`.** WebKit parks the
-    context in its own non-standard **`interrupted`** state when the page is backgrounded, when a
-    call lands, or when Siri speaks. Guarded on `=== 'suspended'` the resume never fired, so
-    `isReady()` stayed false forever: `playSfx` became a no-op and `MusicBed.schedule` returned on
-    every tick against a frozen clock while its `setInterval` kept running, so `music.isPlaying()`
-    was `true` and the gesture handler never restarted the bed either. Switching apps and coming
-    back cost the player the sound for the rest of the page's life.
-  - **`unlock()` is `async` and resolves once the context is really running.** `resume()` is a
-    promise, so starting the bed on the next line found `isReady()` still false and silently did
-    nothing; the sound only arrived on the player's *second* tap. `gameAudio()` starts the music
-    inside the `.then()`.
-  - **`visibilitychange` + `focus` reclaim the context** (`gameAudio()`, skipped while hidden).
-    Coming back from another app is exactly when the context needs reclaiming and exactly when
-    there is no gesture to hang it on: the player looks at the board before touching it. It does
-    not replace the gesture handlers (a resume outside one may be refused), but the page keeps its
-    sticky activation, so in practice this is what turns the sound back on.
-  - **`navigator.audioSession.type = 'playback'`** at context creation (Safari 16.4+, guarded). On
-    iPhone the Ring/Silent switch mutes Web Audio in a page (unlike an inline `<video>`) with no
-    error and no way to feature-detect the outcome, so the same build is silent on one phone and
-    fine on another. That is most of "sometimes I have sound, sometimes I don't". `playback` is
-    what this is (a game with its own soundtrack) and is the category that ignores the switch; it
-    also stops whatever the player had going in another app, which is the deliberate trade. Use
-    `'ambient'` instead to respect the switch and mix with other audio.
-  - **The bed stops while the tab is hidden and comes back with it** (`music.setHidden`, driven
-    from `gameAudio()`'s `visibilitychange`). A page that plays audio is exempt from timer
-    throttling, so a backgrounded table went on building a bar of synthesis every 40 ms and
-    playing it out loud from behind another window. Only the bed: the effects are left alone,
-    because the turn cue reaching a player who looked away is the point of it, and `tabAlert`
-    expects exactly that.
-  - **Muted opens nothing.** `gameAudio()`'s gesture unlock and `AudioSettings`' mute button both
-    refuse to create a context while `muted` is set, so a player who muted before the first tap
-    never gets a context, a `playback` audio session (which on iOS stops whatever they had going
-    in another app) or a scheduler in service of silence. Unmuting is itself a gesture: the button
-    unlocks and starts the bed on the spot rather than leaving it to the next store change.
-  - **Settings are applied now and written later** (`PERSIST_DEBOUNCE_MS`, flushed on `pagehide`
-    and by `persistNow()`). A slider fires `input` dozens of times a second and `setItem` is
-    synchronous, so one write per step was sixty blocking writes a second on the main thread over
-    a live board, recording values the next step replaced.
-- `audio/sfx.ts` — one-shots, and a sound set with an identity rather than a drawer of oscillator
-  presets. The first set was sines, squares and swept noise — the sounds every prototype makes,
-  which is why it read as "heard a thousand times" — and it was replaced whole. Four materials, each
-  a primitive in the file, each voice built from them and nothing else:
-  - **Card stock on felt** (`cardHit`: a flick of combed noise, a resonant `snap`, a `thud` of the
-    table underneath; `cardDraw` slides fibrous noise through a comb; the deal is a `snap` riffle
-    climbing and panning across the pile). Nothing that handles a card is a pitched tone. Every hit
-    lands a shade to one side (`HUMAN_PAN`) and never twice the same (`humanVariation`).
-  - **Wood** (`mallet`: a fundamental and a fourth partial that dies faster, under a tick of attack
-    noise — marimba low, kalimba high). Every interface sound is one: the tap, the back, the turn
-    coming round, somebody sitting down or leaving, the two knocks of a refusal, the woodblock of
-    the countdown. The game is a table and its controls are things on it, not a phone's beeps.
-  - **Brass and bell** (`stab` for the chords, `bell` for a two-operator FM strike whose index
-    falls with the note): the call, the verdict, the match. The chords are the ones already
-    reasoned below; what changed is the body — a bell partial on top, a sub `thud` under the root,
-    and for the catch a gong at ratio 1.41, metal that does not agree with itself, because being
-    caught is not a tune.
-  - **Air** (`whoosh`: noise swelling into a sweep, panned across the room when it crosses one):
-    the breath before the LOCO! and the slam, the two hands of a swap passing each other, the
-    rush in front of a match found. It says "something moved fast" without playing a note.
-  - **A cue is a struck chord, not a scale, and no two moments may share one** (`stab()`). Every
-    celebration used to be `arp()` — a run of notes — and five of them ran the same major triad
-    upward: `wild` and `roundWin` came out **note for note identical**, so the game said the same
-    thing about two events that mean nothing alike. Major-going-up for good and minor-coming-down
-    for bad is the reflex every prototype has, and it gave twenty-three voices one sentence at four
-    speeds.
+**Mobile Safari loses the context three ways, and all three fail as silence rather than as an
+error.** `src/test/audioLifecycle.test.ts` owns all three.
 
-    The bed is 138 BPM trance and does not talk that way. A chord under a filter that opens on the
-    transient and shuts as it falls says its whole piece **in one hit**, which is also what keeps a
-    cue shorter than the gap before the next card — an arpeggio is by construction as long as its
-    note count, and a card game plays faster than that. **`arp()` is gone; do not bring it back.**
-  - **A tail is a send, never an insert** (`audio.sfxReverbSend()`). The card handling is paper and
-    stays dry at zero: putting the reverb in the voice meant every cue carried a room it could not
-    be taken out of, and the one family that must sound like an object on felt was the family it
-    ruined.
-  - Two cues are envelopes nobody else has, on purpose: `reverse` is a note played backwards (it
-    swells in and stops dead, then the mallet lands on the far side) and `skip` is a zip past the
-    seat into a dead note. The ear knows what the ring did before the eye does.
-  - `make audio-verify` prints each cue's audible length beside its peak (`len=`, the last frame
-    above a fortieth of the loudest): a card game plays faster than its sounds decay, and that is
-    the column to read after touching a voice.
-  - **How often a cue plays is part of its level.** `yourTurn` fires once a turn for the whole
-    match, so it is mixed *under* the cues that report an event rather than beside them: at the
-    card handling's peak it stopped being a nudge and became an alarm somewhere around the tenth
-    turn, which is the one complaint a cue this frequent can earn. It sits at ~0.14 against
-    `cardPlay`'s ~0.14 over less than half the length, and it is the only voice whose level is
-    argued from repetition instead of from what it means.
-  - **And the ceiling is the other half of that.** `matchWin` stacks a chord, two bells and a sub on
-    the same instant at 0.5s; those four summing put it at 0.82, over `audio-verify`'s 0.8, on the
-    moment of the evening most likely to be clipped for a stream. It is trimmed **as a group** — the
-    balance between the four is the one that was written, and lowering the loudest alone would
-    rewrite the cue rather than the level.
-- `audio/music.ts` — the bed **engine**. It contains no music: loops are data in `audio/tracks/` and
-  files under `client/public/music/`, and this plays any of them (loading, loop points, the
-  arrangement ladder, the crossfades).
-- `audio/tracks/` — the registry. `types.ts` documents the schema; `index.ts` lists the loops (add
-  one by encoding a file and writing a `LoopDef` — engine, panel, tests and harness all read that
-  list). Nineteen ship, laid out along the ladder: **Intermission**, **Idle Hands**, **Fanned Out**,
-  **Nightcap** and **Small Talk** over the count-up and the wait, **Patience** and **Late Arrivals**
-  over the wait alone, **Rowdy**, **Sidetrack**, **Mirage**, **Full Table** and **Clockwork** over
-  ordinary play, and **Sleight**, **Pile-Up**, **Uproar**, **Neck and Neck**, **On the Run**,
-  **Runaway** and **Bad Manners** as it gets away from everybody. Each carries its tempo
-  (`LoopDef.bpm`), which is what lets a change land on a bar line — see "Where a change lands".
+- **`unlock()` resumes anything that is not `running`**, never just `suspended`: WebKit parks the
+  context in a non-standard `interrupted` state when the page is backgrounded, a call lands or Siri
+  speaks. Guarded on `suspended`, the sound is gone for the rest of the page's life.
+- **`unlock()` is `async` and resolves once the context is really running.** `resume()` is a
+  promise; a bed started on the next line finds the context not ready and does nothing until the
+  second tap. `gameAudio()` starts the music inside the `.then()`.
+- **`visibilitychange` + `focus` reclaim the context** (`gameAudio()`, skipped while hidden). Coming
+  back from another app is exactly when there is no gesture to hang a resume on; the page keeps its
+  sticky activation, so this is what turns the sound back on. It does not replace the gesture
+  handlers.
 
-### Why the synthesiser went, and what had to be bought back
+Also:
 
-The bed used to generate every note. A track was `parts` plus a `form` the engine walked, and that
-design existed because the version before it was one four-bar loop whose only variation was layer
-count — the verdict was "it's just a chorus on repeat", and it was right.
+- **`navigator.audioSession.type = 'playback'`** at context creation (Safari 16.4+, guarded). On
+  iPhone the Ring/Silent switch mutes Web Audio with no error and no way to detect it; `playback` is
+  the category that ignores the switch. It also stops other apps' audio — the deliberate trade.
+  (`'ambient'` would respect the switch and mix.)
+- **The bed stops while the tab is hidden** (`music.setHidden`, from `gameAudio()`'s
+  `visibilitychange`): a page that plays audio is exempt from timer throttling, and a looping source
+  would go on playing from behind another window. The effects are left alone — the turn cue reaching
+  a player who looked away is the point of it, and `tabAlert` expects it.
+- **Muted opens nothing.** The gesture unlock and `AudioSettings`' mute button refuse to create a
+  context while `muted` is set: no context, no `playback` session, no fetch, no decode. Unmuting is a
+  gesture, so the button unlocks and starts the bed on the spot.
+- **Settings are applied now and written later** (`PERSIST_DEBOUNCE_MS`, 250, flushed on `pagehide`
+  and by `persistNow()`): a slider fires `input` dozens of times a second and `setItem` is synchronous.
 
-Three tracks was also the ceiling. Writing a fourth meant writing music in a data schema, which is a
-much narrower talent than picking one, and the register the synthesiser landed on (138 BPM trance)
-was inherited from the Strudel sketch it started as rather than chosen against the art direction.
-Cartoon premium wants jazz, funk and something a bit silly; the sequencer was not going to get there.
+## Sound effects (`audio/sfx.ts`)
 
-So the music is recorded now. What that costs is the form, and the property the form defended has to
-be bought some other way:
+A sound set with an identity, in four materials, each a primitive in the file and every voice built
+from them and nothing else:
 
-- **More loops than sections.** Each loop declares which sections it can carry, every section is
-  carried by **at least two**, and the **groove by at least five** — all pinned by `music.test.ts`,
-  because one loop for a section means a table sitting in that section hears one piece of music for
-  as long as it sits there, which is the failure the whole design exists to escape.
-- **Two reasons to change loop, not one.** The table moved to another section, or this loop has come
-  round `LAPS_PER_LOOP` times. The second is what moves the music on a table whose tension never
-  changes, and a bed that only ever answered the game would be a loop with extra steps.
+- **Card stock on felt** (`cardHit`: a flick of combed noise, a resonant `snap`, a `thud` of the
+  table; `cardDraw` slides fibrous noise through a comb; the deal is a `snap` riffle climbing and
+  panning across the pile). Nothing that handles a card is a pitched tone.
+- **Wood** (`mallet`: a fundamental and a faster-dying fourth partial under a tick of attack noise).
+  Every interface sound: the tap, the back, the turn coming round, a seat filling or emptying, the two
+  knocks of a refusal, the countdown's woodblock. The controls are things on a table, not a phone's
+  beeps.
+- **Brass and bell** (`stab` for chords, `bell` for a two-operator FM strike): the call, the verdict,
+  the match. A bell partial on top, a sub `thud` under the root, and for the catch a gong at ratio
+  1.41 — being caught is not a tune.
+- **Air** (`whoosh`, a noise swell into a sweep, panned): the breath before the LOCO! and the slam,
+  the two hands of a swap passing, the rush before a match found.
+
+Rules on top of the materials:
+
+- **A cue is a struck chord, not a scale, and no two moments may share one** (`stab()`). A chord
+  under a filter that opens on the transient says its piece in one hit, which keeps a cue shorter
+  than the gap before the next card; a run is as long as its note count, and major-up/minor-down for
+  good/bad collapses every moment into one sentence. **`arp()` is not used; do not bring it back.**
+- **A tail is a send, never an insert** (`audio.sfxReverbSend()`). The card handling stays dry at
+  zero: a reverb inside the voice cannot be taken out, and paper on felt is the family it ruins.
+- `reverse` is a note played backwards (swells in, stops dead, mallet on the far side) and `skip` is
+  a zip past the seat into a dead note: the ear knows what the ring did before the eye does.
+- **How often a cue plays is part of its level.** `yourTurn` fires every turn, so it sits *under*
+  the event cues (~0.14 against `cardPlay`'s ~0.14 over less than half the length); at the handling's
+  peak it becomes an alarm by the tenth turn.
+- **The ceiling is the other half.** `matchWin` stacks a chord, two bells and a sub on one instant;
+  it is trimmed **as a group** to stay under `audio-verify`'s 0.8 — lowering the loudest part alone
+  would rewrite the cue.
+- **The handling is never played twice the same way** (`humanVariation`, applied by `playSfx` to the
+  `HUMANISED` set and by `playDeal` to each card): ±45 cents (`HUMAN_CENTS`), gain 0.86–1
+  (`HUMAN_GAIN_FLOOR`), pan up to `HUMAN_PAN`. The cues that *mean* something (call, catch, fanfare)
+  stay exact: they are the vocabulary. `haptics.test.ts` pins the range.
+- **A cue is struck in the bed's key** — see "Keys" below.
+
+## Who decides, who plays
+
+- `audio/gameSounds.ts` **decides** and plays nothing: `soundsForTransition` is a pure function of
+  two store snapshots, so it is a unit test rather than a listening exercise.
+- `state/appEffects.svelte.ts`'s `gameAudio()` is **the only place a game sound is played**: one
+  store subscription, one readable list, nothing double-fires. A component calling `playSfx` directly
+  is a UI tap (`uiTap`, `uiBack`), never a game event.
+- **What `gameSounds.ts` keys a cue on is a stamp, never a flag or a string** (`unoDeclaredAt`,
+  `errorAt`, minted by `store/helpers.ts`'s strictly increasing `stamp()`): a latch misses a second
+  seat calling LOCO! after a Global Switch, and a string misses the second of two identical refusals.
+  The opening seat's `yourTurn` fires on the table opening (`mapLoading` going null); every round's
+  deal gets the flourish (`dealFor`); an opponent going quiet has a voice (`playerAway`); the list is
+  de-duplicated (two copies of a cue on one sample is one cue at twice the level on a bus with no
+  limiter). The countdown ticks are five timeouts aimed at their seconds.
+- **The phone answers the same list** (`state/haptics.ts`): `hapticsFor` picks one pattern per
+  moment, the strongest cue's, and `gameAudio()` plays it after the sounds. Off by one switch
+  (stored inverted, `loco_haptics_off`), offered only on a touch screen (`pointer: coarse`) with
+  `navigator.vibrate` — desktop Chrome and Edge expose the API with no motor. `haptics.test.ts`.
+
+## The bed
+
+`audio/music.ts` is the engine and contains no music. `audio/tracks/` is the registry (`types.ts`
+the schema, `index.ts` the list every consumer reads; add a loop by encoding a file and writing a
+`LoopDef`), and the files are under `client/public/music/`. The nineteen loops are laid along the
+ladder: **Intermission**, **Idle Hands**, **Fanned Out**, **Nightcap**, **Small Talk** over the
+count-up and the wait; **Patience**, **Late Arrivals** over the wait alone; **Rowdy**,
+**Sidetrack**, **Mirage**, **Full Table**, **Clockwork** over ordinary play; **Sleight**,
+**Pile-Up**, **Uproar**, **Neck and Neck**, **On the Run**, **Runaway**, **Bad Manners** as the
+round gets away from everybody.
+
+### What keeps recorded loops from repeating
+
+- **More loops than sections.** Every section carried by **at least two**, the groove by **at least
+  five** (`music.test.ts`): one loop per section is one piece for as long as the table sits there.
+- **Two reasons to change loop**: the table moved section, or this loop came round `LAPS_PER_LOOP`
+  (2) times. The second moves the music on a table whose tension never changes.
 - **A match is played inside one family** (`LoopDef.family`, `FAMILIES`: `lounge`, `party`,
-  `night`). Eighteen loops chosen one by one to fit a card game did not fit each other: the groove
-  alone held jazz, funk, a drum-and-bass sketch and an ambient piece, and the bag dealt them in any
-  order, so every loop change — a section move, a second lap, a ⏭ — was heard as the *genre*
-  changing rather than the piece, and a match sounded like a radio being retuned. A family is the
-  loops that share a palette, `nextLoopId` takes one and never leaves it while it carries the
-  section asked for, `prefetch` warms the family's loops only, and `start()` draws a family per
-  scene — and draws another, away from the current one, when the scene moves under a running bed,
-  which is the one moment a change of palette lands on a loop change the bed was making anyway.
-  **The grouping is the composer's tags for the pack** (`jazz`, `silly`/`funk`,
-  `ambient`/`electronic`/`lofi`/`dnb`, plus each track's energy) recovered from the bundle's
-  `csv_data.js` by matching each loop's `seconds` to its source file — nobody can listen in a
-  test — so a loop that turns out to sit in the wrong room moves by editing one field.
-  `music.test.ts` pins that every family carries every section, a groove of at least two, **and a
-  build-up and a drop of at least two**: the fallback in `loopsFor` that would reach into another
-  family exists so a thin family cannot go silent, and the test is what keeps it from ever being
-  taken. The last two floors came from reading the registry against the ladder rather than from a
-  complaint, and the complaint was on its way: the lounge's drop was **On the Run** alone, so an
-  endgame there was one 44-second funk loop for as long as somebody stayed on one card, and its
-  build-up was **Fanned Out** alone, so a player who left the home screen up in that palette heard
-  one piece of jazz for the whole evening. **Sleight** (the composer's second-highest energy in the
-  lounge) now carries the drop as well, **Idle Hands** the build-up as well, and **Late Arrivals** —
-  Sketchbook 2024-09-18, jazz, energy 2, the one wait-shaped jazz piece left in the archive — was
-  encoded for the same reason. **Sidetrack** went the other way: at 160 BPM and the second-loudest
-  file in the registry it was the night palette's *waiting room*, tagged energy 3 by the composer and
-  measured as the most driving thing in its family, so it is ordinary play now and nothing else. None
-  of that was heard; it was read off the composer's tags and off `librosa`, which is the only way a
-  registry nobody can listen to in a test gets audited.
+  `night`). Loops from different palettes heard back to back sound like a radio being retuned.
+  `nextLoopId` stays in the family while it carries the section, `prefetch` warms the family only,
+  and `start()` draws a family per scene, and another one when the scene moves under a running bed.
+  The grouping is the composer's own tags for the pack, so a loop in the wrong room moves by one
+  field. `music.test.ts` pins that every family carries every section, a groove of at least two,
+  and a build-up and a drop of at least two each — the cross-family fallback in `loopsFor` exists so
+  a thin family cannot go silent, and the test keeps it from ever being taken.
+- **A loop runs at least 30 seconds** (`music.test.ts`): two laps of a short loop is barely a minute,
+  and padding the registry with short loops is the complaint, not the fix.
+- `sectionFor`, `loopsFor`, `nextLoopId` and `shuffledOrder` are pure, exported and unit-tested:
+  "does the music go somewhere" is behaviour, not taste.
 
-**Both floors are calibration, and both were wrong the first time.** The bed shipped with six loops,
-a floor of two everywhere and three laps, and the first verdict on it was that it repeats. It did,
-from both ends at once: an ordinary groove is where a match lives, it had three loops, and each was
-held for over two minutes. Six became eleven and then eighteen, the groove three then seven then ten,
-and three laps became two. Neither number is a preference — a groove floor of two passed every test
-and was not something anyone wanted to listen to, and the way that failure shows up is a player
-saying "it repeats" rather than a red line.
+### The file format, and what fails silently
 
-**Two archives were bought and only one was used.** `2024-q3` is 55 to 102 second pieces and seven of
-them are in the registry; `2026-q2` was rejected whole, because outside its ambient tracks nothing in
-it runs past 32 seconds and two laps of that is barely a minute — padding the registry with short
-loops is the complaint, not the fix. Length is a selection criterion here and `music.test.ts` holds
-the floor at 30 seconds.
+- **MP3, not the source OGG**: Safari decodes Ogg Vorbis in `decodeAudioData` only from 18.4, and
+  before that the failure is silence.
+- **A loop is looped on the source file's duration, never the decoded buffer's**
+  (`LoopDef.seconds`). MP3's encoder delay and padding survive `decodeAudioData`; the engine finds the
+  first audible frame for `loopStart` and adds `seconds` for `loopEnd`, which puts the seam where the
+  composer cut it. (No source file has silence at either end, so the head found is the encoder's.)
+- **Normalised to −18 LUFS, peaks under −2 dBTP.** Unnormalised, a shuffled playlist jumps in level
+  at the handover; the peak ceiling is headroom for the effects, with `output()`'s fixed `0.55` trim.
+- **Encode with `-map 0:a -vn`**: every source OGG embeds a 1000×1000 cover that `ffmpeg` otherwise
+  copies into the MP3, doubling its weight.
+- **A loop change is an equal-power crossfade between two source gains and never touches
+  `out.gain`**, which belongs to `duck()` alone: a crossfade on that node cancels the duck's own
+  return.
+- **A voice has two gains, the way in and the way out, and `retire` owns the second alone**, and
+  schedules the stop before any automation. Firefox and Safari throw on an event added inside a
+  running `setValueCurveAtTime`; on one node a fade-out laid over a fade-in still running threw before
+  the source stopped, and the old loop played under the new one. `musicScene.test.ts` fakes the
+  strict engines.
 
-Both go through one crossfade, and `sectionFor`, `loopsFor`, `nextLoopId` and `shuffledOrder` stay
-pure, exported and unit-tested for the same reason they always were: "does the music go somewhere" is
-a claim about behaviour, not about taste.
+### When the bed moves
 
-### The details that fail silently
+- **The intensity is slewed and the section is held** (`SLEW_PER_SEC`, a full swing in ~1.8 s;
+  `SECTION_HOLD_MS`, 1.2 s): a catch that lands and a hand growing back would otherwise crossfade out
+  and back twice in two seconds, and the hold stops rounding at a threshold from chattering.
+- **A fall is believed twelve seconds after a rise** (`SECTION_RELEASE_MS`, `sectionHoldMs`). An
+  endgame hand goes 1 → 3 → 2 → 1 every few turns; without it the drop changed piece every ten
+  seconds. A rise is answered on the hold; a fall must hold **continuously** (`pendingSince` resets
+  when the wanted section changes). The breakdown is exempt: in game it is only reached by the round
+  summary, which is a stop, not a dip.
+- **A scene move is answered on the spot and is not subject to either hold** (`start()`'s `moved`
+  branch): leaving the table asks for the menu's build-up, which is a *fall*, and a fresh match
+  started inside the twelve seconds otherwise kept the same piece. Another palette (`nextFamily`), the
+  section the new screen asks for, the intensity **snapped** to its target. `musicScene.test.ts`.
+- **The queue is the wait and the recap is the game** (`sceneFor`): `searching` and `matchfound`
+  play the menu's scene, `gameover` the **match's** scene at the round summary's intensity, so the
+  recap falls into the breakdown under the 4 s fade. Only `restoring` is off. The bed starts on the
+  entry screen, so the first fetch happens while somebody types a nickname.
 
-- **MP3, not the source OGG.** The pack ships Ogg Vorbis, which is the better container for looping
-  and which **Safari only decodes natively from 18.4** — before that `decodeAudioData` refuses it
-  outright. On this platform that is silence with no error, which is the failure mode three other
-  entries in this note already exist for. So the files are transcoded, and the seam problem MP3
-  brings with it is solved below rather than avoided.
-- **A loop is looped on the source file's duration, never the decoded buffer's.** MP3 carries
-  encoder delay at the head and padding at the tail, and both survive `decodeAudioData`: a buffer
-  looped on its own length inserts exactly the gap the pack's README warns about. `LoopDef.seconds`
-  carries the OGG's duration to the sample, the engine finds the first audible frame for `loopStart`
-  and adds that figure for `loopEnd`, which puts the seam back where the composer cut it. Measured
-  before encoding: none of the sixteen source files has any silence at either end, so the head this
-  finds *is* the encoder's and nothing else.
-- **Normalised to −18 LUFS, peaks under −2 dBTP.** The archive ranged from −14.5 to −24 LUFS, ten
-  units of spread. In a shuffled playlist that is not variety, it is a level jump that reads as a
-  defect of the game, and it would arrive at the handover — the moment a player is most likely to
-  notice the music at all. The peak ceiling is headroom for the effects that play over the bed, which
-  is also why `output()`'s fixed `0.55` trim survives the rewrite unchanged.
-- **A cover image rides inside the source files.** Every OGG in the pack embeds a 1000×1000 PNG, and
-  `ffmpeg` copies it into the MP3 unless told not to: the first encode came out at 350 kbps apparent
-  for 146 kbps of audio, more than double the weight for a picture nothing displays. `-map 0:a -vn`
-  is not tidiness, it is three megabytes.
-- **The crossfade is equal-power and never touches `out.gain`.** Cosine/sine on the two source gains,
-  because a linear ramp on both sides sums to a dip in the middle for material that is not
-  correlated, and two different loops never are. The node it leaves alone belongs to `duck()`: the
-  synthesised bed covered a track change with a dip on that same node, and `cancelScheduledValues`
-  took the duck's own return with it, ramping the bed back to full under the one sound people clip.
-  A crossfade between two source gains cannot have that argument, which is why `duckUntil` and
-  `duckAmount` are gone rather than ported.
-- **A voice has two gains, the way in and the way out, and `retire` owns the second alone.** The
-  way out can be asked for while the way in is still on its curve: a match quit inside the first two
-  seconds of its piece, another one started as fast. Firefox and Safari refuse any event added
-  inside a `setValueCurveAtTime` span (Chromium lets it through, which is why it was never heard
-  there), so on one node the fade-out threw out of `retire` **before the source was stopped**, and
-  the loop being left played under the next one for good — the sound "doubled" on every quick
-  restart. `retire` also schedules the stop before any automation. `musicScene.test.ts` fakes the
-  strict engines and fails without either.
-- **The intensity is slewed and the section is held.** Game events move the intensity in jumps. A
-  Contre-LOCO! that lands and a hand that grows back would otherwise crossfade the bed out and
-  straight back in, twice, inside two seconds. `SLEW_PER_SEC` gives a full swing ~1.8s and
-  `SECTION_HOLD_MS` catches the value that parks on a threshold, where the slew alone would let
-  rounding chatter the bed between two loops.
-- **And a fall is believed later than a rise** (`SECTION_RELEASE_MS`, `sectionHoldMs`). The slew and
-  the hold were tuned on a spike — one event, answered and gone — and the endgame is not a spike:
-  `intensityOf` crosses the drop's threshold at one card in any hand, and an endgame hand goes
-  1 → 3 → 2 → 1 every few turns as seats draw and play back down, so the bed crossfaded out of the
-  drop and back into it on every dip, a different piece every ten seconds on the tensest table of
-  the evening. A rise is still answered on the hold, because somebody reaching their last card is
-  what the drop exists for. A fall has to hold **twelve seconds, continuously** — `pendingSince`
-  resets whenever the wanted section changes, so one return above the line restarts the wait — which
-  is long enough to be the table calming down and not one seat drawing. The breakdown is exempt:
-  the only way in-game intensity reaches it is the round summary, which is a stop and not a dip,
-  and the one section a round's end is meant to sound like.
-- **But the scene moving is not a fall in tension, and it must not wait on that hold**
-  (`start()`'s `moved` branch). This is the one the release hold broke, and it was reported from the
-  outside as "I start a match, I quit, I start another one, and it is still the same music": leaving
-  the table asks for the menu's build-up, which is a *fall*, so the bed sat on twelve seconds of
-  patience — and pressing play again inside that window reset the wanted section before the wait was
-  ever crossed. The menu, the second deal and everything between them came out as one unbroken
-  piece. A scene move is a fact about where the player is standing, not a reading of how tense a
-  round is, so `start()` answers it on the spot: another palette (`nextFamily`), the section the new
-  screen asks for, and a crossfade into a loop of it. The intensity is **snapped** to its target
-  there for the same reason — the slew exists to absorb a spike inside a round, and a player leaving
-  the table is not a spike. `musicScene.test.ts` drives a real bed over a fake context, because both
-  halves of this defect were individually correct and only their ordering was wrong.
 ### Where a change lands
 
-The bed changed loop whenever a 250 ms tick noticed a reason to, and a crossfade that starts on a
-tick lands wherever the tick fell: mid-bar, beat three, the second half of a phrase. Two loops of the
-same family at compatible tempos still sounded like a radio being retuned, because the ear hears a
-change that lands off the grid as a mistake and one that lands on the one as a cut. Three rules fix
-it, and all three are timing rather than sound, which is why `musicHandover.test.ts` drives a real
-bed over a fake context whose clock the test moves and reads the times the bed *scheduled*.
+`musicHandover.test.ts` drives a real bed over a fake context and reads the times the bed scheduled.
 
-- **A section change lands on the outgoing loop's next bar line** (`untilNextBar`, `nextBarAt`). The
-  incoming piece's downbeat is put on the outgoing piece's downbeat and both curves run from there.
-  The wait is under a bar — 3.4 s at the slowest tempo — after the slew and the hold have already
-  spent their second and a half, so a rise still reads as an answer. A bar line closer than
-  `MIN_LEAD_S` is skipped for the next: a start inside the scheduler's own latency lands late, and
-  late is off the beat, which is worse than a bar later.
-- **A lap handover lands on the wrap** (`untilNextWrap`, `land`). Before, the tick noticed the second
-  lap had completed up to 250 ms after the fact and started a 2 s crossfade, so the outgoing loop
-  restarted its top under the incoming one's: two downbeats a second apart, on every handover, on
-  the one change nothing in the game had asked for. Now the handover is decided
-  `HANDOVER_LOOKAHEAD_S` before the wrap that completes `LAPS_PER_LOOP`, the file is loaded, the
-  incoming source is scheduled to start *exactly* at that wrap and arrives whole (a 20 ms ramp, for
-  the click and nothing else), and the outgoing one fades over its own last bar, `HANDOVER_TAIL_S`,
-  ending where the new one starts. A breath, then the one. The lookahead is the load budget — a
-  cache hit needs none of it, a cold decode 72–208 ms — and a file that is not ready by its moment
-  falls back to an ordinary crossfade the instant it is, which is exactly what a cold change cost
-  before any of this. `getLoopId()` keeps naming the outgoing piece until the scheduled one is
-  sounding, so the panel does not announce a handover four seconds early.
-- **A scene move and ⏭ are answered on the spot.** Both are something the player just did, and a
-  press answered a bar later is a press that felt ignored; the bar grid is for the changes the bed
-  makes on its own.
-
-**The tempo is data on the loop** (`LoopDef.bpm`, one bar is `240 / bpm`), and it had to be
-measured: the pack carries the composer's energy and genre tags but no tempo. Each file's onset
-envelope was autocorrelated at candidate bar lengths constrained to a **whole number of bars** —
-every loop here is one, the composer cut them on bar lines — and the candidate with the strongest
-periodicity at one, two, four and eight beats won. Where a tempo and its double both fit (85 and 170
-for the drum-and-bass **Neck and Neck**, 80 and 160 for **Sidetrack**), the **slower** is written:
-its bar lines are downbeats under either reading, the faster one's fall on beat three half the time.
-Two were genuinely ambiguous between a 3:2 pair (**On the Run** at 76.67 or 115, **Full Table** at
-86.67 or 130) and went to the reading with the stronger eight-beat periodicity; if one of them ever
-sounds off at a handover, the field is the fix. `music.test.ts` asserts that `seconds × bpm / 240`
-is whole to a fiftieth, which is the check that catches a wrong tempo, and that the slowest bar is
-well under the release hold, so aligning a fall never doubles its wait.
-
-**The fade's length is the reason for it** (`fadeFor`). One `CROSSFADE_S` for everything meant the
-drop arriving at the same speed as the round summary's jazz. A rise is `RISE_FADE_S`, 1.5 s: somebody
-reached their last card, and the drop is what the bed exists for. A fall is `FALL_FADE_S`, 4 s:
-nothing about the table settling is urgent, and it is the fade that plays under the round-end fanfare
-and its duck, which a slow one sits under rather than fighting. What the player did — a scene move, a
-⏭ — keeps the 2 s. And the scene going `off` **fades** (`STOP_FADE_S`) instead of cutting: `stop()`
-took the voice down mid-bar, which for a hidden tab is right and for a screen change was a click.
-
-**Two screens were silent that had no reason to be.** `sceneFor` mapped `searching` and `matchfound`
-to `off`, so the bed stopped dead — a hard cut — at the 1v1 press and started again at the deal: the
-one screen a player spends minutes on opened in silence, and the queue's own cue landed on nothing.
-Both are the wait now, like the waiting room. And `gameover` was `off` too, so the match's last
-sound was the fanfare over a bed being cut under it, and the recap — the evening's count-up, the
-screen **Intermission**'s blurb describes — was silent. It is the **match's** scene now at the round
-summary's intensity: the palette stays, the drop falls into the breakdown under the recap through
-the 4 s fade, and a rematch or a requeue is the scene move it always was. Only `restoring` is off.
+- **A section change lands on the outgoing loop's next bar line** (`untilNextBar`, `nextBarAt`),
+  the incoming downbeat on the outgoing one. A bar line closer than `MIN_LEAD_S` is skipped: a start
+  inside the scheduler's latency lands off the beat.
+- **A lap handover lands on the wrap** (`untilNextWrap`, `land`): decided `HANDOVER_LOOKAHEAD_S`
+  (4 s) before the wrap that completes the laps, the incoming source starts exactly there and
+  arrives whole (a 20 ms ramp against the click), the outgoing one fades over its last bar
+  (`HANDOVER_TAIL_S`). The lookahead is the load budget; a file not ready in time falls back to an
+  ordinary crossfade the instant it is. `getLoopId()` names the outgoing piece until the new one
+  sounds.
+- **A scene move and ⏭ are answered on the spot**: a press answered a bar later feels ignored.
+- **The tempo is data on the loop** (`LoopDef.bpm`, a bar is `240 / bpm`), measured from the files
+  (the pack carries none). **Every loop is a whole number of bars** (`music.test.ts`: `seconds × bpm
+  / 240` whole to a fiftieth), and where a tempo and its double both fit the **slower** is written:
+  its bar lines are downbeats under either reading. On the Run and Full Table sat between a 3:2 pair
+  and took the reading with the stronger eight-beat periodicity; if one sounds off at a handover, the
+  field is the fix. The slowest bar is pinned well under the release hold.
+- **The fade's length is the reason for it** (`fadeFor`): a rise `RISE_FADE_S` (1.5 s, the drop is
+  what the bed exists for), a fall `FALL_FADE_S` (4 s, under the round-end fanfare), a player's move
+  `CROSSFADE_S` (2 s), the scene going off `STOP_FADE_S` (1.2 s). Only a hidden tab and an unmount
+  cut.
+- **Phrases**: every loop moves on four-bar lines (`PHRASE_BARS`). **A rise enters on the loop's
+  first full phrase** (`LoopDef.entryBar`, a multiple of four, measured: six loops have one), or the
+  drop arrives on the quietest bar of the loop; a lap, a fall and a skip start at the top. **A fall
+  lands on a phrase line** when one is within `PHRASE_WAIT_MAX_S` (8 s), the bar otherwise
+  (`untilFallLands`); the wrap counts as a phrase line. `planSectionChange` decides all of it before
+  anything is scheduled, including the lead that leaves room for a cut's tail and swell.
 
 ### Keys, and what two loops may do next to each other
 
-Bar alignment put every change on the one, and the changes still did not hang together. The report
-was "the titles are fine, the transitions are incoherent", and the measurement explained it: the bed
-chose the next loop from a shuffle bag and crossfaded into it for 1.5 to 4 seconds, and the registry
-spans **A major to C minor, seven steps apart on the circle of fifths** — the lounge held both ends,
-so an ordinary handover could put Fanned Out (A) on top of On the Run (C minor) for four seconds.
-The downbeats agreed; the notes did not. The tempos did not either: the lounge ran from 70 to 130
-BPM, and two drum parts a few percent apart drift audibly across a four-second fade.
+The registry spans A major to C minor, seven steps apart on the circle of fifths, and 70 to 130 BPM:
+bar alignment alone puts two clashing keys or two drifting drum parts on top of each other for four
+seconds.
 
-**The key is data on the loop** (`LoopDef.key`), because the pack carries none. Each file's harmonic
-part (HPSS) was scored against three key profiles — Krumhansl-Kessler, Temperley, Albrecht-Shanahan —
-with the bass line as a tie-break, and the majority is what is written. The registry falls into two
-regions: almost everything sits on the flat side around **C minor** (G minor, F minor, E flat, B
-flat, all one or two steps away), and three loops plus Uproar sit around **A major**. Where the
-major and minor readings of one tonic split the vote — Mirage and Sidetrack are bluesy and play both
-thirds — the minor is written, which is what the bass and two profiles of three said. The first
-reading of those two, on one profile, called them C major and suggested moving them out of the night;
-the vote says they belong there, and they stayed. **Only Full Table moved**: at 130 BPM it was the
-lounge's outlier by 45 BPM and sits in C minor like Rowdy and Bad Manners, so it is party now, and
-the lounge still carries every section at the floors.
+- **The key is data on the loop** (`LoopDef.key`), measured on the file: the harmonic part against
+  three key profiles (Krumhansl-Kessler, Temperley, Albrecht-Shanahan), the bass line as tie-break,
+  the majority written; where major and minor of one tonic split, the minor.
+- **Whether two loops may overlap** (`harmony.ts: handoverFor`): at most two steps on the key wheel
+  (`BLEND_MAX_KEY_STEPS`) **and** a 3% tempo gap (`BLEND_MAX_TEMPO_GAP`, a tempo and its double
+  counting as one pulse). Most pairs in this pack do not blend, which is why the cut has to be good
+  rather than rare.
+- **A blend** is the equal-power crossfade plus a bass handover (`BASS_SWAP_HZ`, 240 Hz): the incoming
+  loop arrives with its low end cut and the two swap in 80 ms on the beat nearest the middle.
+- **A cut is never a crossfade.** The outgoing loop closes under a low-pass over its last two beats
+  (`cutTailFor`, half a bar bounded to 0.6–1.5 s), air rises into the downbeat (`scheduleSwell`,
+  pitchless so it sits under any key), and the next loop lands whole on the one. **Only a press may
+  overlap a disagreeing pair**, for `SPOT_CUT_S` (0.6 s) with the outgoing loop darkened; a landing
+  that misses its moment falls back to that. The swell goes into every cut and every rise into the
+  drop, never into a fall: the table settling should not be announced.
+- **The next loop is the nearest one left in the bag** (`followCost`: a blendable pair first, then
+  the key, then the tempo; ties keep the shuffle's order), **and never the one just left while the
+  bag holds another** (`previous`, which dies with the bed): ranking alone alternates the two loops of
+  a family that blend best.
+- **A cue is struck in the bed's key** (`cueShiftFor`, `sfx.ts: setTonalitySource`). The cues are
+  written around C; the whole vocabulary moves together onto the bed's home chord or its IV or V,
+  the smallest move, so **never more than three semitones** and every cue is still itself. A minor
+  bed is read through its relative major. Only what has a pitch moves (`mallet`, `bell`, `stab`, the
+  reverse). `sfx.ts` never imports the bed; `getTonality()` answers through `getLoopId()`, so a
+  scheduled handover does not move the cues early. `sfxKey.test.ts`.
+- **Refused:** re-pitching a loop with `playbackRate` (a semitone is a 6% tempo and timbre change on
+  recorded material, and it moves the bar grid), and regrouping the families by key alone (it mixes
+  genres, which is what the families prevent).
 
-**Two measurements, two decisions** (`harmony.ts`):
+### The bed answers a moment (`bedCueFor`, one answer, the strongest)
 
-- **Whether two loops may overlap** (`handoverFor`): two steps on the key wheel at most
-  (`BLEND_MAX_KEY_STEPS`, still one shared chord) **and** a tempo gap of 3% at most
-  (`BLEND_MAX_TEMPO_GAP`, a tempo and its double counting as one pulse). Three percent drifts a tenth
-  of a beat over the longest table crossfade; the next pair up is Rowdy against Bad Manners at 4.3%,
-  and at four seconds that is a flam. The measured consequence is blunt: in this pack **most pairs do
-  not blend** — the lounge has none, the night has three (Clockwork with Patience and with Neck and
-  Neck, Mirage with Sidetrack), the party none at 3%. That is why the cut had to be good rather than
-  rare.
-- **Which loop comes next** (`followCost`, used by `nextLoopId`): a pair that can be overlapped
-  first, then the nearer key, then the nearer tempo. The bag still deals every id once per tour, so
-  ranking changes the order and never the coverage, and ties keep the shuffle's order.
+- **The match's fanfare brakes it** (`brake()`): the loop slows like a record (`BRAKE_RATE` over
+  `BRAKE_S`, its low-pass closing), the room is quiet for `BRAKE_REST_MS` (2.6 s, longer than the
+  1.7 s fanfare), and the recap's piece rises over `REENTER_FADE_S`. The cues play **before** the
+  brake, so the fanfare is struck in the key it was earned in. A change still loading when the brake
+  lands is dropped on arrival (`brakes`); a press during the rest is answered and ends it.
+- **A round's fanfare ducks it** (`music.duck(ms)`, through the bed's own output stage, never the
+  player's volume): the round summary is a breakdown, not an ending.
+- **A LOCO! or a Contre-LOCO! dips it** (`dip()`): the bed's low-pass shuts to 520 Hz for 0.7 s, so
+  the shout owns the top of the spectrum and the groove never stops.
+- **Something read over the table muffles it** (`setMuffled`, `state/bedMuffle.svelte.ts`, counted):
+  the rules and the preferences put it behind a 900 Hz door. **Not the audio panel** — somebody
+  setting the music's volume is listening to it.
 
-**A blend** is the equal-power crossfade it always was, plus the one thing a DJ does that a
-crossfade does not: **the bass is handed over** (`BASS_SWAP_HZ`, 240 Hz). The incoming loop arrives
-with its low end cut, and on its beat nearest the middle of the fade the two swap in 80 ms. Below
-that line live the kick and the bass line, which is where two pieces clash first; above it two
-compatible loops share the fade without a fight.
+The low-pass behind the muffle and the dip (`tone`) sits after the duck and before the trim, and
+never touches `out.gain`. Each voice's own filters (the high-pass the bass swap moves, the low-pass a
+cut closes) sit between its source and its gain; a context that cannot make a filter plays the same
+changes without them.
 
-**A cut is never a crossfade.** The outgoing loop closes down under a low-pass over its last two
-beats (`cutTailFor`, half a bar bounded to 0.6-1.5 s) as its gain falls, a breath of air rises into
-the downbeat (`scheduleSwell`, the fourth material doing what it already does before a slam, with
-no pitch of its own so it sits under any key) and the next loop lands whole on the one. It is what a
-band does between two numbers. **Only a press may overlap a disagreeing pair**: a scene move or a ⏭
-is answered on the spot, so it gets `SPOT_CUT_S` (0.6 s) with the outgoing loop darkened, instead of
-two seconds of two keys. A landing that misses its moment (a cold fetch) falls back to exactly that.
+### Loading
 
-**The swell goes into every cut and every blend into the drop**, and never into a fall. Somebody
-reaching their last card is the one change the table should hear coming; the table settling should
-not be announced. The lead a change is decided at (`planSectionChange`'s `lead`) is what makes room
-for the tail and the swell before the bar line: a rise still lands on the next bar line, just the
-next one far enough away for its air.
+- **`swapTo` awaits the incoming buffer before it touches the outgoing voice**, so a cold change
+  costs a later crossfade and never a gap. That ordering, not the warm-up, is what makes it
+  inaudible, which is why `PREFETCH_MAX` (3) is far smaller than the registry.
+- **The cache is bounded by memory, not file size** (`CACHE_BUDGET_BYTES`, 64 MB, LRU): a decoded
+  buffer is float32 per channel, so a 1.5 MB MP3 of 102 s is **37 MB of RAM**, and the whole registry
+  decoded is over 400 MB. A full simulated match peaks under the budget.
+- **Eviction never drops a voice that is sounding or fading**: the source keeps reading the buffer,
+  and the next reference would decode a second copy.
+- **Eviction is close to free**: `/music/` is served with a week of `Cache-Control`, so re-entering a
+  loop is one `decodeAudioData` (72–208 ms), inside the window the outgoing voice covers.
+- **`PREFETCH_MAX` must fit inside the budget** (`music.test.ts`, against the longest loops), or the
+  warm-up evicts what it just decoded. `prefetch` sorts by `distance` from the sounding section and
+  runs again on every section change.
+- **A request arriving during a swap is recorded in `desired`, never dropped**; `runSwaps` drains it.
+- **Nothing a player can see or hear moves before the piece is sounding**: `this.loop` and the
+  persisted `track` are written at the commit inside `swapTo`; `getLoopId()` reads the voice.
+- **A bed with nothing sounding and nothing on its way asks again on the next tick**: a failed
+  opening load would otherwise leave a solo game silent for good.
+- **`start()` goes through the same door as every other change**, so a tick cannot start a second
+  voice on top of the first one's load.
+- **A bed that will not load is a quiet game, never a broken one**: a 404 or a decode failure keeps
+  what is sounding and the name that goes with it. `music.test.ts` asserts every declared id has a
+  file of a plausible size behind it.
+- **A hidden tab is a pause** (`park` / `resume`, `resumeOffset`, `RESUME_FADE_S` 0.4 s): the same
+  loop from the same bar, laps included. Chrome marks an occluded window hidden, so restarting there
+  would change the music on every glance at another window. Only a scene that moved meanwhile goes
+  through `start()`.
 
-**Phrases, not only bars.** Measured per four bars on level and onset density, every loop moves on
-four-bar lines (`PHRASE_BARS`). Two consequences:
+### Playback, titles and the panel
 
-- **A rise enters its loop on its first full phrase** (`LoopDef.entryBar`). Runaway's opening phrase
-  measured 65% of its body and Sleight's 60%, so the drop — the moment somebody reached one card —
-  used to arrive on the quietest bar of the loop. Six loops have an entry (Sleight 4, Rowdy 12,
-  Sidetrack 8, Mirage 4, Uproar 4, Runaway 8); only a rise uses it, because a lap handover, a fall
-  and a skip are not answering anything and the composer's top is the right place to start.
-- **A fall lands on a phrase line** when one is within `PHRASE_WAIT_MAX_S` (8 s), the bar line
-  otherwise (`untilFallLands`). A fall has already waited twelve seconds and nothing about it is
-  urgent; a phrase of the slowest loop is 13.7 s, which is where the bound comes from. Four loops are
-  not a whole number of phrases (On the Run is 14 bars), so the wrap counts as a phrase line: it is
-  where the composer's phrase ends. A rise stays on the bar: a rise is an answer.
+- **A shuffled playlist, not a selection**: no picker, one ⏭. `shuffledOrder` deals every id once
+  per bag and never opens on the one that just played. **⏭ stays inside the section the table is
+  in**: the alternative contradicts the game from a panel open over a live board.
+- **A title is a name and its blurb is copy; only the blurb is translated.** One English string;
+  `music.test.ts` refuses a character outside `[A-Za-z0-9 '-]`. A name that changes with the
+  interface language is two pieces to anybody who switches. **A title names the writing, never the
+  genre and never the source file's date** (`Sketchbook 2024-05-29` says nothing).
+- `<AudioSettings />` sits in the top-right cluster on every screen: three sliders, a now-playing
+  line, a ⏭ (44px target), mute. Music defaults below effects: a streamer talking over the game must
+  stay louder than the bed. The current loop id is written to `loco_audio` on every handover, which
+  also re-renders the now-playing line; `engine.ts` stores it as a bare string and never imports the
+  registry (the registry depends on the engine). The stored key stays `track` so stored preferences
+  survive.
+- **A slider auditions its bus, and a drag is not a press.** `input` fires on every step, and
+  100 ms samples played per event overlap into a buzz the voice budget does not prevent.
+  `AUDITION_MS` (130, in the component, where component tests can see it) is a floor between samples,
+  and `playVolumeAudition(level)` is **a function of the level**: the pitch climbs a major pentatonic
+  over two octaves (A3–A5) so moving up sounds like moving up. **Level moves the pitch and the
+  filter, never the gain** — the bus already applies it, and scaling twice silences the bottom of the
+  travel. Low-passed under 2.8 kHz: bright once is shrill thirty times. It takes an argument, so it is
+  not a `SfxName`; `verify.mjs` measures it by hand (both ends, an FFT proving the climb and the top
+  under 1.2 kHz). `src/test/audio.test.ts` owns the rate and the level handed over.
 
-**The effects are struck in the bed's key** (`cueShiftFor`). The cues are written around C — the
-match fanfare is a plagal cadence onto C — and over an A major bed that was a chromatic clash under
-the one moment people clip. The whole vocabulary moves together, so each cue keeps its own chord, and
-C lands on the bed's home chord or one next to it on the circle (IV or V), whichever is the smallest
-move: three candidates a fourth and a fifth apart cover the octave in steps of at most five, so no
-key moves a cue more than **three semitones** and every cue is still the sound a player has learnt.
-A minor bed is read through its relative major, so a major cue lands on a chord that bed contains.
-Only what has a pitch moves; the card handling and the thuds are paper and felt. The effects read
-the key through `setTonalitySource` at the moment a cue plays, a wire pointing one way — `sfx.ts`
-never imports the bed — and `getTonality()` answers through `getLoopId()`, so a handover scheduled
-a bar ahead does not move the cues before the new piece is heard.
+## `make audio-verify` (`tools/audio/verify.mjs`)
 
-**The bed answers a moment, not only a section** (`bedCueFor`, one answer, the strongest):
+The only check that catches a broken envelope, a mis-wired node or a loop file that 404s, because
+those produce silence rather than an error. Deliberately outside CI: audio devices in CI containers
+are unreliable, and a flaky sound assertion trains people to ignore red. Run it after touching
+`sfx.ts`, `music.ts` or `engine.ts`, or after re-encoding a loop.
 
-- **The match's fanfare brakes it** (`brake()`). The duck left a loop running at a fifth of its level
-  under the clip people keep, in whatever key it was in. Now the loop slows like a record under a
-  hand (`BRAKE_RATE` over `BRAKE_S`, its low-pass closing), the room is quiet for `BRAKE_REST_MS` —
-  longer than the match fanfare's 1.7 s — and the recap's piece rises over `REENTER_FADE_S`. The
-  section follows the table under the silence without a hold, since nothing is sounding to hold on
-  to. The cues are played **before** the brake, so the fanfare is struck in the key it was earned in.
-  A change whose file was still loading when the brake landed is dropped on arrival (`brakes`, a
-  count): it was asked for by a table that has since stopped, and would have started a loop under
-  the very fanfare the silence was made for. A press made during the rest is answered, and ends it.
-- **A round's fanfare ducks it**, as before: the round summary is a breakdown, not an ending.
-- **A LOCO! or a Contre-LOCO! dips it** (`dip()`): the bed's own low-pass shuts to 520 Hz for 0.7 s
-  and opens again. The duck makes room by level; this makes room by colour, so the shout owns the
-  top of the spectrum and the groove underneath never stops.
-- **Something read over the table muffles it** (`setMuffled`, `hooks/bedMuffle.svelte.ts`): the
-  rules and the preferences put the bed behind a door (900 Hz) until they close, counted so two
-  panels open at once do not reopen it early. **Not the audio panel**: somebody setting the music's
-  volume is listening to it.
+- **Every voice, read from `sfx.SFX_NAMES`**, never a list in the harness (a copy exempts every
+  later sound). Each cue's peak and audible length (`len=`, last frame above a fortieth of the
+  loudest). **Anything above 0.8 fails**: headroom below hard clip, since two cues overlap and the bus
+  has no limiter.
+- The bed's claims: every registered loop makes sound; walking the ladder's thresholds produces at
+  least three distinct sections each with a loop; ⏭ changes loop, never back to back, covering the
+  section's bag; a loop that has come round enough times **hands over unattended**
+  (`music.setLapSeconds(n)`, the one seam: it moves the handover decision, never the loop points);
+  the sections move breakdown → drop; the slew reaches its targets; ducking attenuates; the muffle is
+  read as the power above 2 kHz (a 900 Hz low-pass barely moves a mixed loop's RMS, which lives in
+  the bass); the frame cost of the drop against idle.
+- **Calm and tense arrive at the same level** (×1.00 ± 0.4): every file is mastered to −18 LUFS, so
+  tension is *which* loop plays (asserted by the ladder and section checks). What this guards is a
+  loop added later without normalising. Measured over `LOOP_MS`, several bars: a shorter window reads
+  a random slice of the piece.
+- `LOCO_CHROMIUM=/path/to/chrome` borrows an installed Chromium; unset, Playwright uses its own.
 
-The low-pass behind the muffle and the dip (`tone`) sits after the duck and before the trim, so it
-is the bed's like the duck and never the player's volume, and it never touches `out.gain`. The
-voices' own filters (a high-pass the bass swap moves, a low-pass a cut closes) sit between each
-source and its gain; a context that cannot make a filter plays the same changes without them.
+## Licence
 
-**Two calibrations came from the harness, not from a test.**
+Abstraction (Tallbeard Studios), *Music Loop Bundle*, **CC0 1.0**: no attribution required,
+commercial use and modification permitted. Credited anyway in `NOTICE.md` and
+`client/public/licenses.txt`. The authors ask that the work not be used for NFTs, for training
+machine-learning models, or resold unmodified; none of those happens here. Served from this origin,
+never a CDN, which keeps [`legal.md`](legal.md)'s "no third-party request from the player's browser"
+true.
 
-- **The ranking alternated.** `make audio-verify`'s ⏭ run came back as
-  `neck-and-neck → clockwork → neck-and-neck → clockwork`: the two loops of the night's groove that
-  blend with each other end one bag and open the next, and a ranking that prefers blends picks the
-  other one every time. The bag covered everything and the unit tests were green; the ear would
-  have heard a chorus on repeat. `nextLoopId` now takes `previous` and never returns it while the
-  bag holds anything else. `previous` dies with the bed (`start()` from silence, `stop()`): a new
-  match remembering the last one's loop kept its opening loop from its best partner, which the suite
-  caught as a test that failed only when run after the others.
-- **The muffle measured as barely there, and was not.** A 900 Hz low-pass took the bed's RMS down
-  only 17%, because a mixed loop's energy is in its bass. The check now reads the power above 2 kHz,
-  which falls by 24 dB.
-
-**Rejected on purpose:** re-pitching a loop with `playbackRate` to bring its key into line. A semitone
-is a 6% tempo change and a timbre change on recorded material, heard as a detuned record, and it
-would have moved the bar grid every alignment above depends on. Regrouping the families by key
-alone: it would have put Uproar's funk in with the lounge's jazz, which is the genre change the
-families exist to prevent; the ranking and the cut do the key's work inside the families as they are.
-
-### Loading, and why none of it is audible
-
-The bed starts on the **entry screen**, not at the deal: `sceneFor` maps `lobby`, `waiting` and the
-queue's two screens to music, so the first fetch happens while somebody is typing a nickname. That is most of the answer to
-"is the first load covered" — nobody is waiting for music on a screen they have just opened, and by
-the time the deal turns the section from build-up to groove the warm-up has had the whole wait.
-
-The rest is the order of operations rather than the warm-up:
-
-- **`swapTo` awaits the incoming buffer before it touches the outgoing voice.** A loop that is not
-  cached therefore costs a slightly later crossfade and never a gap. This is the property that makes
-  a cold change inaudible; warming only shortens the delay, which is why `PREFETCH_MAX` is 3 against
-  a registry of 18 and does not need to grow with it.
-- **The cache is bounded by memory, and memory is not file size.** This was measured rather than
-  assumed, and the numbers are the reason the mechanism exists: an `AudioBuffer` is deinterleaved
-  float32 at the context's sample rate, so `idle-hands` — a **1.5 MB** MP3 of 102 seconds — decodes
-  to **37 MB of RAM**, about twenty-four times its own weight. Eighteen decoded at once is **418 MB**
-  and the worst six is **191 MB**, which an unevicted cache was quietly holding on a phone once a
-  table had been through all four sections. `CACHE_BUDGET_BYTES` is 64 MB with least-recently-used
-  eviction, and a full simulated match now peaks at **61.8 MB**.
-- **Eviction never drops a voice that is sounding or fading out.** Deleting the `Decoded` does not
-  stop the `AudioBufferSourceNode` already reading it, so the next reference would decode a second
-  copy of something the room can hear and the two would coexist — memory spent to save memory.
-- **Eviction is close to free.** nginx serves `/music/` with a week of `Cache-Control`, so re-entering
-  a loop costs one `decodeAudioData` — measured at 72–208 ms — and no network at all. That lands well
-  inside the window the outgoing voice is still covering.
-- **`PREFETCH_MAX` has to fit inside `CACHE_BUDGET_BYTES`**, or the warm-up evicts what the warm-up
-  just decoded: three fetches and three decodes spent to hold three buffers anyway. `music.test.ts`
-  pins the relation against the longest loops in the registry rather than against a typed-in figure.
-- **`prefetch` sorts by `distance`** — the rungs between a loop's nearest section and the one
-  sounding — and is **called again on every section change**, so the working set follows the table
-  instead of being decided at the deal.
-
-Three defects came out of writing that down, all of them invisible from the outside:
-
-- **A request arriving during a swap was dropped.** The `swapping` guard returned early, but
-  `setLoop` had already written `this.loop` on the way past — so the panel named a piece that would
-  never play, and `nextLoopId` then treated that name as the one to avoid while the real voice was a
-  candidate to be "changed" to itself, which restarts it from the top. Requests land in `desired`
-  now and `runSwaps` drains them, so a section change during a cold fetch is honoured rather than
-  lost.
-- **Nothing a player can see or hear may move before the piece is sounding.** `this.loop` and the
-  persisted `track` setting are written at the commit inside `swapTo`; `getLoopId()` reads the voice.
-- **A failed opening load left the table silent for good.** The fetch returns null, the caller
-  correctly keeps what is sounding — and at the start of a match that is nothing. The tick now asks
-  again when there is no voice, nothing in flight and nothing swapping, because the next section
-  change is minutes away on a long round and may never come in a solo game.
-- **`start()` goes through the same door as every other change.** It used to call `swapTo` directly
-  while the tick was already running, so a tick firing 250 ms in could start a second voice on top of
-  the first one's load.
-- **A bed that will not load is a quiet game, never a broken one.** A 404 or a decode failure leaves
-  whatever is already sounding in place and leaves `this.loop` naming it, so the panel never
-  announces a loop nobody can hear. `music.test.ts` asserts every declared id has a file of a
-  plausible size behind it, because that failure is invisible at every other layer.
-- **Muted still opens nothing** — and now that means no fetch and no decode either, not just no
-  scheduler.
-- **Hidden stops the sources**, where it used to stop a scheduler. A page that plays audio is exempt
-  from timer throttling, so the old bed went on synthesising from behind another window; a looping
-  `AudioBufferSourceNode` would go on playing outright.
-- **And visible again resumes the same loop from the same bar** (`park` / `resume`, `resumeOffset`,
-  `RESUME_FADE_S`). The return used to go through `start()`, which reseeds the shuffle, empties the
-  bag and draws a loop, so every alt-tab was a different piece of music — and Chrome marks an
-  occluded window hidden, so on desktop that was every glance at another window. The pause parks
-  the sounding loop with its position in the run (laps included, so `getLaps` carries on counting)
-  and comes back to it under a 0.4s fade rather than a cut into the middle of a phrase; the section
-  and the scheduler are left where they were, so a table that moved while the tab was away is
-  answered through the ordinary hold like any other change. Only a scene that moved meanwhile —
-  the match ended, a rematch dealt — goes through `start()` again, because that is a new scene and
-  not a pause.
-- **`music.setLapSeconds(n)` is the harness seam**, same convention as the server's
-  `AFKKickThreshold`. A real loop is 38 to 102 seconds and hands over after two of them, so without
-  it the unattended handover is the one behaviour nothing ever checks. It moves the handover decision
-  alone and never the loop points, so what `make audio-verify` hears is still the music playing
-  properly.
-
-### What playback still guarantees
-
-- Playback is a **shuffled playlist**, not a selection: no picker, one ⏭. `shuffledOrder` deals every
-  id once per bag and never opens on the one that just played — with two loops carrying a section,
-  pure random replays the outgoing one half the time, which people hear as broken rather than as
-  random.
-- **⏭ stays inside the section the table is in.** The alternative is a button that answers a press by
-  contradicting the game, and the panel is open over a live board.
-- **A title is a name; a blurb is copy; only the blurb is translated.** The title is one string, in
-  English, and `music.test.ts` refuses a character outside `[A-Za-z0-9 '-]` so a French one cannot
-  drift back in. The first pass had them French — `Entracte`, `Filou`, `Ruade` — which read fine
-  next to a French blurb and made the panel look like it was translating the music: a piece whose
-  name changes with the interface language is two pieces to anybody who switches, and neither is the
-  one the composer released. Names are `Intermission`, `Sleight`, `Bad Manners` now; the blurbs
-  underneath stayed in both languages, because those really are the game talking.
-- **A title names the writing, never the genre**, and here also never the source file's date. They
-  arrive as `Sketchbook 2024-05-29`, a name that says nothing about one piece that it would not say
-  about the two hundred others in the bundle. `Intermission` is what plays while the table counts up;
-  `Sleight` is somebody setting something up; `Bad Manners` is the table that has stopped being
-  polite.
-- **`music.duck(ms)`** pulls the bed under a round's fanfare through the bed's own output stage,
-  so it never touches the user's music volume. Two pieces of music fighting for the same moment makes
-  both of them mush. The match's fanfare, the one people clip, gets `brake()` instead (see *Keys,
-  and what two loops may do next to each other*).
-
-### Licence
-
-Abstraction (Tallbeard Studios), *Music Loop Bundle*, **CC0 1.0**: copyright waived, no attribution
-required, commercial use and modification permitted. Credited anyway in `NOTICE.md` and
-`client/public/licenses.txt`, the way the CC0 model kits are. The authors ask that their work not be
-used for NFTs, for training machine-learning models, or resold unmodified, and none of those happens
-here. The files are served from this origin and never a CDN, which is what keeps
-[`legal.md`](legal.md)'s "no third-party request from the player's browser" true.
-
-- `audio/gameSounds.ts` — **decides**, and plays nothing. `soundsForTransition` is a pure function
-  of two store snapshots, which is what makes it a unit test rather than a listening exercise.
-- `hooks/appEffects.svelte.ts` — `gameAudio()`, **the only place a game sound is played**. One store
-  subscription feeding the list above, instead of audio calls scattered through components: every
-  sound stays in one readable list and cannot double-fire. A component calling `playSfx` directly is
-  a UI tap (`uiTap`, `uiBack`) and never a game event.
-- `<AudioSettings />` sits in the top-right cluster on every screen: three sliders, a **now-playing
-  line plus a ⏭ next button** (44px target), and mute. There is deliberately **no picker** — choosing
-  from a list means reading six names to make a decision nobody opened the panel to make, whereas
-  "not this one" is a judgement you can act on in one tap. Music defaults below effects — it is a bed,
-  and a streamer talking over the game must stay louder than it. The current loop id is written back
-  to `loco_audio` on **every** handover, which is also what re-renders the now-playing line when the
-  bed changes loop on its own; `engine.ts` stores it as a **bare string** and never imports the
-  registry, because the registry depends on the engine. The stored key is still `track`: a loop is
-  what a player is listening to, and renaming a persisted field to match an internal rework would
-  invalidate everybody's stored preference to no end.
-  - **Moving a slider auditions the bus, and that is not the same event as a press.** A range input
-    fires `input` on every step it crosses, so a drag is dozens of them a second, and the sample
-    lasts 100ms: played one per event they overlap four and five deep and the panel answers a volume
-    change with a shrill continuous buzz rather than a level. **The engine's voice budget does not
-    cover this** — six voices a frame is a clipping guard, and far more than it takes to build the
-    buzz. Two things fix it and neither works alone.
-    - `AUDITION_MS` (130) is a floor between samples, in the component, because throttling a
-      continuous control is a decision about that control. It is also what keeps the fix testable:
-      the sfx module is mocked in component tests, so a floor hidden inside it could not be seen.
-    - `playVolumeAudition(level)` is the sample, and **it is a function of the level**. Spacing them
-      out alone cost the gesture its shape — a row of identical blips says nothing about which way
-      the slider went, and on the master bus the audition is the only feedback there is. The pitch
-      climbs the travel over two octaves on a major pentatonic (A3 to A5, 11 steps), so moving up
-      sounds like moving up: stepped rather than glided, because a run lands and a siren does not.
-      **Level moves the pitch and the filter, never the gain** — the bus being moved already applies
-      the gain, and scaling twice silences the bottom of the travel, which is the part a player is
-      listening for. It stays an octave under `uiTap` and low-passed below 2.8kHz for the original
-      reason: a blip that is bright heard once is shrill heard thirty times, and 2-5kHz is the band
-      the ear is sharpest in.
-    - Because it takes an argument it is **not a `SfxName`**, so the `SFX_NAMES` loop in
-      `verify.mjs` cannot reach it and it is measured by hand there — both ends of the travel, plus
-      an FFT on each proving the pitch really climbs and that the top stays under 1.2kHz. That last
-      one is the only check in the repo that hears a note rather than counting a call.
-    - `src/test/audio.test.ts` owns the rate and the level handed over. Anything else that makes a
-      sound per step of a continuous control takes the same treatment.
-- `make audio-verify` (`tools/audio/verify.mjs`) is the only thing that can catch a broken envelope
-  or a mis-wired node: those produce **silence**, not an error, so no unit test would ever go red.
-  It plays every voice through a real AudioContext and measures peak amplitude on the bus. **Every
-  voice, read from `sfx.SFX_NAMES` rather than from a list in the harness**: it carried a
-  hand-written copy for a while, which quietly exempted every sound added after that copy was
-  written from the only check that can see silence. Then it
-  checks the properties of the bed that are claims rather than code: **every registered loop makes
-  sound** (a missing file 404s and the bed keeps what was already sounding, so the failure is silence
-  and not an error), that **the ladder reaches the music** — walking the four thresholds must produce
-  at least three distinct sections, each with a loop that carries it, which is the one check that
-  crosses from a pure function to what comes out of the bus — that **the next button changes loop**
-  without ever repeating back to back and covers the section's bag, that a loop that has come round
-  enough times **hands over unattended** with the table holding still (the direct test of "it's just
-  a chorus on repeat", run under `setLapSeconds` because a real loop takes minutes),
-  that calm and tense arrive at the **same level** (×1.00 ± 0.4), that the sections
-  actually move breakdown→drop (a bed can get louder without ever bringing the drums in), that the
-  slew reaches its targets, that ducking attenuates, and the **frame cost** of the drop against idle
-  (the synthesised bed built a lot of nodes; two buffer sources cost less, and it was already free).
-  - **The level check is inverted from what it was, on purpose.** It measured a ≥1.3× energy rise
-    between calm and tense while the bed was synthesised, because the ladder was a layer count and
-    more layers is more signal. Against normalised loops it failed at ×1.02 — for exactly the reason
-    the bed is correct, since every file is mastered to −18 LUFS so a shuffled playlist does not
-    lurch at the handover. Tension is carried by *which* loop plays now, which `ladder` and
-    `sections` assert; what this measurement guards is that a loop added later without normalising
-    shows up somewhere, and this is the only place it would.
-  - **Measure over a full phrase.** `LOOP_MS` is deliberately several bars long; a shorter window
-    samples a random slice of the piece, which is exactly how the first version of this check
-    confidently reported ×1.05 for a bed that does change.
-  - Deliberately outside CI: audio devices in CI containers are unreliable and a flaky sound
-    assertion trains people to ignore red. Run it after touching `sfx.ts`, `music.ts` or `engine.ts`,
-    or after re-encoding a loop.
-- **What `gameSounds.ts` keys a cue on is a stamp, never a flag or a string.** `unoDeclared` is a
-  latch that stays up under the banner, so a second seat calling it (routine after a Global
-  Switch) made no sound; `errorMsg` compared as a string heard one of two identical refusals. Both
-  carry a stamp now (`unoDeclaredAt`, `errorAt`), minted by `store/helpers.ts`'s `stamp()`, which
-  is strictly increasing so two events in one millisecond are two events. The seat that opens the
-  match gets its `yourTurn` on the table opening (`mapLoading` going null) rather than on a turn
-  number that never moved; every round's deal gets the flourish (`dealFor`), not only the first;
-  an opponent going quiet has a voice (`playerAway`) and their return is the arrival cue; and the
-  list is de-duplicated, because two copies of one cue on the same sample is one cue at twice the
-  level on a bus with no limiter. The countdown ticks are five timeouts aimed at their seconds,
-  not a 200 ms poll for the whole turn.
-- **`make audio-verify` can borrow a browser** (`LOCO_CHROMIUM=/path/to/chrome`): the harness
-  launches whatever Chromium the `playwright` package it resolves has downloaded, and a machine
-  that already has one — a sandbox, a CI image with browsers baked in — need not fetch another
-  copy to run it. Unset, Playwright uses its own, as before.
-- **The handling is never played twice the same way** (`humanVariation` in `sfx.ts`, applied by
-  `playSfx` to `cardPlay`, `cardDraw`, `cardDeal`, `uiTap`, `uiBack`, `skip`, `reverse`, and by
-  `playDeal` to each card of the flourish): ±45 cents of detune and a gain between 0.86 and 1 per hit
-  — under the threshold of "a different sound", over the threshold of "the same sound again". Fifty
-  copies of one sample a round is the sound of a machine. The cues that *mean* something (a call, a
-  catch, a fanfare) stay exact: those are the vocabulary, and a word is not pronounced differently
-  each time. `haptics.test.ts` pins the range.
-- **The phone answers the same list** (`hooks/haptics.ts`): `hapticsFor` reads the cues
-  `soundsForTransition` produced and picks one pattern per moment, the strongest cue's, never a
-  chain; `gameAudio()` plays it right after the sounds. Presentation only, off by one switch in the
-  preferences (stored inverted, `loco_haptics_off`, so a fresh install buzzes), and a no-op — with
-  no switch offered — anywhere but a touch screen (`pointer: coarse`) that has `navigator.vibrate`.
-  **The API alone is not enough**: Chrome and Edge on a desktop expose it with no motor behind it,
-  which offered a switch that did nothing. `haptics.test.ts`.
-- **Strudel was evaluated and rejected**: `@strudel/*` and `superdough` are AGPL-3.0-or-later, and
-  bundling them into a network-served client triggers §13 for the whole app. Revisit only if LOCO
-  itself becomes AGPL.
-
+**Strudel is refused**: `@strudel/*` and `superdough` are AGPL-3.0-or-later, and bundling them into a
+network-served client brings §13 onto the whole app.

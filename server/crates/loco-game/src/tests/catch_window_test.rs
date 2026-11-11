@@ -1,4 +1,4 @@
-//! Ported from Go: `server/game/catch_window_test.go`.
+//! The catch window and the price of a Contre-LOCO! that finds nobody.
 //!
 //! A Contre-LOCO! costs the caller a card whenever it loses a race, which is
 //! what makes the wager honest. These tests own the line between a race and a

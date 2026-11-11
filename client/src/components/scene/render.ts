@@ -30,7 +30,7 @@
  * the bloom, the air over the far ground, a filmic tone curve and a warm/cool
  * grade, a lens focused on the table, a fringe in the corners, a
  * vignette — once, before it is copied out. The tier is the player's
- * (`hooks/graphicsPref.ts`, `quality.ts`). Every number any of this reads is
+ * (`state/graphicsPref.ts`, `quality.ts`). Every number any of this reads is
  * `look.ts`'s.
  */
 import { Box3, Color, Fog, FogExp2, Group, Mesh, PerspectiveCamera, Scene, ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget, type Texture } from 'three'
@@ -53,7 +53,7 @@ import { makeMirror, renderReflection } from './mirror'
 import { configureShadows, makeLights, makeTableLamp, skyEnvironment, toneMappingFor } from './lighting'
 import { lightingFor } from './shade'
 import { LOOK } from './look'
-import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
+import { resolveGraphics, type GraphicsTier } from '../../state/graphicsPref'
 import { nextPaint } from './nextPaint'
 import { PLATES, type PlateDef } from './plates'
 import { loadPlate, loadStrips, makePlate, makePlateShade } from './plate'

@@ -5,7 +5,7 @@ import Card from '../components/cards/Card.svelte'
 import ColorPicker from '../components/ColorPicker.svelte'
 import Preferences from '../components/Preferences.svelte'
 import { SUIT_SHAPE } from '../components/cards/cardTheme'
-import { isColorAssist, resetColorAssist, setColorAssist } from '../hooks/colorAssist'
+import { isColorAssist, resetColorAssist, setColorAssist } from '../state/colorAssist'
 import type { CardDTO } from '../types/protocol'
 
 vi.mock('../audio/sfx', () => ({

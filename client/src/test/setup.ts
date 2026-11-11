@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { flushSync } from 'svelte'
 import { beforeEach, vi } from 'vitest'
 
@@ -20,7 +20,7 @@ vi.mock('$app/navigation', () => ({
 import { configure, fireEvent } from '@testing-library/dom'
 import { resetI18n } from '../i18n/store'
 // Imported for its side effect and its order: see the flush below.
-import '../hooks/gameStore.svelte'
+import '../state/gameStore.svelte'
 import { flushStoreWrites } from './storeFlush.svelte'
 
 // jsdom doesn't ship ResizeObserver; the board's own measurement relies on it.

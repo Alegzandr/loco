@@ -1,4 +1,4 @@
-//! What the environment says about this feature. Port of `server/twitch/config.go`.
+//! What the environment says about this feature.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -94,7 +94,7 @@ pub fn poll_period(raw: &str) -> Duration {
     if raw.is_empty() {
         return LIVE_POLL_PERIOD;
     }
-    match parse_go_duration(raw) {
+    match parse_duration(raw) {
         Some(d) if d >= Duration::from_secs(1) => d,
         _ => {
             tracing::warn!(
@@ -117,10 +117,11 @@ fn or(v: String, fallback: &str) -> String {
     if v.is_empty() { fallback.to_owned() } else { v }
 }
 
-/// Go's `time.ParseDuration`, for the positive values an env file carries:
-/// `90s`, `1m30s`, `1.5h`, `250ms`. A negative or malformed value is `None`.
+/// A duration as an env file writes one, a number and a unit each step:
+/// `90s`, `1m30s`, `1.5h`, `250ms`; `0` alone is zero. Any other bare number,
+/// a negative or a malformed value is `None`.
 /// The binary reads `LOCO_DRAIN_TIMEOUT` with this one too.
-pub fn parse_go_duration(s: &str) -> Option<Duration> {
+pub fn parse_duration(s: &str) -> Option<Duration> {
     let mut rest = s.strip_prefix('+').unwrap_or(s);
     if rest.starts_with('-') {
         return None;

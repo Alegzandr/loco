@@ -1,4 +1,4 @@
-//! A player's hand (`server/game/hand.go`).
+//! A player's hand.
 
 use crate::card::Card;
 use crate::error::GameError;
@@ -7,10 +7,7 @@ use serde::{Deserialize, Serialize};
 /// A player's hand of cards.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Hand {
-    #[serde(
-        rename = "Cards",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
+    #[serde(default)]
     pub cards: Vec<Card>,
 }
 
@@ -22,12 +19,12 @@ impl Hand {
         }
     }
 
-    /// Appends cards to the hand. (Go: `Add`.)
+    /// Appends cards to the hand.
     pub fn add(&mut self, cards: &[Card]) {
         self.cards.extend_from_slice(cards);
     }
 
-    /// Takes one copy of a card out of the hand. (Go: `Remove`.)
+    /// Takes one copy of a card out of the hand.
     pub fn remove(&mut self, card: Card) -> Result<(), GameError> {
         match self.cards.iter().position(|c| *c == card) {
             Some(i) => {
@@ -38,12 +35,12 @@ impl Hand {
         }
     }
 
-    /// True if the hand holds the card. (Go: `Contains`.)
+    /// True if the hand holds the card.
     pub fn contains(&self, card: Card) -> bool {
         self.cards.contains(&card)
     }
 
-    /// The number of cards in the hand. (Go: `Size`.)
+    /// The number of cards in the hand.
     pub fn len(&self) -> usize {
         self.cards.len()
     }

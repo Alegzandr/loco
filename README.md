@@ -29,7 +29,7 @@ big moments (interception, LOCO!, victory) have to land in a muted clip.
 | Site      | **SvelteKit** (`adapter-static`) | One app for the game and the content pages: every URL is a prerendered file, and the router moves between them without a reload, so the socket, the music and a running match survive a trip to the rules. The game itself is *not* server-rendered: it mounts client-side, so nothing about language, session or board geometry has to be guessed on a server. Output is static files behind nginx, no Node runtime in production |
 | Bundler   | **Vite** (SvelteKit's plugin) | Near-instant dev server, fast HMR                                 |
 | Rendering | **Svelte + CSS + WAAPI** | DOM-based card rendering, no animation library: the fan and the seats reflow on CSS transitions, and a card in flight is one `element.animate` call handed straight to the browser |
-| State     | **`hooks/store/createStore.ts`** (~40 lines) | `getState`/`setState`/`subscribe` plus a middleware slot, with no framework in it, because the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, `hooks/sessionRestore.ts`, the E2E bridge) and by no framework in particular; `src/test/storeCore.test.ts` states every semantic the app depends on |
+| State     | **`state/store/createStore.ts`** (~40 lines) | `getState`/`setState`/`subscribe` plus a middleware slot, with no framework in it, because the board is read by three modules that render nothing (`state/appEffects.svelte.ts`, `state/sessionRestore.ts`, the E2E bridge) and by no framework in particular; `src/test/storeCore.test.ts` states every semantic the app depends on |
 | Validation| **Valibot**             | Runtime schema for inbound `ServerMsg`. Both it and the TypeScript types are **generated from `server/crates/loco-protocol/`** by `make protocol` (`ts-rs` for the types, a JSON Schema turned into Valibot for the validators), so server↔client drift is not caught late, it is not possible: CI regenerates and fails on any difference. Valibot because it interprets its schemas: a validator that JIT-compiles them with `Function()` is refused by the production CSP, and the failure only ever appears on the served page |
 | Audio     | **Web Audio API** (hand-rolled) | Every sound effect is synthesised at runtime: no sample library, no cache-miss on a cue that has to answer a tap. The music bed is nineteen CC0 loops served from this origin, crossfaded by the game's own tension |
 | Type      | **Fredoka + Nunito** (self-hosted, `@fontsource`) | Rounded display faces that match the art direction; self-hosted so the CSP stays closed |
@@ -71,9 +71,9 @@ rendering its own hand, animation, and sending intents.
   hub's loop owns what is between tables (the map of them, the matchmaking queue, the sockets, the
   drain) and routes each message to the table it is for. No locks on room state — nothing but the
   table's own task can reach it, which the compiler checks.
-- It is not a throughput change. A whole card play costs about 1.3 µs and the rate limiter admits
-  far less than one task absorbs; what the split buys is **isolation**, in a game whose reaction
-  windows are decided by arrival order.
+- The split buys **isolation**, not throughput: a whole card play costs about 1.3 µs and the rate
+  limiter admits far less than one task absorbs, but one table's slow message is never another's
+  wait in a game whose reaction windows are decided by arrival order.
 - Timing is enforced server-side at message receipt. Client timestamps decide nothing.
 - Every delay (bot moves, the turn clock, reconnect expiry, room cleanup) is a deadline in the
   table's own state, slept on in the same `select!` that reads its mailbox: arming one replaces it
@@ -119,7 +119,7 @@ client and E2E targets do need Node (22.12+ — Vite 8 and SvelteKit 3 declare i
 | Pack the rooms' models | `make models` (from the CC0 kits unpacked under `.assets-in/unpacked/`, which git ignores; the packed result under `client/public/models/` is committed) — `make models-check` lists what is missing |
 | Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make rooms`, `make bench-server` |
 
-Without Docker: `cd server && cargo run -p loco-server` (listens on :8080; Rust 1.97, edition 2024) and `cd client && npm install && npm run
+Without Docker: `cd server && cargo run -p loco-server` (listens on :8080; Rust 1.99, edition 2024) and `cd client && npm install && npm run
 dev`. Test-by-test invocations, what each harness catches that no assertion would, and why four of
 those targets are outside CI: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 
@@ -159,14 +159,14 @@ write nothing but the shutdown snapshot on its `/data` mount.
 | `CLIENT_PORT`     | `3000`                | Nginx (frontend) listen port (production compose)        |
 | `VITE_WS_PORT`    | `8080`                | Server port for direct WS connections in dev (`ws://<host>:<port>/ws`) |
 | `VITE_PUBLIC_ORIGIN` | `https://ohloco.com` | **Build-time.** The origin the canonical, `hreflang` and `og:` tags are made absolute against — crawlers do not run JS and never fetch a relative `og:image`, so it cannot be filled in at runtime. Always the apex, never `www.`, which only 301s to it. `client/Dockerfile` takes it as an `ARG`; `.gitlab-ci.yml` passes `https://${APP_HOST}` (`ohloco.com` on a `v*` tag, `loco-d.kisukesaama.com` on `develop`). |
-| `LOCO_ALLOWED_ORIGINS` | *(unset)*        | Comma-separated exact browser origins allowed to open a WebSocket. Unset means "same hostname as the request", port-insensitive, which already covers production and dev. |
+| `LOCO_ALLOWED_ORIGINS` | *(unset)*        | Comma-separated exact browser origins allowed to open a WebSocket. Unset means "same hostname as the request", port-insensitive, which covers local dev. **Mandatory in production**, where the page and the socket are on two hostnames: it names the page's origin (`write_app_env` sets it). |
 | `LOCO_CLIENT_IP_HEADERS` | `CF-Connecting-IP,X-Real-IP` | Ordered list of headers carrying the address of the browser that opened the socket; first one that parses wins. Behind a proxy every socket arrives from the nginx container, so without this the per-network ceilings below collapse onto one bucket. Two of them because production has two paths: the CDN sets the first, Traefik overwrites the second on the direct socket host. The order matters — a client can put its own `X-Real-IP` on a proxied request. Read **only** from a trusted peer, and a multi-value one is refused: `X-Forwarded-For` is not a safe substitute, Cloudflare appends to it and its leftmost entry is the client's to invent. |
 | `VITE_WS_ORIGIN` | *(empty)* | **Build-time.** The hostname the WebSocket dials to bypass the CDN, e.g. `wss://ws.ohloco.com`. A proxied socket measured 389 ms per round trip against 8.5 ms direct, Paris to Paris, on an established connection — every card, not a page-load cost. Empty means the socket stays on the page's own origin, which is dev, a local build and the dev deployment. `client/Dockerfile` takes it as an `ARG` and uses it twice: the bundle, and the CSP's `connect-src`. `.gitlab-ci.yml` passes it on a `v*` tag only. The scheme is taken from the page, so it may be given with or without one. |
 | `LOCO_TRUSTED_PROXIES` | *(unset)*        | Comma-separated CIDRs whose `LOCO_CLIENT_IP_HEADERS` are believed. Unset means loopback plus the private ranges, which is the whole set of peers that can reach the server: it publishes `8080` on the `internal` Docker network only. Setting this **replaces** that default rather than adding to it. |
 | `LOCO_E2E`        | *(unset)*             | `1` enables `debug_set_state`, used by the Playwright suite. **Never set in production** — the server logs a startup `WARN` and `/metrics` reports `debug_mode_active`. |
 | `LOCO_BOT_THINK_MS` | `1200`              | Bot thinking time before playing a card. Read **only** when `LOCO_E2E=1`; ignored (with a `WARN`) if malformed or negative. Shortened in CI to cut dead time out of the E2E suite. |
 | `LOCO_BOT_JITTER_MS` | `1000`             | Random jitter added to `LOCO_BOT_THINK_MS`. Same gate and same validation. Bot *reaction* windows (catch, LOCO! declaration, interrupt) are deliberately not tunable. |
-| `LOCO_DRAIN_TIMEOUT` | `90s`              | On `SIGTERM`, how long the server waits for the matches already running to finish before it snapshots them and exits. A duration in Go's spelling (`90s`, `15m`) or bare seconds. Malformed values fall back to the default with a `WARN`, never to zero. Deliberately short and the same in both deployed environments (grace `150s`); local compose `5s`. |
+| `LOCO_DRAIN_TIMEOUT` | `90s`              | On `SIGTERM`, how long the server waits for the matches already running to finish before it snapshots them and exits. A duration (`90s`, `15m`, `1m30s`) or bare seconds. Malformed values fall back to the default with a `WARN`, never to zero. Deliberately short and the same in both deployed environments (grace `150s`); local compose `5s`. |
 | `LOCO_SNAPSHOT_PATH` | *(unset)*          | Where matches in flight are parked across a restart, so the players reconnect into them instead of losing the match. Unset disables the mechanism entirely, which is what local dev and the E2E suite run with. Production: `/data/snapshot.json`, bind-mounted from `${DATA_DIR}/snapshots/${DEPLOY_ENV}` — one directory per environment. |
 | `JANUS_URL` | *(unset)* | The gateway every third-party call leaves through (`JANUS.md`). Together with the two below it switches the live-streams strip on; **unset means the feature does not exist** — no task, no outbound request, no `live_streams` on the wire and no log line — which is what local dev and the E2E suite run with. |
 | `JANUS_APPLICATION_ID` | *(unset)* | This service's id at the gateway. Not a secret. |
@@ -194,15 +194,14 @@ and the server surfaces underneath all of it.
 - Matchmaking is a single first-come queue: no rating and no region. A ranked ladder would be a
   second queue beside it
 - No spectator mode, no chat
-- The resource ceilings are compile-time defaults (`Limits` in `server/crates/loco-hub/src/config.rs`:
-  `max_rooms`, `max_clients`, `max_conns_per_net`, `max_failed_joins`), not environment variables. They are set generously enough
+- The resource ceilings are compile-time defaults (`Limits` in `server/crates/loco-hub/src/ops/config.rs`:
+  `max_rooms`, `max_tables_per_net`, `max_clients`, `max_conns_per_net`, `max_failed_joins`), not environment variables. They are set generously enough
   that an operator should not need to reach for them; changing one is a rebuild
 - `max_conns_per_net` counts per `/24` (or `/48`), the same truncation the logs use. On a
   carrier-grade NAT that groups unrelated players, so the limit is deliberately high rather than tight.
   The network comes from `LOCO_CLIENT_IP_HEADERS` when the peer is a trusted proxy and from the peer
   otherwise: behind a reverse proxy that forwards nothing, every player counts as one network
 - The room, the hour and the weather are drawn at random and cannot be chosen; the six rooms are cosmetic only
-- Wild Draw Four legality (should only be legal when no matching colour) not yet enforced
 - Only English and French are translated; adding a language is a new file in `client/src/i18n/` and an
   entry in the `translations` map
 - Sound effects are synthesised, not recorded: the result is deliberately arcade-like rather than
@@ -248,20 +247,9 @@ and the data inventory: [`docs/notes/legal.md`](docs/notes/legal.md).
 ## CI/CD & Deployment
 
 GitLab CI (`.gitlab-ci.yml`) runs `test → build → deploy`; production traffic flows `Traefik → nginx
-→ loco-server`. GitLab is the only CI — the GitHub remote is a plain mirror with no pipeline, so there
-is nothing to keep in sync.
-
-Two things are worth knowing before touching it, and both are load-bearing:
-
-- **`build` depends on *every* test job**, lint and the full Playwright run included. Listing a
-  subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the build
-  started as soon as those two finished, so a red `develop` still shipped.
-- **Nothing may use `artifacts:`** until the runner is fixed — its upload helper cannot resolve the
-  GitLab API host, and a failed upload fails the job. `server-bin` travels by cache instead, with a
-  `server-bin.sha` stamp so a shard never runs a binary built from another commit.
-
-Pipeline breakdown, sharding, the `DEPLOY_DEV` switch, the drain-and-snapshot rollout and the
-readiness checks: [`docs/deployment.md`](docs/deployment.md).
+→ loco-server`. GitLab is the only CI; the GitHub remote is a plain mirror. Before touching it, read
+[`docs/deployment.md`](docs/deployment.md): `build` must need *every* test job, and nothing may use
+`artifacts:` until the runner is fixed.
 
 ---
 
@@ -271,6 +259,6 @@ readiness checks: [`docs/deployment.md`](docs/deployment.md).
 feature branch → tests → implementation → all tests green → update docs → commit
 ```
 
-`CLAUDE.md` holds the engineering rules; `docs/notes/` holds the reasoning behind each one — the bug
-that produced it, the alternative that was measured and rejected, and the edge cases a one-line rule
-cannot express. Update the rule and its note in the same change set.
+`CLAUDE.md` holds the engineering rules; `docs/notes/` holds the reasoning behind each one — the
+failure it prevents, the alternative measured and rejected, and the edge cases a one-line rule cannot
+express. Update the rule and its note in the same change set.

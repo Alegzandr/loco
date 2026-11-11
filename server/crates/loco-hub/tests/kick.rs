@@ -1,11 +1,11 @@
-//! Port of `server/hub/kick_test.go`.
+//! The host removing a seat from the waiting room.
 
 use loco_hub::testkit::*;
 use serde_json::{Value, json};
 
 /// Opens a table with Alice as host and seats the named guests at it. Returns
 /// the host connection, the guest connections in seat order, and the code.
-/// Nothing is dealt. Go's `setupLobby`.
+/// Nothing is dealt.
 async fn setup_lobby(th: &TestHub, guests: &[&str]) -> (Ws, Vec<Ws>, String) {
     let mut host = dial_ws(th).await;
     send_msg(

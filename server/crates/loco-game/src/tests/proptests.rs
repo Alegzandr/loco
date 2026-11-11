@@ -1,10 +1,10 @@
-//! Invariants no single Go test could state, held over random play.
+//! Invariants no single example could state, held over random play.
 //!
 //! - 112 cards, always: hands + deck + discard, through every replenish,
 //!   penalty, rotation and retirement.
 //! - `Wild` is never the active colour.
 //! - A draw never fails once it is the seat's to make, piles dry or not.
-//! - A refusal changes nothing (Go's validate-then-mutate order).
+//! - A refusal changes nothing (every command validates before it mutates).
 //! - The LOCO! gate holds on all four paths that can empty a hand.
 
 use crate::card::{COLORS, Card, Color, Kind};
@@ -119,7 +119,7 @@ fn step(
 /// progress fails here instead of passing vacuously.
 #[test]
 fn random_play_reaches_the_states_the_invariants_are_about() {
-    use rand_core::{RngCore, SeedableRng};
+    use rand_core::{Rng, SeedableRng};
     let mut rng = rand_chacha::ChaCha12Rng::seed_from_u64(7);
     let (mut rounds, mut matches, mut dry_draws, mut plays) = (0, 0, 0, 0);
     for seed in 0..40 {
@@ -196,6 +196,13 @@ proptest! {
             prop_assert_eq!(card_total(&r), DECK_SIZE, "cards not conserved after {:?}", res);
             if let Some(st) = r.state.as_ref() {
                 prop_assert_ne!(st.active_color, Color::Wild);
+            }
+            // Every seat carries one entry per finished round, and its score
+            // is what those entries add up to.
+            let rounds = r.round_history().len();
+            for s in r.seats() {
+                prop_assert_eq!(s.round_points.len(), rounds, "{:?}", s);
+                prop_assert_eq!(s.score, s.round_points.iter().sum::<i32>(), "{:?}", s);
             }
             if r.round_ended {
                 r.round_ended = false;

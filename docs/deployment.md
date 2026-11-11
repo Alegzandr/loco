@@ -8,7 +8,7 @@ Defined in `.gitlab-ci.yml`, three stages:
 |----------|----------------------------------------------------------------------|------------------------------------|
 | `test`   | `backend_lint`, `backend_test`, `frontend_test`, `e2e_test`          | Every push (all branches)          |
 | `build`  | `build` (Docker images)                                              | `develop` branch or `v*` tag only  |
-| `deploy` | `deploy_dev` (auto on `develop`, manual if `DEPLOY_DEV != "true"`), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build`                      |
+| `deploy` | `deploy_dev` (auto on `develop`, manual if `DEPLOY_DEV != "true"`), `deploy_prod` (auto on tag), `stop_dev` (manual, `develop` only) | After `build`                      |
 
 ### `DEPLOY_DEV`
 
@@ -28,26 +28,24 @@ Production ignores it entirely: `deploy_prod` keys on `$CI_COMMIT_TAG =~ /^v.*/`
 
 ### Test jobs
 
-- `backend_test` (`rust:1.97-bookworm`): `cd server && cargo test --workspace --locked`, the
+- `backend_test` (`rust:1.99-bookworm`): `cd server && cargo test --workspace --locked`, the
   `wasm32-unknown-unknown` build of `loco-game` (the domain must keep building for the browser), and
   the static musl `loco-server` that `e2e_test` runs (`server-bin`).
 - `frontend_test` (`node:24-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
 - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs the server binary, runs
   Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
-- `backend_lint` (`rust:1.97-bookworm`): `cargo fmt --all -- --check`, `cargo clippy --workspace
+- `backend_lint` (`rust:1.99-bookworm`): `cargo fmt --all -- --check`, `cargo clippy --workspace
   --all-targets -- -D warnings` and `cargo deny check` (`server/deny.toml`: permissive licences only,
   no open advisory, crates.io only).
-- `protocol_check` (`rust:1.97-bookworm` plus the distribution's `nodejs`): the converter's refusal
+- `protocol_check` (`rust:1.99-bookworm` plus the distribution's `nodejs`): the converter's refusal
   tests, `cargo test -p loco-protocol` (the wire fixtures among them) and `protocolgen --check`,
   which fails if `client/src/types/` has drifted from `server/crates/loco-protocol/`.
 
 Each Cargo job caches `.cargo/registry/` and `server/target/` under its own key prefix, keyed on
 `server/Cargo.lock`: two jobs pushing one key race on the upload.
 
-`build` **needs every test job**, lint and `protocol_check` included. `needs` is what actually gates a deploy: naming only `backend_test` and
-`frontend_test` let the build start as soon as those two finished, which made the lint and the whole
-Playwright suite advisory — red on `develop` still shipped to dev, and a version tag still shipped to
-prod.
+`build` **needs every test job**, lint and `protocol_check` included. `needs` is what actually gates
+a deploy: a test job missing from it is advisory, and red ships.
 
 `build` and `deploy` jobs require the `devops` runner tag and the GitLab container registry.
 
@@ -59,10 +57,10 @@ nothing is skipped, no gate is loosened, no reaction window is shortened.
 | Change | Why |
 |---|---|
 | `parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL` | The suite is stateful, so `workers` stays at 1 *inside* a job; sharding is what parallelises it. `fullyParallel: true` is what makes the split even — left false, Playwright shards whole spec files and 87 tests came out 27/39/0/21. |
-| `server-bin` built once by `backend_test`, handed over by cache | `e2e_test` runs on the Playwright image, which has no Rust: it used to download a toolchain and rebuild the same binary once per shard. Static (musl), so it runs on that image's older glibc as-is. Cache rather than artifact: see below. |
+| `server-bin` built once by `backend_test`, handed over by cache | `e2e_test` runs on the Playwright image, which has no Rust, so it would otherwise rebuild the binary once per shard. Static (musl), so it runs on that image's older glibc as-is. Cache rather than artifact: see below. |
 | No `playwright install` | The image ships the browsers, and only the ones its own Playwright needs. `PLAYWRIGHT_VERSION` is declared once, interpolated into the image tag, and asserted against the installed version before the suite runs; `@playwright/test` is pinned exactly. Bump the two together and commit the lockfile. |
 | Cargo + npm caches under `$CI_PROJECT_DIR` | GitLab only caches paths inside the project. Keys are per job family; the shards key on `$CI_NODE_INDEX` so four jobs don't race on one cache upload. |
-| `e2e_test needs: [backend_test]` only | It consumes nothing from `frontend_test`, so naming it just parked the longest job behind the second-longest. `build` still needs every test job, so nothing red ships. |
+| `e2e_test needs: [backend_test]` only | It consumes nothing from `frontend_test`; naming it would park the longest job behind the second-longest. `build` still needs every test job, so nothing red ships. |
 | `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` | Bot think time is dead time nothing races. Catch, LOCO! declaration and interrupt delays keep their shipped values — tests are meant to be able to win those races. |
 
 **The sharding has a prerequisite outside the repository**: the runner must accept concurrent jobs
@@ -81,10 +79,8 @@ dial tcp: lookup gitlab on 192.168.1.254:53: no such host
 FATAL: invalid argument       →  ERROR: Job failed: exit code 1
 ```
 
-A failed upload **fails the job**, so a single `artifacts:` line turns a run where all 87 E2E tests
-passed into a red pipeline. The limitation predates the speed work: `e2e_test` rebuilt the server
-binary in-job under a comment reading "no artifact transfer needed", and it only surfaced when a job
-first tried to publish one.
+A failed upload **fails the job**, so a single `artifacts:` line turns a green E2E run into a red
+pipeline.
 
 Consequences, and how to undo them:
 
@@ -117,10 +113,10 @@ Both are declared once, as `PROD_HOST` and `DEV_HOST` in the global `variables:`
 `.gitlab-ci.yml`. Every job exports the right one into `APP_HOST`, `write_app_env` writes it to
 `app.env`, and `deploy/compose.yml` interpolates it into the Traefik `Host()` rule.
 
-`APP_SUBDOMAIN` is still `loco` and no longer has anything to do with the address. It names the stack
-— the compose project, the Traefik router, the `internal` network, the directory under `DEPLOY_DIR` —
-which is why production changing domain touched two variables and left every container name alone.
-Do not derive one from the other in either direction.
+`APP_SUBDOMAIN` (`loco`) has nothing to do with the address. It names the stack — the compose
+project, the Traefik router, the `internal` network, the directory under `DEPLOY_DIR` — so a change
+of domain touches two variables and no container name. Do not derive one from the other in either
+direction.
 
 The dev host must keep its `-d.` prefix: `client/nginx.conf` keys `robots.txt` on that pattern, and it
 is the only thing keeping the dev deployment out of the index. See
@@ -145,8 +141,8 @@ preferences:
   Cloudflare is the only thing that validates this certificate and it is issued for exactly that.
   **`ws.*` is the opposite case and names one** — see below.
 
-  The consequence is the one that took production down the day it moved: **a new domain needs a new
-  certificate posted by hand, and nothing in this repo can tell you it is missing.** Cloudflare in
+  **A new domain needs a new certificate posted by hand, and nothing in this repo can tell you it is
+  missing.** Cloudflare in
   `Full (strict)` answers an origin serving Traefik's self-signed default with **error 526**, which is
   the symptom to recognise. One Origin Certificate per zone (`ohloco.com` + `*.ohloco.com`), an entry
   appended to the existing `certificates:` list, and Traefik picks the right one by SNI.
@@ -168,18 +164,14 @@ Three things it costs, and none of them is optional:
 
 - **A publicly trusted certificate, which the Origin Certificate above is not.** Grey cloud means the
   browser validates the certificate itself, and a Cloudflare Origin Certificate is trusted by
-  Cloudflare and by nothing else. **This is the failure that shipped**, and it is worth knowing by
-  sight: the zone's Origin Certificate answered on `ws.ohloco.com`, every browser refused the upgrade
-  before it happened, and the game fell back to `wss://ohloco.com/ws` at 389 ms for every player.
-  Only the machines carrying Cloudflare's Origin CA in their trust store — the ones the origin was
-  set up from — ever saw the direct socket, which is what made it look like a browser difference.
-  So the socket's router names a `letsencrypt` **certresolver**, HTTP-01 on the `:80` entrypoint:
+  Cloudflare and by nothing else: served on `ws.ohloco.com`, every browser refuses the upgrade and
+  the game falls back to `wss://ohloco.com/ws` at 389 ms — except on a machine carrying Cloudflare's
+  Origin CA in its trust store, which makes it look like a browser difference. So the socket's router names a `letsencrypt` **certresolver**, HTTP-01 on the `:80` entrypoint:
   `ws.*` is grey-clouded, so the challenge reaches this origin directly. Two things follow. **The
   resolver must exist in the host Traefik's static configuration before the label ships**, because a
   router naming a resolver that does not exist is a router that does not load. And **the record must
   stay grey-clouded**, or the challenge lands on Cloudflare and no certificate is ever issued.
-  ACME also renews it, which is what removes the trap this used to carry: nothing in this repo could
-  tell you the certificate had expired.
+  ACME renews it.
 
   **Only production carries that label**, and it travels as a whole line: `WS_CERT_LABEL`, written by
   `write_app_env` and interpolated into the `labels:` list. Dev gets an inert Docker label instead of
@@ -188,18 +180,17 @@ Three things it costs, and none of them is optional:
   dev host. A dev router naming the resolver would ask Let's Encrypt for a name that resolves nowhere,
   fail, retry, and spend against a quota of five failed validations an hour on the account production
   renews on.
-- **The origin's address becomes public.** It was hidden behind the proxy and now resolves in DNS.
-  Whatever protects `:443` on that machine is now the whole of the protection.
+- **The origin's address is public**: it resolves in DNS. Whatever protects `:443` on that machine
+  is the whole of the protection.
 - **`LOCO_ALLOWED_ORIGINS`.** The page and the socket are on two hostnames, so the server's default
   origin rule refuses every upgrade. `write_app_env` sets it; see
   [`docs/notes/server.md`](notes/server.md).
 
 **The failure mode is deliberately not fatal.** If that hostname will not open a socket — expired
 certificate, missing DNS, closed port — the client falls back to `wss://ohloco.com/ws` after three
-attempts and the game keeps working at the old latency. That is why the CSP still lists both origins
-and why `client/nginx.conf` still proxies `/ws` on the main host. **A fallback in effect is silent**:
-the symptom is the game feeling like it did before this change, so if it ever does, check the
-certificate first.
+attempts and the game keeps working at the proxied latency. That is why the CSP lists both origins
+and `client/nginx.conf` proxies `/ws` on the main host. **A fallback in effect is silent**: the
+symptom is a laggy game, so check the certificate first.
 
 To deploy it the first time: create the `A` record grey-clouded, add the `letsencrypt` resolver to
 the host Traefik, deploy so the router asks for the certificate, check it, then tag. The client
@@ -246,14 +237,11 @@ loco-server (:8080, internal only)
   `JANUS_APPLICATION_ID`, `JANUS_API_KEY`, `LOCO_TWITCH_GAME_ID` and `LOCO_TWITCH_CDN_SLUG` on the
   prod branch and empty strings everywhere else: two stacks on one key is two sets of requests
   against one quota, for a list nobody reads on the dev host. An empty key switches the feature off
-  entirely, server-side. That file now carries a real secret, so the pipeline `chmod 600`s it.
+  entirely, server-side. That file carries a real secret, so the pipeline `chmod 600`s it.
   **And `deploy/app.env` must never declare any of those five keys**, which is checked before the
   deploy sources it: the job reads that file under `set -a`, so a committed empty value is exported
-  over the masked GitLab variable of the same name and `write_app_env` then writes the empty one.
-  The five shipped declared and empty, and the live strip was off in production for as long as they
-  were there — silently, because an empty key means exactly that.
-- **`/health` and `/metrics` are not on that list, and that is the point.** `/health` used to be
-  proxied and answers with the live room count, the connected-player count and `draining`: the counts size the server for anyone
+  over the masked GitLab variable of the same name and silently switches the live strip off.
+- **`/health` and `/metrics` are not on that list, and that is the point.** `/health` answers with the live room count, the connected-player count and `draining`: the counts size the server for anyone
   thinking of loading it, and `draining` announces the window in which new tables are refused.
   Nothing legitimate needed it published, because the container's own healthcheck runs inside it
   (`loco-server healthcheck`, a `GET /health` on loopback). The image has no shell, so an operator
@@ -263,7 +251,7 @@ loco-server (:8080, internal only)
 - **That chain is why the server reads `CF-Connecting-IP`.** Four hops in, the peer address is the
   nginx container and it is identical for every player, which silently turns `max_conns_per_net` (64
   per network) into a 64-player server and `max_failed_joins` (20 per network per minute) into a global
-  lockout. `hub.clientNet` takes the header instead, and only from a trusted peer — see
+  lockout. `privacy::client_net` takes the header instead, and only from a trusted peer — see
   [`docs/notes/server.md`](notes/server.md). Nothing needs Cloudflare's **Pseudo IPv4**, which exists
   for origins that cannot parse an IPv6 address: this one truncates it to a `/48` and moves on.
 - Traefik terminates TLS and routes all traffic to the nginx container on port 80.
@@ -272,19 +260,12 @@ loco-server (:8080, internal only)
 
 ## A deploy does not interrupt the matches on the server
 
-A deploy used to end every match in progress, silently. `docker compose up -d`
-recreated the `server` container, the server caught no signal, and the process
-died mid-turn. The clients retried 250 ms later with the session token they
-still held, found the room gone, and were answered `room not found`, which the
-client renders as "Aucune table avec ce code": the player lost the match and was
-shown a message that reads like they mistyped their own table code.
-
-Two mechanisms replace that, and they are complementary rather than
-alternative. Both run on every shutdown.
+Recreating the `server` container must not end the matches on it. Two complementary mechanisms run
+on every shutdown.
 
 ### 1. The drain
 
-On `SIGTERM` (`loco-server/src/main.rs` → `Hub::begin_drain`, `loco-hub/src/drain.rs`):
+On `SIGTERM` (`loco-server/src/main.rs` → `Hub::begin_drain`, `loco-hub/src/ops/drain.rs`):
 
 - Nothing new starts. `create_room`, `start_game`, `rematch`, `find_match` and a
   `join_room` aimed at a table this process does not have are all answered
@@ -299,23 +280,16 @@ On `SIGTERM` (`loco-server/src/main.rs` → `Hub::begin_drain`, `loco-hub/src/dr
 - The process exits as soon as the last match ends, or after
   `LOCO_DRAIN_TIMEOUT`, whichever comes first.
 
-**The drain is short on purpose, and it is the same everywhere: 90 s.** It was
-15 minutes in production so a best-of-7 could play out, and that made the
-duration of a pipeline a function of how long strangers played. Two things are
-wrong with that. A deploy job blocked for a quarter of an hour holds a runner
-slot nobody else gets, and the job's own ceiling at the time (`timeout: 30m`)
-was only ever a few minutes clear of the wait once the image pulls and the
-healthchecks were counted, so raising the drain to be kinder to players was one
-edit away from turning a deploy into a pipeline that fails on a match rather
-than on a fault. 90 s still lets a hand near its end finish. Past that, the
-snapshot below is not the fallback, it is the mechanism, and it is covered by a
-full restart test rather than by hope.
+**The drain is short on purpose, and it is the same everywhere: 90 s.** A drain long enough for a
+best-of-7 would make the length of a pipeline a function of how long strangers play, hold a runner
+slot meanwhile, and leave the deploy job's timeout one edit away from failing on a match rather than
+on a fault. 90 s lets a hand near its end finish; past that, the snapshot below is the mechanism,
+covered by a full restart test.
 
-The three deploy jobs now carry `timeout: 10m`, well clear of the 150 s grace
-period plus the two pulls, and **nothing in that arithmetic scales with the
-number of tables**. That is the property to preserve: raising
-`LOCO_DRAIN_TIMEOUT` again puts the length of a pipeline back in the players'
-hands, and `STOP_GRACE_PERIOD` and the job timeouts have to move with it.
+The three deploy jobs carry `timeout: 10m`, well clear of the 150 s grace period plus the two pulls,
+and **nothing in that arithmetic scales with the number of tables**. Raising `LOCO_DRAIN_TIMEOUT`
+puts the length of a pipeline back in the players' hands, and `STOP_GRACE_PERIOD` and the job
+timeouts have to move with it.
 
 The refusal list is chosen so **the drain terminates**. Every entry on it is an
 action that would add a match to the set being waited on. Joining a lobby that
@@ -325,21 +299,21 @@ players could hold a deploy open indefinitely by rematching.
 
 ### 2. The snapshot
 
-For the case the drain runs out of time (`loco-hub/src/snapshot.rs`): the matches
+For the case the drain runs out of time (`loco-hub/src/ops/snapshot.rs`): the matches
 still in flight are written to `LOCO_SNAPSHOT_PATH` as the process exits, and
 the next one reads them back before its listener is up. The clients reconnect
 into the restored rooms on their own, with the token they have had in
-`sessionStorage` since they joined. From a seat it is the one-second
-"Reconnexion" overlay a dropped wifi frame already produces, which is why none
-of this needed a new client screen.
+`sessionStorage` since they joined. From a seat it is the one-second reconnect
+overlay a dropped wifi frame produces; there is no dedicated screen.
 
 Three deliberate limits:
 
 - **Only matches in flight travel.** A lobby has nothing to lose and its players
   are on the table screen, not in a hand.
 - **A snapshot is never replayed.** The file is removed as it is read.
-- **`SNAPSHOT_SCHEMA_VERSION` (5) is a hard gate, not a merge.** A room shaped by
-  another build is dropped whole, with a `WARN`. So is one older than
+- **`SNAPSHOT_SCHEMA_VERSION` (6) is a hard gate, not a merge.** It is read alone,
+  before the body, and a file of another version is dropped whole, with a `WARN`
+  (`loco-hub/tests/snapshot_v5.rs`). So is one older than
   `snapshot_max_age` (2 min), by which point the clients have given up anyway.
   That age is what the rollout has to stay inside: the file is written as the
   old container exits and read as the new one boots, seconds apart, and a
@@ -356,7 +330,7 @@ Three deliberate limits:
 | `stop_grace_period` on the `server` service | The single most important line. Docker's default is SIGTERM, wait 10 s, SIGKILL, and a SIGKILL lands in the middle of all of the above. Left at the default, none of this exists. Kept above `LOCO_DRAIN_TIMEOUT` so the snapshot write always fits inside it. |
 | `${DATA_DIR}/snapshots/${DEPLOY_ENV}:/data` bind mount | Where the snapshot survives the container. A path rather than a named volume so an operator can see, and delete, exactly one file; one directory per environment, because dev and prod share `DATA_DIR`. |
 | `rollout()` does **server first, client second** | Recreating the server is the slow half, and for as long as it drains the players in a match are talking to the *old* process. Serving them the new bundle during that window would pair a fresh client with a server one version behind for the whole drain. Doing the client afterwards narrows the mismatch to the seconds between the two commands. |
-| One drain policy, in `deploy/app.env` | `90s` / `150s` in both environments, no per-job switch. The wait a deploy can incur is now a constant, not a question about the tables that happen to be up, so `deploy_dev`, `deploy_prod` and `stop_dev` all carry `timeout: 10m` with the ceiling far clear of the wait it bounds. |
+| One drain policy, in `deploy/app.env` | `90s` / `150s` in both environments, no per-job switch. The wait a deploy can incur is a constant, so `deploy_dev`, `deploy_prod` and `stop_dev` all carry `timeout: 10m`, far clear of it. |
 
 `/health` and `/metrics` both report `draining`; `/metrics` also carries
 `matches_in_flight`, which is the number the shutdown is waiting to reach zero.
@@ -373,34 +347,31 @@ cannot restart the server underneath itself.
 `server/Dockerfile` is a static musl binary on `gcr.io/distroless/static:nonroot`: no shell, no
 package manager, no `wget`. Three things follow from it:
 
-- **The runtime uid is 65532** (distroless `nonroot`; the old server ran as 10001). The `/data` bind
+- **The runtime uid is 65532** (distroless `nonroot`). The `/data` bind
   mount has to be writable by it, and a mount overrides whatever the image chowned.
 - **The healthcheck is the binary**: `["CMD", "/loco-server", "healthcheck"]` (a `GET /health` on
   loopback, exit 0 on a 200). `wget -qO- …/health` does not exist in the image.
-- **`/metrics` is Prometheus text**, under the names the JSON version used; `/health` is JSON. The
-  E2E helpers read it as text (`e2e/helpers/metrics.ts`).
+- **`/metrics` is Prometheus text**; `/health` is JSON. The E2E helpers read `/metrics` as text
+  (`e2e/helpers/metrics.ts`).
 
 **Ownership is the deploy's job, and it is done in `rollout()`, between the two halves of the
 swap**: `docker compose stop server`, then `chown -R 65532:65532 ${DATA_DIR}/snapshots/${DEPLOY_ENV}`
 and `chmod 700`, then `up -d --wait server`. **The chown runs in a throwaway container
 (`docker run -v ${DATA_DIR}/snapshots:/s docker:29 …`), never in the job's own shell**: the bind
 mount is resolved on the host, and a chown run in the job lands on the job container's copy of the
-path. That is how the first Rust deploys to loco-d found a root-owned directory dockerd had made for
-the mount and logged `snapshot write failed … Permission denied`. The deploy log prints the old
+path, leaving the root-owned directory dockerd made for the mount (`snapshot write failed …
+Permission denied`). The deploy log prints the old
 server's last lines after the stop and the new one's `snapshot` lines after the start, so the
 outcome of every drain is on the job.
 
 **Each environment has its own snapshot directory** (`${DATA_DIR}/snapshots/dev`, `…/prod`). Dev and
-prod share `DATA_DIR`, and with one directory they shared one file: a dev deploy could restore
-prod's matches into the dev server and delete the file doing it. The server that preceded the split
-wrote at the top level, so the first deploy of each environment after it moves the `snapshot.json`
-its old server just wrote into that environment's directory before the new server starts, and only
-that directory changes owner — the top level stays writable by an old server still running in the
-other environment. The order is the point. The process being replaced writes
-its snapshot while it stops, as *its* user: a chown before the stop locks it out of a 0700
-directory, and a chown that is not recursive leaves the file it wrote unreadable to the next
-process. Either way the matches in flight are lost, and the deploy that replaced the old image was
-exactly the one where they would have been. `.defaults` only creates the directory now.
+prod share `DATA_DIR`, and one file between them would let a dev deploy restore prod's matches into
+the dev server and delete the file doing it. A `snapshot.json` found at the top level is moved into
+the environment's directory before the new server starts, and only that directory changes owner.
+The order is the point: the process being replaced writes its snapshot while it stops, as *its*
+user, so a chown before the stop locks it out of a 0700 directory, and a chown that is not recursive
+leaves the file it wrote unreadable to the next process. Either way the matches in flight are lost.
+`.defaults` only creates the directory.
 
 **No manual action is needed on the host** as long as the deploy job can reach the Docker
 daemon, which it needs anyway to deploy. If a host is ever brought up by hand instead, the one-time
@@ -411,11 +382,10 @@ sudo mkdir -p /home/kisuke/data-loco/snapshots/prod
 sudo chown -R 65532:65532 /home/kisuke/data-loco/snapshots/prod && sudo chmod 700 /home/kisuke/data-loco/snapshots/prod
 ```
 
-`read_only`, `cap_drop: ALL`, `no-new-privileges`, the tmpfs `/tmp` and the `/data` bind mount are
-unchanged. The shutdown listens for SIGTERM through `tokio::signal::unix` (and Ctrl-C), which is
-what `docker compose stop` sends PID 1; it has been exercised on Windows with Ctrl-Break, so the
-first deploy to loco-d is where the Linux path is seen for real: check the server's log for
-`shutdown signal received, draining` and, past the drain, `snapshot written`.
+The container runs `read_only`, `cap_drop: ALL`, `no-new-privileges`, with a tmpfs `/tmp` and the
+`/data` bind mount. The shutdown listens for SIGTERM through `tokio::signal::unix` (and Ctrl-C),
+which is what `docker compose stop` sends PID 1; the server's log then reads `shutdown signal
+received, draining` and, past the drain, `snapshot written`.
 
 ## Production readiness
 

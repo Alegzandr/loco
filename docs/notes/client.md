@@ -1,164 +1,101 @@
 # Client: transport, state, i18n
 
-The path between the socket and the store, and the performance rules that protect it. For rendering,
-see `visual.md`.
-
-> Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
-> reasoning, the edge cases, and the bugs that produced them.
+The path between the socket and the store, the performance rules that protect it, and the client's
+own screens and copy. Rendering is in `visual.md`.
 
 ## Where the client's logic lives
 
-`App.svelte` and `GameView.svelte` were both mostly *not* rendering: a 320-line switch over every inbound
-message in one, and eight animation timers, two prompts and the whole legality check in the other.
-Both are now what their names say, and the work sits beside the other work of its kind:
-
 | Module | What it owns |
 | --- | --- |
-| `hooks/serverMessages.ts` | every inbound message, applied to the store. `App` builds it once |
-| `hooks/gameStore.ts` | the assembly, and the re-exports every screen imports from |
-| `hooks/live.svelte.ts` | the narrowing every effect below watches one field through. Three lines, and the reason they exist is the section under this table |
-| `hooks/gameStore.svelte.ts` | the one reactive snapshot of it, which is what a component reads. Framework-free store, reactive mirror — the same split the theme and the preferences have |
-| `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
-| `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; rendering the room while the table is shut, then answering `map_ready` |
-| `hooks/viewEffects.svelte.ts` | a piece of table news that takes itself off screen; the held key; the reconnect overlay's own clock; the ticks over the last seconds of our own turn |
-| `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands; the host's streamer mode reaching the table |
+| `state/serverMessages.ts` | every inbound message, applied to the store. `App` builds it once |
+| `state/gameStore.ts` | the store's assembly, and the re-exports every screen imports from |
+| `state/gameStore.svelte.ts` | Svelte's window onto the store: one signal per top-level field (below) |
+| `state/live.svelte.ts` | the narrowing for a value *computed* from a field, a nested field, or a prop |
+| `state/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts`, and one module per family of transitions |
+| `state/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the interception rattle and the Contre-LOCO! thump; rendering the room while the gate is shut, then answering `map_ready` |
+| `state/viewEffects.svelte.ts` | table news that takes itself off screen; the held key; the reconnect overlay's clock; the ticks over the last seconds of our turn |
+| `state/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore timeout; the host's streamer mode reaching the table |
 | `dev/e2eBridge.svelte.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
-| `components/swapNoticeText.ts` | the line a Swap or a GlobalSwitch puts on screen |
+| `src/game/` | pure, framework-free game logic the screens read: `catchAvailability.ts`, `interruptHelpers.ts`, `scoreTableModel.ts`, `matchRecapModel.ts`, `matchLengthModel.ts`, `matchDuration.ts`, the server mirrors `nicknameRules.ts` and `tableCodeRules.ts`, `searchStages.ts`, `swapNoticeText.ts`, `playerColors.ts`, `playersOnline.ts`, `liveStreams.ts`, `twitchLinks.ts`, `emotes.ts`, `cardCatalogue.ts` |
 
-### One snapshot, and what that costs an effect
+### The store's window: one signal per field
 
-Two more places this was lost and found again: the catch-window prune effect in `GameView` read
-`g.pruneCatchWindows` and so re-armed its timer on every message (the action is read off
-`gameStore.getState()` now, which is stable), and `deriveCatchMiddleware` turned an action's "hand the
-state back unchanged" into a fresh object, so every no-op — a prune with nothing expired, a
-`player_left` naming no seat, a `clearOpponentAway` for a seat that was not away — became a full-app
-invalidation. `patch === state` is returned as `state`; `storeNoOp.test.ts` counts the notifications.
+`state/gameStore.svelte.ts` is the one subscription the app takes on the store, at module load and
+never torn down. **Each top-level key is its own `$state.raw` cell**, and a write moves only the
+cells whose value is not `Object.is` the one before. `game.current` is one stable object for the
+life of the tab, a getter per key, so reading `game.current.errorMsg` — in an effect, a `$derived`,
+a template or through a local holding `game.current` — depends on `errorMsg` and nothing else.
+Spreading it, `JSON.stringify` and `Object.keys` still see the whole state. Anything that genuinely
+wants "the store moved" reads `game.snapshot`, the store's own object, which depends on every write
+by name. `$state.raw`, not `$state`: the store already replaces what it changes, and a deep proxy
+would give the board's props a new identity on every read.
 
-`hooks/gameStore.svelte.ts` holds the whole store in a single `$state.raw` and replaces it on every
-write. That is the right shape for reading — the board is props off one object, and a deep proxy
-would clone its identity on every read for nothing — and it is a trap for *watching*. Svelte tracks
-the signal that was read, not the value: an effect reading `g.errorMsg` through a getter subscribes
-to the snapshot, so every message the server sends re-runs it. React's `useEffect(fn, [errorMsg])`
-compared the dependency by value and did not.
+Why it matters: these effects own timers. An effect that re-runs clears its timer and arms a fresh
+one, so if an effect watching one field re-ran on every message, a window measured in seconds would
+never reach its end on a busy table — a notice that never leaves (`autoClear`), the reconnect
+curtain staying over a table that is back (`reconnectAnimation`), the turn bar restarting from full
+on every play (`drainBar`), the prompts closing themselves (`cardPlay`).
 
-A re-render would have been affordable. The cleanup is not. These effects own timers, and re-running
-one clears its timer and arms a fresh one, so a window measured in seconds never reaches its own end
-while the table is busy. It shipped as four symptoms that look unrelated and are one bug:
+**`live()` is for what the per-field window cannot narrow** (`state/live.svelte.ts`): a value
+computed from a field (`players.length`, a lookup into `catchWindows`), a nested field of an object
+the store replaces whole (`lastPlay.at`, `matchFound.startsAt`), and a prop. It wraps the getter in
+a `$derived`, which Svelte compares, so the effect re-runs only when the answer changes. Every hook
+that takes a `Live<T>` reads it this way.
 
-- a refusal, a Swap notice or a missed Contre-LOCO! that stays on screen for the rest of the round
-  (`autoClear`);
-- **the reconnect curtain over a table that is already back** (`reconnectAnimation`): a reclaim lands
-  as a burst of writes and the match carries on underneath, so the 600ms timer was pushed back by
-  every one of them and `isReconnecting` was never cleared — which is also `GameBoard` hiding its
-  children, so the board underneath stayed blank;
-- the turn bar dropping its class, forcing a reflow and restarting from full on every play
-  (`drainBar`), i.e. the per-frame cost that hook exists to avoid, paid on the hottest path there is;
-- the board rattling again on every message while an interception banner was up (`boardShake`), and
-  **the colour and swap prompts closing themselves** (`cardPlay`) — from the second card of the round
-  onwards, since `lastPlay` is set from then on and the effect that closes a stale prompt re-ran on
-  everything.
+**A child gets no narrowing on a prop either**: reading `p.watched` subscribes to the prop, and a
+sibling prop being re-evaluated re-runs the effect even when the value came back equal. Two shapes
+make an effect immune to re-runs:
 
-`hooks/live.svelte.ts` is the answer and it is three lines: wrap the getter in a `$derived`, which
-Svelte compares, and hand the effect the accessor. The derivation re-evaluates whenever the snapshot
-moves and notifies nothing when the field came back equal, which is the dependency React gave for
-free. Every hook that takes a `Live<T>` now reads it that way — it also replaced the three private
-copies of `Live`/`read` that had grown in `viewEffects`, `drainBar` and `tabAlert` — and the two
-effects written inline in `GameView` plus the three in `App` read a `$derived` for the same reason.
+- **An effect that spawns something guards on the trigger's timestamp** (`lastPlayAt`, `lastSwapAt`,
+  `lastCatchAt`; `DiscardPile` reads its `key` derivation and takes the card out of the dependency
+  list with `untrack`), which also makes it immune to a resize.
+- **An effect that holds a timer works to an absolute deadline** (`Hand`'s `dealUntil`, `drainBar`),
+  so any number of re-runs ends at the same moment. A guard that only decides whether to *start*
+  fails: the cleanup runs whether or not the guard lets the body through.
+- **A once-per-key effect abandons on that same key, never in its cleanup** (`mapPreload`).
+  Otherwise an unrelated re-run cancels the render in flight and the once-per-key guard refuses to
+  restart it: `done` never comes, `map_ready` never goes out, and the table opens on the server's
+  20s `MapLoadTimeout`. A table with a bot never shows it (nobody re-broadcasts), so only real
+  two-human tables pay. `mapLoading.test.ts` moves a seat mid-render and asserts the answer still
+  goes out.
 
-**The same thing happens one level down, where what moves is a prop.** A child does not get the
-narrowing either: reading `p.watched` subscribes to the prop, and a *sibling* prop being
-re-evaluated re-runs the effect even when the value it read came back equal. Every component under
-`GameView` is handed a dozen props off the same snapshot, so "a message arrived" invalidates all of
-them at once. Four effects were written as though the trigger were the dependency:
+**A test that hands a hook a constant cannot see any of this.** `src/test/liveDeps.test.ts` moves a
+field the hook is *not* watching and asserts it did not notice, for the hooks and, through the real
+store, for the components (`gameStore.setState({ latencies })` changes nothing anybody animates).
+Anything new taking a `Live<T>` or holding a timer behind a prop belongs in it.
 
-- the board's Swap trails and Contre-LOCO! penalty cards, which are spawned off a notice that stays
-  in the store for as long as it is on screen — so they were drawn again on every message underneath
-  them, and once per frame during a resize;
-- `DiscardPile`'s staged reveal, which waits out the card's flight before showing it. The cleanup
-  dropped the staged timer and the new run waited out a fresh flight, so on a busy board the pile
-  went on showing the card before last. That is the card every legality decision in the game is read
-  off;
-- `Hand`'s deal stagger, which armed once, lost its timer to the next message and never re-armed —
-  leaving every card wearing its deal delay for the rest of the round.
+**A no-op write is not a write.** `deriveCatchMiddleware` returns `state` itself when an action hands
+it back unchanged, so a prune with nothing expired is not an app-wide invalidation;
+`storeNoOp.test.ts` counts notifications. Actions read off the store (`gameStore.getState()`), never
+through the window, or the effect calling them depends on them.
 
-Two shapes fix all four, and both were already in the file next door. **An effect that spawns
-something guards on the trigger's timestamp** (`lastPlayAt`, and now `lastSwapAt` / `lastCatchAt`;
-`DiscardPile` reads its `key` derivation and takes the card itself out of the dependency list with
-`untrack`), which also makes it immune to a resize. **An effect that holds a timer works to an
-absolute deadline** (`Hand`'s `dealUntil`, like `drainBar`'s), so any number of re-runs still ends at
-the same moment. A guard that only decides whether to *start* is the shape that fails, and it is the
-same one `reconnectAnimation` was bitten by: the cleanup runs whether or not the guard lets the body
-through.
+**Derived state is completed by the store, not by the actions.** `catchTarget` and `unoTimerEnd`
+answer "which open window is the button offering", read off `catchWindows` and our own seat.
+`store/deriveCatchMiddleware.ts` completes any write naming `catchWindows` or `myIndex` (a snapshot
+can re-seat us), so an action cannot forget to recompute. It also replaces `store.setState`, so a
+test seeding a board cannot seed an inconsistent one. `catchDerivation.test.ts`.
 
-**The fifth one did not look like a motion bug at all, and it cost twenty seconds a match.**
-`mapPreload` starts the room's render once per scene key and answers the loading gate when it
-settles; `GameView` asked whether the gate was open by reading `g.mapLoading !== null` *inside* the
-effect, and `mapLoading` gets a new identity every time another seat reports in. So the effect re-ran
-on each arrival, its cleanup cancelled the render in flight, and the once-per-key guard then refused
-to start it again: `done` never came, `map_ready` never went out, and the table opened on the
-server's 20s `MapLoadTimeout` with the player still watching a progress bar. **A table with a bot
-never showed it** — nobody else was there to re-broadcast anything — so the whole E2E suite and every
-solo run were clean while every real two-human table paid the full backstop. The fix is both halves:
-the question is narrowed to a `$derived` boolean before the effect sees it, and **abandoning a
-render is keyed on the scene key like starting one is, instead of riding the effect's cleanup**. A
-cancellation that is not keyed on the same thing as the guard is the general shape of this bug.
-`mapLoading.test.ts` moves a seat in mid-render and asserts the answer still goes out.
+**Who owes a declaration is not the client's to work out.** `applyCardPlayed` renders `catch_seats`
+off the message (the server's `GameState::catchable_targets`). What stays here is presentation:
+which window we have already spent a call on, and whether the LOCO! banner still describes the table.
 
-**A test that hands a hook a constant cannot see any of this**, which is why every per-hook test
-passed while the game misbehaved: the snapshot never moved underneath them. `src/test/liveDeps.test.ts`
-is the shape that catches it — move a field the hook is *not* watching, assert it did not notice —
-and anything new taking a `Live<T>`, or holding a timer behind a prop, belongs in it. Its second half
-does the same to the components, through the real store: `gameStore.setState({ latencies })` is a
-message that changes nothing anybody animates.
+**The store is one state object and five families of transitions**, not five stores: it is the
+client's mirror of one match, and an authoritative `game_state` settles the board, the declarations
+and the scoreboard in one write.
 
-**Derived state is completed by the store, not by the actions.** `catchTarget` and `unoTimerEnd` are
-the answer to "which open window is the button offering", read off `catchWindows` and our own seat.
-They are stored because every screen reads them, and stored derived state has exactly one failure
-mode: an action that changes the source and forgets to recompute. Eight actions had that chance.
-`store/deriveCatchMiddleware.ts` completes any write naming `catchWindows` or `myIndex` (`myIndex`
-because a snapshot can re-seat us, and our own window is never the one offered), so forgetting is
-impossible rather than unlikely. Writes from outside an action get the same treatment: the middleware
-replaces `store.setState` too, which is what keeps a test seeding a board from seeding a lie.
-
-**Who owes a declaration is not the client's to work out.** `applyCardPlayed` takes `catch_seats`
-off the message and renders it. It used to derive the list from the roster and the card kind, which
-is the server's rule (`openCatchWindowsAfterRearrange`) restated in TypeScript; what is left here is
-presentation, namely which window we have already spent a call on and whether the LOCO! banner still
-describes the table. See `domain-rules.md`.
-
-**The store is one state object and five families of transitions**, not five stores. The state is one
-object because that is what it is: the client's mirror of one match. Several actions write
-across the families on purpose, since an authoritative `game_state` settles the board, the
-declarations and the scoreboard in the same breath, and splitting the *state* would have turned one
-`set` into five. What is split is the reading.
-
-**`GameBoard.svelte` is deliberately not split.** Its eight animation effects are one state machine over
-one queue: they share `fliers` and `impacts`, the `landTimers` list, the stage node and the
-suppress-next-discard flag. Per-animation modules would pass those five handles through six
-signatures, which is the same coupling with more indirection. If it is ever split it should be as
-one `boardFx` module, and reviewed with `make visual` rather than with assertions.
-
-**And its spawns go through `untrack`.** `fliers = [...fliers, x]` *reads* `fliers`, so every effect
-that spawns one depends on the list it is appending to and re-runs on the next spawn — the board
-replayed its first swap animation forever. `addFliers` reads the current value without subscribing
-to it, which is what the equivalent updater function used to mean for free. Any new effect that
-appends to a `$state` array here has to do the same.
+**`GameBoard.svelte` is deliberately not split.** Its animation effects are one state machine over
+one queue (`fliers`, `impacts`, `landTimers`, the stage node, the suppress-next-discard flag). If it
+is ever split, it is one `boardFx` module, reviewed with `make visual`. **Its spawns go through
+`untrack`**: `fliers = [...fliers, x]` reads `fliers`, so an effect appending to it would depend on
+the list and replay forever. `addFliers` reads without subscribing; any new effect appending to a
+`$state` array does the same.
 
 ## How the game gets on the page
 
 The site is one SvelteKit app (`@sveltejs/kit` 3, `adapter-static`). Every URL is a prerendered file
-in `client/build/`, served by nginx exactly as Astro's output directory was — there is no Node in
-production — and the router moves between them without a document load. That is the reason for the
-move: under Astro a content page and the game were two builds glued at the document, so reading the
-rules from the lobby threw away the socket, the music and the store, and the way back was a cold
-boot. Now it is a navigation inside one app.
-
-The first port kept Astro's shape and moved it across: a layout component per kind of page wrapped by
-a route per URL, `entry.ts` `mount()`ing the game by hand into an element and moving that element
-in and out of the page, the home page translating itself with `data-alt*` attributes, and
-`page-boot.ts` / `homeSheet.ts` wiring behaviour onto prerendered markup by `querySelector`. Each of
-those was the right answer to a static page with no framework behind it and the wrong one to an
-app, so they were redesigned the SvelteKit way. What each became, and why:
+in `client/build/`, served by nginx (no Node in production), and the router moves between them
+without a document load, so reading the rules from the menu keeps the socket, the music and the
+store.
 
 ### Routes: two groups, and the registry decides every path
 
@@ -176,2150 +113,1098 @@ src/routes/
   sitemap-index.xml/, sitemap-0.xml/    prerendered +server.ts from seo/sitemap.ts
 ```
 
-**Two route groups, one per shell.** A move from the rules to the cards keeps `(content)/+layout`
-and replaces only the article; a move from `/` to `/fr/` keeps `(game)/+layout`. Under Astro each
-page was its own document and its own copy of the shell.
-
-**A content page is one parameterised route per language, not a directory per page.** The slug is
-matched against the registry (`src/params.ts`, `defineParams` — Kit 3's single matcher export) and
-the routes' `entries` are the registry's slugs (`seo/document.ts: contentSlugs`), so `seo/meta.ts` is
-the single source of every path: the sitemap, the hreflang sets, the matchers and the prerendered
-files cannot disagree, and a URL the registry does not know is the 404 rather than an empty article.
-`content/Article.svelte` says which article is which page. `params.ts` and its imports name their
-`.ts` extensions: Kit 3 loads the matcher file through Node's own loader at build time, where an
-extensionless import does not resolve.
-
-**Everything a page shows comes from its URL**: `seo/document.ts: routeFor(pathname)` gives the page
-of the registry, its language, whether it is the game or a document, and what goes on `<html>` /
-`<body>`. Three readers use it and must never disagree — `hooks.server.ts` writes the attributes into
-`src/app.html`'s placeholders at prerender, the root layout rewrites them on the live document on
-every navigation (`$effect.pre` on `page.url`, from `$app/state`), and the two group layouts render
-their head, chrome and article from it. No `load` function carries this: the URL is the one thing all
-three already have, and data a `load` returned would be serialised into every page's bootstrap for
-nothing. `seo.test.ts` walks every registry path through it.
-
-Two things deliberately did not move:
-
-- **`content/ui.ts` stays a data module**, typed per language, for the site's own copy. Under Astro
-  it was build-time only; now the pages hydrate, so it ships with the pages that render it, which is
-  the cost of a content page being part of the app. It is not folded into `i18n/en.ts` / `fr.ts`:
-  those are the game's translations, downloaded by every player, and the content pages' prose has
-  no business in them.
-- **One article chunk for both content routes.** `content/Article.svelte` imports every article so
-  one parameterised route can render any page, which puts them in one chunk instead of seven. The
-  pages are prerendered, so this weighs on hydration and on the first client-side visit to a content
-  page, never on what a reader or a crawler sees first; it is the price of one route per language,
-  and a `load` that picked the article would serialise into every page's bootstrap for no gain.
+- **Two route groups, one per shell.** A move between content pages keeps `(content)/+layout` and
+  replaces the article; `/` to `/fr/` keeps `(game)/+layout`.
+- **A content page is one parameterised route per language.** The slug is matched against the
+  registry (`src/params.ts`, `defineParams`) and the `entries` are the registry's slugs
+  (`seo/document.ts: contentSlugs`), so `seo/meta.ts` is the single source of every path and a URL it
+  does not know is the 404. `content/Article.svelte` maps page to article. `params.ts` and its imports
+  name their `.ts` extensions: Kit loads the matcher through Node's own loader at build time, where an
+  extensionless import does not resolve.
+- **Everything a page shows comes from its URL**: `seo/document.ts: routeFor(pathname)` gives the
+  page, its language, game or document, and the `<html>`/`<body>` attributes. Three readers must
+  agree — `hooks.server.ts` at prerender, the root layout on every navigation (`$effect.pre` on
+  `page.url`), the group layouts for head, chrome and article. No `load` carries it: its data would be
+  serialised into every page's bootstrap for nothing. `seo.test.ts` walks every registry path through
+  it.
+- **`content/ui.ts` is a data module, not part of `i18n/`**: the game's translations are downloaded
+  by every player, and the content pages' copy has no business in them.
+- **One article chunk for both content routes** (`content/Article.svelte` imports every article). It
+  weighs on hydration, never on what a reader or crawler sees first.
 
 ### The game lives in the root layout
 
-The root layout is the one component the router never replaces, so it is where the game is rendered:
-`<div id="root">` with the game in it, **before** the page's own children. On a game page that is
-the board's place in the flex column (`GamePage.css` gives it what the bar leaves); on a content page
-it stays rendered but `.parked` — `inert`, `aria-hidden`, invisible, viewport-sized (`base.css`) —
-so the socket, the music, the store and a running match carry on while the reader is on the rules,
-and are there on the way back. Back at a seat and then Forward returns to the same table, one
-document and one socket throughout (`e2e/tests/shell.spec.ts`). Under the first port this was
-`entry.ts: attachGame` moving a hand-`mount()`ed element between the page and a holder on `<body>`;
-it is a `{#if}` and a class now.
+The root layout is the one component the router never replaces, so it renders `<div id="root">`
+with the game in it, before the page's children. On a game page that is the board's place in the
+flex column (`GamePage.css`); on a content page it stays rendered but `.parked` — `inert`,
+`aria-hidden`, invisible, viewport-sized (`base.css`) — so the socket, the music, the store and a
+running match carry on and are there on the way back (`e2e/tests/shell.spec.ts`: one document and
+one socket across Back/Forward).
 
-While parked the game releases what it does to the document (`hooks/gameShown.svelte.ts`, written by
-the root layout): `data-seated`, which costs a page its pinch and its text selection (`App.svelte`
-writes it only while shown; `setTabSeated` still answers the other tab's question about the seat),
-and the TAB key the scoreboard holds (`heldKey` stands down).
+While parked the game releases what it does to the document (`state/gameShown.svelte.ts`):
+`data-seated` (`App.svelte` writes it only while shown; `setTabSeated` still answers the other tab's
+question) and the TAB key (`heldKey` stands down).
 
-**The app is never server-rendered.** The prerendered `#root` is empty: the store is seeded from
-`sessionStorage`, the language from `localStorage`, the board measured from the viewport, and a
-server knows none of those. The game route is *not* `ssr = false`, which the migration plan
-suggested: that would have shipped `/` as an empty shell, and its served half — the `<h1>`, the bar,
-the sheet of prose — is what a crawler and a reader with no script read, and what `<details>` opens
-with scripts off.
+**The app is never server-rendered**, and the game route is not `ssr = false` either. The prerendered
+`#root` is empty (the store comes from `sessionStorage`, the language from `localStorage`, the board
+from the viewport), but `/`'s served half — the `<h1>`, the bar, the prose sheet — must be in the
+HTML for crawlers and for `<details>` with scripts off.
 
-**The boot sequence keeps its order and runs once per document, the first time the router is on a
-game page** (`src/boot.ts: bootGame`, called by the root layout, which then renders the component it
-returns): `initLang`, `initMotion`, `initI18n`, `initPinchGuard`, `initContextGuard`,
-`initTableInvite`, `initTabLock`, `initSessionRestore`. Not `hooks.client.ts`, and not on every page:
-a tab reading the rules holds no game, and `initTabLock()` electing it would draw the curtain over the
-tab actually playing. On every later arrival at a game page the root layout runs `initLang()` and
-`redetectLang()` again: the page may be the other language's, and the globe may have recorded a
-choice on the way. `Root.svelte` stays — it is not an Astro leftover but the tab lock's switch, which
-must decide whether `App` (and its socket) exists at all.
+**The boot runs once per document, the first time the router is on a game page** (`src/boot.ts:
+bootGame`, called by the root layout): `initLang`, `initMotion`, `initI18n`, `initPinchGuard`,
+`initContextGuard`, `initTableInvite`, `initTabLock`, `initSessionRestore`, in that order. Never in
+`hooks.client.ts` or on a content page: a tab reading the rules holds no game, and `initTabLock()`
+electing it would curtain the tab actually playing. On every later arrival at a game page the root
+layout runs `initLang()` and `redetectLang()` again. `Root.svelte` is the tab lock's switch, which
+decides whether `App` (and its socket) exists at all.
 
-**The cost of the split is still that `/` arrives twice, so the two halves are held together on
-purpose.** The bar, the phone's burger and the prose behind the sheet are prerendered markup and
-paint on the first frame; the lobby paints whenever the game has booted. The app's rendered child and
-the served chrome therefore hold at `opacity: 0` until `boot.ts: markBooted` writes `data-booted` on
-`<html>`, two `requestAnimationFrame`s after the render, then a single 0.34s fade brings them up
-together. **What fades is what arrives, never the surface it arrives onto**: `#root` and the bar are
-filled with `--color-canvas`, and fading either let the body's gradient through, so the selectors are
-`#root > *`, `.onHome .footerRow` and `.homeBurger` (`GamePage.css`). The hold is inside
-`@media (scripting: enabled)` with a 3s fallback delay, the reveal value is spent 600ms later so it
-never replays on a screen change, and it animates opacity only. `contentPages.test.ts` pins each.
+**A game page arrives in one piece.** The prerendered chrome paints on the first frame and the lobby
+when the game has booted, so a canvas-coloured veil (`body.game::after`, fixed, no pointer events)
+covers both until `boot.ts: markBooted` writes `data-booted` (two `requestAnimationFrame`s after the
+render), then lifts in one 0.34s fade. **The veil fades, never the content**: everything under it is
+opaque from its first paint (see seo.md, "NO_LCP scores 0"), and the veil is the canvas's own colour,
+so the body's gradient never shows. The hold is inside `@media (scripting: enabled)` with a 3s
+fallback, the reveal is spent 600ms later (which removes the veil), and it animates opacity only.
+`contentPages.test.ts`.
 
 ### Behaviour is the components', not a script's over the markup
 
-`page-boot.ts`, `homeSheet.ts` and `navMenu.ts` found prerendered elements by selector and wired
-them, because an Astro page had no component instance in the browser to own them. SvelteKit hydrates
-the page, so each behaviour moved into the component that renders the element:
+Each behaviour lives in the component that renders its element, never in a script finding markup by
+selector:
 
-- **The sheet of prose** (`(game)/+layout.svelte`): a native `<details bind:open>` — still opened by
-  its `<summary>` with no script — plus Escape (`<svelte:document onkeydown>`, Escape only), the
-  scrim's click, the ✕, and focus handed back to the control it was opened from.
-- **The drawer** (`layouts/SiteDrawer.svelte`): shutting when the window widens past the phone
-  (`$effect` on `matchMedia`, checked once on arrival too), shutting after a navigation
-  (`afterNavigate`), and the About and Preferences rows.
-- **The language panel** (`layouts/SiteFooter.svelte`): the choice recorded on the link itself
-  (`onclick={() => rememberLang(l)}`), the panel shut after a navigation.
+- **The prose sheet** (`(game)/+layout.svelte`): native `<details bind:open>` (opens with no script),
+  plus Escape, the scrim, the ✕, and focus handed back to its opener.
+- **The drawer** (`layouts/SiteDrawer.svelte`): shuts when the window widens past the phone and after
+  a navigation (`afterNavigate`); the About and Preferences rows.
+- **The language panel** (`layouts/SiteFooter.svelte`): the choice recorded on the link
+  (`rememberLang`), the panel shut after a navigation.
 - **Back to top** (`layouts/ToTop.svelte`), **smooth in-page travel** (`(content)/+layout.svelte`,
-  `html[data-scroll]` from the system preference) and **the live list** (`content/LiveArticle.svelte`
-  rendering the rows `content/liveList.ts: fetchLiveRows` returns — Svelte text, never markup).
+  `html[data-scroll]`) and **the live list** (`content/LiveArticle.svelte` rendering
+  `content/liveList.ts: fetchLiveRows`, as Svelte text, never markup).
 
-A control only a script can honour still ships `hidden` and is revealed on mount
-(`hidden={!hydrated}`), and the pages read the same with no script: progressive enhancement, which
-is what SvelteKit's prerender-then-hydrate is.
+A control only a script can honour ships `hidden={!hydrated}`; every page reads the same with no
+script. **Anything a prerendered page shows is rendered, never mounted in an effect** — an effect does
+not run at prerender — which is why `livePage.test.ts` and `legal.test.ts` refuse an effect in an
+article.
 
 ### The CSP stays closed, and the header is what allows the router
 
 A prerendered page starts the router with one inline `<script>`. SvelteKit hashes it (`csp: { mode:
-'hash' }` in `vite.config.ts`) and writes the hash into a `<meta http-equiv>` — which is the same trap
-Astro's islands were: a meta policy does not loosen a header policy, both are enforced, and nginx
-sends `script-src 'self'` as a header. So the last step of `npm run build` is
-`scripts/csp-hashes.mjs`: it hashes every executable inline script in `build/`, fails if one is not in
-its own page's meta, and writes `csp-hashes.conf`, one `set $loco_script_hashes "…";` that
-`security-headers.conf` includes and splices into `script-src`. The Dockerfile copies it from the
-builder stage, never from the context; it is generated and git-ignored. Since the content pages share
-two routes, there are five distinct bootstraps rather than seventeen. `csp.test.ts` pins the wiring
-and the reader; `make csp` (`tools/csp/check.mjs`) loads every prerendered page and a content-to-game
-navigation behind the real header. The 404 carries no script at all.
+'hash' }`) into a `<meta>`, but a meta policy does not loosen nginx's header policy. So the last step
+of `npm run build` is `scripts/csp-hashes.mjs`: it hashes every executable inline script in `build/`,
+fails if one is missing from its page's meta, and writes `csp-hashes.conf` (one `set
+$loco_script_hashes "…";`) that `security-headers.conf` splices into `script-src`. Generated,
+git-ignored, copied by the Dockerfile from the builder stage. `csp.test.ts` pins the wiring and
+refuses any hand-written inline script except structured data; `make csp` (`tools/csp/check.mjs`)
+loads every page and a content-to-game navigation behind the real header. The 404 carries no script.
 
-What the plan retired with Astro, and what replaced it:
-
-| Astro rule | Now |
-| --- | --- |
-| "the game is never an island" (a `client:*` directive inlines a runtime the CSP refuses) | there are no islands; the inline bootstrap is hashed into the header, and `csp.test.ts` refuses any *hand-written* inline script (structured data excepted) |
-| "a content page ships no JavaScript except `page-boot.ts`" | a content page hydrates; what survives is the reason — **a content page is readable with no script**: prerendered whole, its articles render their prose on the server and only the live list in the browser (`livePage.test.ts`, `legal.test.ts`) |
-| `/` translates itself in place (`data-alt*`, `langSwap.ts`) | a language is a navigation to the page in that language (`langRoute.ts`), below |
-| `entry.ts` mounts the game into `#root` | the root layout renders it, and parks it |
-| `inlineStylesheets: 'always'` | `inlineStyleThreshold: Infinity` |
-| `@astrojs/sitemap` walking the output | `src/seo/sitemap.ts` built from `PAGES` |
-| `<Image />` | `@sveltejs/enhanced-img` (`<enhanced:img>`, three widths) |
-| `envPrefix: ['PUBLIC_', 'VITE_']` restored by hand | Vite's own `VITE_`, written out for `wsEnv.test.ts`; the site origin is a `define` (`__LOCO_ORIGIN__`) rather than `$env/static/public`, because the E2E suite imports `seo/meta.ts` through Node's CommonJS loader, where neither `import.meta` nor `$env` exists |
+- `inlineStyleThreshold: Infinity` (styles are `'unsafe-inline'`; scripts only by hash).
+- The sitemap is `src/seo/sitemap.ts` built from `PAGES`; the rooms page's art goes through
+  `@sveltejs/enhanced-img`.
+- `vite.config.ts` writes `envPrefix: ['VITE_']` out for `wsEnv.test.ts` (below). The site origin is a
+  `define` (`__LOCO_ORIGIN__`), not `$env/static/public`, because the E2E suite imports `seo/meta.ts`
+  through Node, where neither `import.meta` nor `$env` exists.
 
 ### One shell, not two sites
 
-The router made the seam between the site and the game visible: under Astro every crossing was a page
-load and nobody compared the two sides, and once it became a navigation everything that differed
-between them was the one thing that changed on screen. So what both sides draw is drawn once:
+What the site and the game both draw is drawn once:
 
-- **One bar and one drawer** (`layouts/SiteFooter.svelte`, `layouts/SiteDrawer.svelte`), rendered by
-  both group layouts and styled once in `content.css`. Same links in the same order, privacy at the
-  end, **the language globe in the same place on every page that is not a seat**, one height on both.
-  What each page needs is passed in: the sheet of prose or "Play" at the bar's left end, Preferences
-  or Play as the drawer's one action. Reasoning and history: `seo.md`, "The shell".
-- **The bar does not move between pages.** It carries `view-transition-name: site-footer`, and the
-  root layout turns every navigation into a 0.22s cross-fade (`onNavigate` +
-  `document.startViewTransition`, progressive), skipped under reduced motion — the game's
-  `data-motion` once it has booted, the system's before — and for a fragment.
-- **The globe is a link everywhere**, `/` included: on a content page it goes to that page in the
-  other language, on `/` to the other home, and the game the root layout keeps follows the choice
-  there. The choice is written down on the press.
-- **No glass.** The content header and the bar were 92% canvas over a 14px backdrop blur; they are
-  opaque canvas, as the game's own surfaces are, because DESIGN.md keeps blur for the modal scrim
-  alone.
+- **One bar and one drawer** (`layouts/SiteFooter.svelte`, `layouts/SiteDrawer.svelte`), styled once
+  in `content.css`: same links, privacy last, the language globe in the same place on every page that
+  is not a seat, one height. What differs is passed in. Reasoning: `seo.md`, "The shell".
+- **The bar does not move between pages** (`view-transition-name: site-footer`; a 0.22s cross-fade,
+  `onNavigate` + `document.startViewTransition`, skipped under reduced motion — the game's
+  `data-motion` once booted, the system's before — and for a fragment).
+- **The globe is a link everywhere**, `/` included, and records the choice on the press.
+- **No glass**: the content header and the bar are opaque canvas; blur is the modal scrim's alone
+  (DESIGN.md).
 
-What stays deliberately distinct: the content pages' **header** (the mark back to the game and
-"Play", pinned, because those documents are long) has no counterpart on `/`, whose entry screen is
-its own composition with the wordmark at its centre; the game's **top-right chip row** (fullscreen,
-gear, audio, rules) stays the game's, because everything behind it is a game setting; and **at a
-seat there is no site chrome at all** — the bar and the burger go on `data-seated`.
+Deliberately distinct: the content pages' **header** (mark + Play) has no counterpart on `/`, whose
+entry screen is its own composition; the **top-right chip row** stays the game's; **at a seat there is
+no site chrome** (bar and burger go on `data-seated`).
 
-## The toolchain, and the one place it is deliberately not the newest
+## The toolchain
 
-Svelte 5, SvelteKit 3 (on Vite 8), Valibot 1, ESLint 10, Vitest 4. Several of those cost something
-worth writing down.
+Svelte 5, SvelteKit 3 on Vite 8, Valibot 1, ESLint 10, Vitest 4, TypeScript 6.
 
-**The crossing from React 19 to Svelte 5 has landed, and the way back is closed on purpose.** No
-`react`, no `react-dom`, no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`;
-`vite.config.ts` configures one framework and the ESLint config knows one. `src/test/noReact.test.ts`
-is the guard, and it checks four different things because a return could come in through any of
-them: the manifest, the Vite, Vitest and ESLint configs, every import in every source file, and every file
-extension under `src/`.
-
-What the crossing left behind is worth keeping, because it is what made it survivable:
-
-- **The state that two frameworks had to share is still framework-free.** The language
-  (`i18n/store.ts`), the game state (`hooks/store/createStore.ts`) and
-  every on/off preference (`hooks/prefStore.ts`) are plain modules with a subscription, read through
-  `createSubscriber` (`i18n/i18n.svelte.ts`, `hooks/prefs.svelte.ts`). They left React first
-  *because* a Svelte component could not read a React context, and they stay where they are for a
-  reason that outlived that one: a content page mounts nothing and still has to know the language
-  and the theme. Two copies of the current language is how a document ends up half translated.
-- **`hooks/` is split along the same line.** `.svelte.ts` for anything owning reactive state or an
-  effect, plain `.ts` for everything else, and the plain half is the half a page with no application
-  on it can import. The `use` prefix those files carried went with React: none of them is a hook,
-  they are constants, pure functions and plain stores, and **nothing in them may reach for a rune**.
-  That last part is not enforced by the compiler in this direction — Svelte compiles runes in
-  `.svelte` and `.svelte.ts` and nowhere else, so a `$state()` here is not a build error, it becomes
-  a call to a global that does not exist and throws whenever the line first runs.
-  `src/test/runeScope.test.ts` is what catches it instead.
-- **Anything a prerendered page shows is rendered, never mounted in an effect.** An effect never runs
-  on the server, so markup put inside one is missing from the file a crawler and a reader with no
-  script receive. Under Astro a wrapper that did that rendered an empty header no test reading
-  sources would have caught; the rule outlived Astro, and it is why `<LocoLogo />` and every
-  `<Card />` on `/cards/` are in the served HTML and why `livePage.test.ts` and `legal.test.ts`
-  refuse an effect in an article.
-- Svelte applies a change on the microtask after it, not inside the click. Nothing on screen is
-  slower for it, but a Vitest assertion reading the DOM on the line after `fireEvent` needs a flush
-  first — which the suite does once, in `src/test/setup.ts`, rather than in three hundred tests.
-
-**Svelte prunes a CSS selector it cannot see in the markup**, silently, with a build warning nobody
-reads. Component styles live in the component's own `<style>` block now, so this is the failure mode
-to watch: a class applied at runtime by JavaScript — `drainBar`'s urgent class is the one case in
-this client — has to be bound in the markup with `class:` rather than added with `classList`, or it
-compiles away. `:global()` would also silence it, and silencing the compiler is the opposite of what
-this rule is for: **no `:global()` without a written justification.**
-
-**`vite build` type-checks nothing.** `npm run build` is `svelte-kit sync && svelte-check && vite
-build && node scripts/csp-hashes.mjs` (`npm run check` is the first two); dropping svelte-check leaves
-every component untyped while the build still reads green. **SvelteKit 3 enforces
-`verbatimModuleSyntax`**, and it is not a style setting there: a type imported as a value is a
-missing export at build time. That made "every type import is an `import type`" a compiler rule
-rather than a convention — the migration found 43 that were not.
-
-**There is no `svelte.config.js` since SvelteKit 3.** Everything the framework is told — the
-adapter, the CSP, the preprocessor, `runes: true`, `public/` as the assets directory, the hooks
-paths — is passed to `sveltekit({...})` in `vite.config.ts`, and svelte-check reads it from there.
-`vitest.config.ts` merges that config, so a test runs against the module graph the build sees. The
-universal-hooks path is pointed at a file that does not exist on purpose: SvelteKit's default,
-`src/hooks`, is our directory of the same name.
-
-**The store is ours** (`hooks/store/createStore.ts`, ~40 lines). It replaced Zustand, and not for
-weight: the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, which
-is where the sound subscription lives, `sessionRestore`, the E2E bridge) and, during the crossing, by
-two frameworks at once. What the
-dependency actually provided was `getState`, `setState`, `subscribe` and a middleware slot — four
-things with no framework in them, wrapped in a framework binding. The semantics are deliberately
-Zustand's to the letter, because
-209 reads and writes in `gameStore.test.ts` and every action in `store/` were written against them,
-and `src/test/storeCore.test.ts` states each one the client depends on. The subtle one:
-`deriveCatchMiddleware` reassigns `store.setState` while the creator runs, so the store must publish
-the property the creator mutated rather than a copy taken before it — otherwise the derivation
-applies to actions and to nothing else, and a test seeding a board writes an inconsistent state with
-nothing failing.
-
-**A component's events are the DOM's, and its props are ordinary props.** `onclick`, not `onClick`;
-a submit handler takes the `SubmitEvent` a form actually fires. The one thing to know is that
-**Svelte silently ignores a prop it does not recognise** — no warning, no type error at the call site
-if the object is built dynamically — so a name left in the old casing is a handler that never runs.
-`card.test.ts` caught exactly that on `Card`'s `onclick` after the port: the test rendered, asserted,
-and counted zero calls out of three clicks.
-
-Where a parent needs a node to animate rather than a callback — the flight layer moving a real card
-— it animates a wrapper it owns and never the card's own node: `AnimationLayer.svelte` puts a `use:play`
-action on the `<div>` around each `<Card />` / `<CardBack />`, which hands that element to
-`element.animate`. `Card` and `CardBack` take no node callback at all, so ownership stays with
-whoever draws the wrapper.
-
-**The validator is Valibot because Zod 4 compiles with `Function()` and the CSP refuses that.** The
-full account, the test that replaced the workaround's config pin, and the rest of the generated
-protocol are under "Protocol validation (client)" below.
-
-**TypeScript stays on 6.x, and that is a ceiling rather than a preference.** `svelte-check@4`
-drives TypeScript's programmatic API, which the 7.0 native compiler does not ship, and declares
-`typescript: ^5 || ^6`; SvelteKit 3 declares `^6`. Raising it turns the client's type gate into an
-immediate failure. (Astro's language server was the third vote and left with Astro.) The E2E package
-is held to the same major for one decision rather than two.
+- **React is not used and stays out.** No `react`, `react-dom`, framer-motion, `.tsx` or
+  `.module.css`. `src/test/noReact.test.ts` checks the manifest, the Vite, Vitest and ESLint configs,
+  every import, and every file extension under `src/`.
+- **Shared state is framework-free.** The language (`i18n/store.ts`), the game state
+  (`state/store/createStore.ts`) and every on/off preference (`state/prefStore.ts`) are plain modules
+  with a subscription, read through `createSubscriber` (`i18n/i18n.svelte.ts`,
+  `state/prefs.svelte.ts`). One copy of the current language is what keeps a document from being half
+  translated.
+- **`state/` splits on the extension.** `.svelte.ts` for anything owning reactive state or an effect,
+  plain `.ts` for the rest, and **nothing in a plain `.ts` may reach for a rune**: Svelte compiles
+  runes only in `.svelte` / `.svelte.ts`, so a `$state()` there is a call to a missing global that
+  throws at run time, not a build error. `src/test/runeScope.test.ts` catches it.
+- Svelte applies a change on the microtask after it, so a DOM assertion right after `fireEvent` needs
+  a flush, done once in `src/test/setup.ts`.
+- **Svelte silently prunes a selector it cannot see in the markup.** A class applied at runtime is
+  bound with `class:`, never `classList` (`drainBar`'s urgent class). **No `:global()` without a
+  written justification** — it silences exactly that check.
+- **`vite build` type-checks nothing.** `npm run build` is `svelte-kit sync && svelte-check && vite
+  build && node scripts/csp-hashes.mjs` (`npm run check` is the first two). SvelteKit 3 enforces
+  `verbatimModuleSyntax`, so a type imported as a value is a build error: every type import is an
+  `import type`.
+- **There is no `svelte.config.js`.** The adapter, the CSP, the preprocessor, `runes: true`,
+  `public/` as assets are passed to `sveltekit({...})` in `vite.config.ts`; svelte-check reads it
+  there, and `vitest.config.ts` merges it so a test sees the build's module graph.
+- **The store is ours** (`state/store/createStore.ts`, ~40 lines): `getState`, `setState`,
+  `subscribe` and a middleware slot, whose semantics `gameStore.test.ts` and every
+  action in `store/` assume and `src/test/storeCore.test.ts` pins. The subtle one:
+  `deriveCatchMiddleware` reassigns `store.setState` while the creator runs, so the store must publish
+  the property the creator mutated, never a copy, or the derivation applies to actions only.
+- **Events are lowercase DOM names and props are ordinary props.** Svelte silently ignores an unknown
+  prop, so a camelCase `onClick` is a handler that never runs (`card.test.ts` counts the clicks).
+- **A parent animating a node animates a wrapper it owns**: `AnimationLayer.svelte` puts `use:play` on
+  the `<div>` around each `<Card />` / `<CardBack />`; `Card` and `CardBack` take no node callback.
+- **The validator is Valibot** (below, "Protocol validation").
+- **TypeScript stays on 6.x**: `svelte-check@4` drives TypeScript's programmatic API, which the 7.0
+  native compiler does not ship, and SvelteKit 3 declares `^6`. The E2E package follows the same major.
 
 ## A snapshot is authoritative when it arrives, and never afterwards
 
-Nothing that carries a board may be held and replayed. The server stamps every message and the
-board it describes is true at that instant; holding one back to show it later means showing a table
-that no longer exists, and the round summary is exactly the place that temptation arises — it is up
-for several seconds while the next round is already being dealt underneath.
-
-So **the summary is an overlay, not a pause**. The next round's `game_started` is applied under it,
-`applyGameState` does not touch `showRoundSummary` or `roundWinner`, and `dismissRoundSummary` takes
-the card down and puts **no board back** — there is nothing to put back, because the board under it
-has been current the whole time. Buffering the state instead meant the card came down onto the
-board as it stood when the round ended, and the first message after that corrected it in one frame.
-
-`pendingMatchEnd` is the one thing still buffered, and it is the exception that shows the rule:
-**nothing follows a match end**. There is no later board for it to be stale against.
-
-The `yourTurn` cue is the same rule heard rather than seen (`audio/gameSounds.ts`): it waits for the
-card to come down, because a cue for a turn the player cannot see yet is a cue about a board that is
-behind a card.
+Nothing that carries a board may be held and replayed: it describes a table at the instant it was
+stamped. **The round summary is an overlay, not a pause.** The next round's `game_started` is applied
+under it, `applyGameState` does not touch `showRoundSummary` or `roundWinner`, and
+`dismissRoundSummary` puts no board back. `pendingMatchEnd` is the one thing buffered, because
+nothing follows a match end. The `yourTurn` cue (`audio/gameSounds.ts`) waits for the card to come
+down for the same reason.
 
 ## The realtime path (tap → wire → table)
-Every hop between a player's finger and the other clients' boards is on the critical path of a
-mechanic that is decided by arrival order. Treat a delay added here as a rules change, not as
-polish.
 
-- **nginx `/ws` sets `tcp_nodelay on` and `proxy_buffering off`.** Gameplay messages are a few
-  hundred bytes each, which is exactly the shape Nagle holds back waiting for a fuller segment:
-  up to 40ms of invisible delay on a card play, on the one hop nothing in the app can see. The
-  buffering flags say the same thing for nginx's own buffers.
-- **The upgrader keeps compression off** and sizes its write buffer (4096) so a personalised
-  `game_state` goes out in one write. permessage-deflate would buy no bandwidth worth having on
-  payloads this small and would put a deflate pass plus a flush on both ends of every play.
-  `WriteBufferPool` is shared, so a full table (seven seats) does not hold seven per-connection buffers for the
-  whole match.
-- **The client sends first and animates second.** `GameBoard.handleCardClick` calls
-  `props.onCardClick` and only spawns the hand→discard flight if it returns `true`. The flight is
-  local rendering; the message is what the table is waiting on.
-- **A tap that is not a play animates nothing.** `cardPlay`'s `onCardClick` (which `GameView`
-  hands to the board) returns `false` when the
-  client refuses the card and when the tap only opens the colour/player prompt. It used to fly the
-  card on every tap, so an illegal card and an unconfirmed wild both threw the card at the pile and
-  had it reappear in the fan. Plays confirmed later go through `flightRef`
-  (`GameBoardHandle.flyFromHand`), called by the picker callbacks straight after `onSend`.
+Every hop between a finger and the other boards is on the path of a mechanic decided by arrival
+order. **A delay added here is a rules change, not polish.**
+
+- **nginx `/ws` sets `tcp_nodelay on` and `proxy_buffering off`** (`ws-proxy.conf`): Nagle holds
+  few-hundred-byte messages up to 40ms on the one hop the app cannot see.
+- **The server keeps WebSocket compression off** (`net/serve.rs`): on payloads this small, deflate
+  buys nothing and costs a pass on both ends of every play.
+- **Send first, animate second.** `GameBoard.handleCardClick` spawns the hand→discard flight only if
+  `onCardClick` returns `true`. `cardPlay`'s `onCardClick` returns `false` when the client refuses
+  the card and when the tap only opens the colour/player prompt, so **a tap that is not a play
+  animates nothing**. A play confirmed in a picker flies through `flightRef`
+  (`GameBoardHandle.flyFromHand`) right after `onSend`.
+- **The packet goes out before anything else moves** (`App.handleSend`): send, then clear the refusal
+  toast, since a store write notifies every subscriber.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, keyed `draw` / `pass` / `uno` /
-  `catch:<seat>`). One shared 400ms lockout silently ate the most ordinary sequence in the game,
-  draw then pass, along with LOCO-then-catch and catching a second seat after a Swap. A control that
-  ignores a deliberate tap because a *different* control was used 300ms ago reads as a dead button.
-  The catch key carries its target because two seats are two taps.
+  `catch:<seat>`). A shared lockout ate draw-then-pass, LOCO-then-catch and a second catch after a
+  Swap.
 - **A prompt lives exactly as long as the play behind it stays legal.** `cardPlay` re-reads the
-  condition that opened the colour/player picker on every state change (`clientMayInterrupt` for an
-  interject, `currentTurn === myIndex && clientMayPlay` otherwise, plus the card still being in
-  hand) and closes it the moment that answer turns false. The older rule closed a picker only when a
-  card landed (`lastPlay.at`), which covers an interjecter stealing the lead and nothing else: the
-  turn timing out, a forced draw and a fresh `game_state` after a Swap all move the board without
-  setting `lastPlay`, so the prompt stayed up over a table that had gone and the choice went out
-  against a state the server had already replaced. Being asked for a swap target and *then* refused
-  is the one rejection in this game that reads as a broken promise rather than as an illegal card.
-- **The handling has a hand in it**: `sfx.ts` detunes and softens the card sounds a little per hit
-  (`humanVariation`), and `hooks/haptics.ts` answers the same cue list with one vibration pattern per
-  moment. Both live beside the sounds so the three can never disagree about what happened.
-- **Every board control acts on the press, not on the release** (`components/press.ts`,
-  `use:pressToAct` on `Card`, `Deck` and the four buttons of the action bar). `click` is dispatched
-  when the pointer comes back up — 80–150 ms after the finger landed on a touch screen, a good part
-  of that on a mouse — and it was the longest hop on the realtime path nothing measured: an
-  interject or a Contre-LOCO! lost to a player whose press had landed *later*, because their finger
-  left the glass sooner. The handler runs on `pointerdown` for the primary button and the `click`
-  the same press produces is swallowed; a click no press preceded (Enter or Space on a real button,
-  a synthetic one) still runs it, so nothing reachable stops being reachable; a disabled control
-  fires on neither path, because Chromium dispatches pointer events on disabled form controls and
-  the attribute is the answer. What is given up is cancelling a press by sliding off the control,
-  which on a board built around five-second windows was never a gesture anybody made on purpose.
-  `press.test.ts` and `card.test.ts` pin it; Playwright's `click()` is a press followed by a
-  release, so the E2E suite exercises the real path.
-- **The packet goes out before anything else moves** (`App.handleSend`): clearing the refusal toast
-  is a store write, and a store write notifies every subscriber — the sounds, the session record,
-  every derived value the board reads — so cleared *before* the send it put all of that between the
-  tap and the wire. Send, then clear.
+  condition that opened the picker on every state change (`clientMayInterrupt` for an interject,
+  `currentTurn === myIndex && clientMayPlay` otherwise, plus the card still in hand) and closes it
+  when false — a timeout, a forced draw or a fresh `game_state` moves the board without a play.
+- **Every board control acts on the press, not the release** (`components/press.ts`,
+  `use:pressToAct` on `Card`, `Deck` and the action bar's buttons). `click` comes 80–150ms after the
+  finger lands on a touch screen, which decided interjects and catches by who *lifted* first. The
+  handler runs on `pointerdown` (primary button) and swallows the click it produces; a click with no
+  press (keyboard, synthetic) still runs it; a disabled control fires on neither (Chromium dispatches
+  pointer events on disabled controls). Cancelling by sliding off is given up. `press.test.ts`,
+  `card.test.ts`; Playwright's `click()` exercises the real path.
 - **A queued gameplay intent ages out** (`webSocketPolicy.keepPendingIntent`,
-  `PENDING_INTENT_MAX_AGE_MS`). A message sent while the socket is down is queued and flushed when it
-  comes back, so a draw-then-play tapped across a quarter-second blip loses nothing; but the backoff
-  never gives up, so "when it comes back" can be a minute later against a board that has moved on
-  by several turns, and a card the player chose then is not a card they choose now. Plays, draws,
-  passes, calls, catches and emotes carry their age and are dropped past the bound; a table to join
-  or a search to enter is a decision that ages fine. `pendingIntents.test.ts`.
-- **A stamp is an identity** (`store/helpers.ts` `stamp()`): every flash, banner and sound is guarded
-  on `next.at !== prev.at`, and `Date.now()` answered two events in one millisecond — routine against
-  a bot or on a LAN — with one number, so the second play's flight, its sound and its banner were
-  all skipped. `stamp()` is strictly increasing.
-- **The discard effects key on the play, not the face** (`GameBoard`'s discard effect, `DiscardPile`'s
-  `playStamp`). An interject is by definition the same face as the card under it, so keyed on the
-  face alone an intercepted +4 drew no `+N`, no impact and no settle — nothing at all on the loudest
-  moment in the game — and the "already covered by a flight" flag was left set to swallow the next
-  genuine change. The flag is now read and cleared before any early return.
-- **Whether the pile may still be slammed is read off the store, never off the card**
-  (`store.interruptOpen`, the fourth argument of `clientMayInterrupt`). The server says it on every
-  message that can move the window — a play opens it, a draw or a pass by the seat at turn shuts
-  it, a penalty growing a hand leaves it, and the snapshot carries it (omitted there means shut).
-  The client kept no copy and offered the twin for as long as it was on top, so a slam after
-  somebody had drawn was refused and rendered as *"somebody was faster"* on a table where nobody
-  had been; the highlight, the tap and the prompt-closing effect all read the flag now.
-  `interruptWindow.test.ts`.
-- **A slam is one card.** The tap used to group every identical copy, and nobody was asked how many
-  were going: an interject is a reaction, and a second press is a second reaction. The line was
-  drawn at what a second copy *buys* — a +2, a +4, a Skip, a Reverse and a Number each gained
-  something real, where N plain wilds name one colour between them — and **the line was in the wrong
-  place**. A seat holding three +4 played one, took the lead back off itself with the second, and
-  the third left on the same press: twelve cards on the next player for one reaction, and the read
-  the mechanic is made of never had to be made again. The +4 is also the one of those kinds that
-  stops to ask for a colour, so the batch was committed inside a prompt that never named it.
-  **Every copy past the first was a window somebody else could have won**, which is not the
-  presser's to spend. So `onCardClick` sends `card` alone out of turn, the colour prompt carries one
-  card, `game.BotInterrupt` sends one copy, and the server refuses a multi-card interject outright
-  (`game.ErrInterruptBatch`) so none of this is a client-side courtesy.
-  `interjectSingle.test.ts`, `locoFinish.test.ts`.
-- **Contre-LOCO! is pressable before the server has named anybody**
-  (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`). A control that only unlocks on the
-  server's cue can be *answered* and never *anticipated*, and the window it answers is five seconds:
-  by the time the cue has crossed the wire and the eye has found the button, the press is a
-  reflex to a stimulus rather than a read of the table. So the button goes live on what this client
-  can already see — any *other* seat holding exactly two cards, or any seat whose window is still
-  running — and the wager's price is what keeps that honest (`domain-rules.md`).
+  `PENDING_INTENT_MAX_AGE_MS`): plays, draws, passes, calls, catches and emotes queued while the
+  socket is down are dropped past the bound, since the board has moved on; joining a table or a search
+  is kept. `pendingIntents.test.ts`.
+- **A stamp is an identity** (`store/helpers.ts: stamp()`, strictly increasing): flashes, banners and
+  sounds guard on `next.at !== prev.at`, and two events in one millisecond must not share one.
+- **The discard effects key on the play, not the face** (`GameBoard`'s discard effect,
+  `DiscardPile`'s `playStamp`): an interject is the same face as the card under it. The
+  "already covered by a flight" flag is read and cleared before any early return.
+- **Whether the pile may still be slammed is read off the store, never the card**
+  (`store.interruptOpen`, `clientMayInterrupt`'s fourth argument), set by every message that moves
+  the window; absent on a snapshot means shut. The highlight, the tap and the prompt-closing effect
+  all read it. `interruptWindow.test.ts`.
+- **A slam is one card.** Every copy past the first was a window somebody else could have won (three
+  +4 in one press put twelve cards on the next player for one reaction). `onCardClick` sends `card`
+  alone out of turn, the colour prompt carries one card, `loco_game::bot_interrupt` plays one copy,
+  and the server refuses a batch (`GameError::InterruptBatch`). `interjectSingle.test.ts`,
+  `locoFinish.test.ts`.
+- **The handling has a hand in it**: `sfx.ts` varies each card hit slightly (`humanVariation`) and
+  `state/haptics.ts` answers the same cue list, so sound and vibration cannot disagree.
 
-  **Two, not three, is the calibration.** From two cards out the window is one ordinary play away,
-  so the read is about the table in front of you. From three it would need an interject of two
-  identical cards, which is a loss a player can *schedule* — and a threshold a player can schedule
-  around is a threshold that makes the price buyable.
+### Contre-LOCO! on the client
 
-  **Hand sizes, our own seat and the clock decide it, and nothing else may.** `isCatchLive`
-  deliberately does not take `declaredSeats`: a button that went dead the moment the last opponent
-  called LOCO! would be **reporting that call** to a player who was not listening for it, which is
-  the one thing the mechanic cannot leak. The clock it reads instead is `store.onHookUntil` — seat →
-  the window end the server sent on `catch_seats`, written by `applyCardPlayed` and
-  `applyGameState`, and kept past the declaration, past the window's retirement from `catchWindows`,
-  and **past the hand growing back out of reach**. So the button dies on the clock alone, and that
-  clock runs the same whether the seat spoke, drew, or swallowed a stack of four.
+The server's rules (the offer, the ration, the lockout) are in `domain-rules.md`; this is how the
+button reads them.
 
-  That is what makes the *late* press possible at all, and the server charges for exactly the same
-  stretch (`catchOffered`): a control that greys out under a committed thumb is sparing the player a
-  mistake the server would have billed them for either way. **`CATCH_LATE_GRACE_MS` (2s) is
-  deliberately shorter than the server's `catchGrace` (3s), and the difference is the wire** — a
-  press made on the last frame the button is live has a whole second to arrive and still be charged.
-  Longer would be a live button over a wager the server answers with silence; equal would drop the
-  last late press by exactly one network hop. `serverMirrors.test.ts` pins the inequality rather than
-  either number. A reloaded tab holds no clock, so a last card the snapshot does not name is dark
-  there; only the *armed* cue is a promise, and it rides `catchTarget`.
-
-  The two-card offer gets the same treatment, shorter: `applyCardDrawn` writes `store.nearUntil`
-  (seat → now + `CATCH_NEAR_GRACE_MS`, 1.5s) when a seat on exactly two grows, and `isCatchLive` /
-  `catchLiveUntil` read it beside `onHookUntil`. Under the server's `catchNearGrace` (2.5s) by the
-  wire, pinned by `serverMirrors.test.ts`. Without it, the seat drawing to three greyed the button
-  out under a press already on its way down.
-
-  **A tail keeps a live button live; it never lights a dark one.** Found in play: our catch landed,
-  the seat took its two and sat on three, and the next card anybody played reset `catchSpent` while
-  the window's tail (`onHookUntil`, kept past the hand growing) was still running — the button lit
-  up again over a seat that owed nothing, and the server charged the press, because a landed catch
-  spends no offer. The near grace did the same. So when `applyCardPlayed` hands a spent wager back
-  it drops the tails with it (`liveWindowsOnly`: only a seat on one card inside its window survives,
-  and `nearUntil` is emptied); a seat on two still re-arms the button on its own. A player who never
-  pressed keeps the tail through somebody else's card, since that button was live all along.
+- **It is pressable before the server has named anybody** (`game/catchAvailability.ts`,
+  `CATCH_LIVE_MAX_HAND = 2`): live on any *other* seat holding exactly two cards, or any seat whose
+  window is still running. A control that unlocks on the server's cue can only be answered, never
+  anticipated; the wager's price keeps the early press honest. **Two, not three**: from three the
+  window needs a two-card interject, a loss a player can schedule, which would make the price buyable.
+- **Hand sizes, our own seat and the clock decide it, and nothing else may.** `isCatchLive` does not
+  take `declaredSeats`: going dead on a declaration would *report* the call. The clock is
+  `store.onHookUntil` (seat → the window end from `catch_seats`, written by `applyCardPlayed` and
+  `applyGameState`), kept past the declaration, past the window leaving `catchWindows`, and past the
+  hand growing back. A reloaded tab holds no clock; only the *armed* cue (`catchTarget`) is a promise.
+- **`CATCH_LATE_GRACE_MS` (2s) is under the server's `CATCH_GRACE_MS` (3s) by the width of the
+  wire**: a press on the last live frame still arrives inside the charged stretch.
+  `serverMirrors.test.ts` pins the inequality, not either number.
+- **A seat drawing out of two keeps the button live** `CATCH_NEAR_GRACE_MS` (1.5s) longer
+  (`store.nearUntil`, written by `applyCardDrawn`), under the server's `CATCH_NEAR_GRACE_MS` (2.5s)
+  by the wire, pinned the same way: otherwise the draw greys the button under a press on its way down.
+- **A tail keeps a live button live; it never lights a dark one.** When `applyCardPlayed` hands a
+  spent wager back it drops the tails with it (`liveWindowsOnly`: only a seat on one card inside its
+  window survives; `nearUntil` is emptied). A player who never pressed keeps the tail.
   `catchDerivation.test.ts`, "the spent wager".
-- **There is no latch: what ends the offer is the clock and never the next card**
-  (`isCatchLive` + `catchLiveUntil`, derived by `deriveCatchMiddleware`; `GameView` arms one timer on
-  `store.catchLiveUntil` and calls `rereadCatchLive`). Held open until the next card landed, the
-  offer was farmable a card at a time: press, watch the seat draw, press again once anybody plays,
-  hand the pile on with a Swap. The timer waits for the window **and its grace**, because the button
-  has to go dark when the server stops charging and not when the bar finishes draining.
-- **`store.catchSpent` is the client's copy of the server's ration**, set by every press and cleared
-  by `applyCardPlayed` — the one event that can put a new offer on the table. It suppresses the
-  *blind* send only, never a press that names a seat. The case it exists for is narrow and real: the
-  second tap of a double tap on a catch that **landed**. A catch that lands spends no offer, so the
-  server's own ration does not cover it, and without this the second tap was a free blind press
-  against a table that had just changed shape. `store.declaredSeats` survives alongside it for
-  `store.myDeclared` — our own seat's LOCO! chip — derived by `deriveCatchMiddleware` rather than
-  written by an action, like everything else that is a function of the board.
-- **A Contre-LOCO! is acknowledged on the frame it is pressed, and the verdict is still the server's.**
-  Measured with Playwright against the real server (the Go one at the time; two browsers, a fixture putting one seat on
-  one card, a click on the centre button): from the click being dispatched to `uno_caught` applied
-  in the store and the caught hand grown by two is **3–5 ms**. The client does nothing slow — the
-  press goes straight to `socket.send`, the handler is synchronous on the table's own task, the
-  answer is one broadcast — so everything a player waits for beyond that is the wire: the CDN path
-  below on the dev host, or their own connection. What made that wait read as *the button ignoring
-  the tap* was that the
-  button showed nothing at all until the answer came back: the only immediate change was the armed
-  glow going out, which reads as "dead" rather than as "in flight". So the press is now shown the
-  instant it is made — `store.catchPending`, rendered as `.called` on the
-  button: ledge collapsed, face darkened, the armed pop stopped — and it stays until whatever answers
-  the press arrives: the catch landing (`applyUnoCaught`), the miss (`applyCatchFailed`), a refusal
-  (`setError`), the board moving on (`applyCardPlayed`), or an authoritative snapshot. It presumes
-  nothing about the verdict and disables nothing: a second window after a Swap is still one more
-  tap. `gameStore.test.ts` owns the store half, `actionBar.test.ts` the button, and the
-  `game-catch-pressed` scene is the state beside `game-catch-window` in the contact sheet.
-- **And the one dead state that explains itself is the lockout.** A call that finds nobody costs a
-  card *and* two seconds of the button (`game.catchLockout`; the reasoning is in
-  [`domain-rules.md`](domain-rules.md), because the rule is the server's). What is this side's is
-  that the player can *see* it: `store.catchLockedUntil` is the absolute instant the server sent,
-  `store.catchLocked` is derived beside `catchLive` off the same clock, and `<ActionBar />` draws
-  the sunken slot every unavailable control wears plus a padlock and a bar draining to that instant
-  (`loco-slide`, on the compositor, nothing re-rendering while it runs).
+- **There is no latch: the clock ends the offer, never the next card** (`catchLiveUntil`, derived by
+  `deriveCatchMiddleware`; `GameView` arms one timer on it and calls `rereadCatchLive`). A latch held
+  until the next card was farmable. The timer includes the grace, because the button goes dark when
+  the server stops charging.
+- **`store.catchSpent` is the client's copy of the server's ration**, set by every press, cleared by
+  `applyCardPlayed`. It suppresses the *blind* send only — the second tap of a double tap on a catch
+  that landed, which the server's ration does not cover. `store.myDeclared` (our LOCO! chip) is
+  derived by the middleware like everything else that is a function of the board.
+- **The press is acknowledged on the frame it lands** (`store.catchPending`, `.called` on the button:
+  ledge collapsed, face darkened, armed pop stopped) until whatever answers it arrives — the catch
+  (`applyUnoCaught`), the miss (`applyCatchFailed`), a refusal (`setError`), the next card
+  (`applyCardPlayed`) or a snapshot. Without it the armed glow going out read as "dead". It presumes
+  no verdict and disables nothing. `gameStore.test.ts`, `actionBar.test.ts`, scene
+  `game-catch-pressed`.
+- **The lockout explains itself.** `store.catchLockedUntil` is the server's absolute instant,
+  `store.catchLocked` is derived beside `catchLive`, and `<ActionBar />` draws the sunken slot, a
+  padlock and a drain to that instant (`loco-slide`), **no digits**. It must say something because
+  every press inside the lockout re-arms it. The **halo comes off** (`class:armed={catchArmed &&
+  !catchLocked}`), and `catchLiveUntil` becomes the lock's end while it runs, so the button returns on
+  the clock. `catchAvailability.test.ts`, `catchDerivation.test.ts`, `actionBar.test.ts`, scene
+  `game-catch-locked`.
+- `src/test/realtime.test.ts` owns the realtime path on the client side.
 
-  It has to say something, and the reason is the mechanic rather than politeness: **every press
-  made inside the lockout re-arms it**, so a button that simply went quiet would be pressed again,
-  and again, by a player with no way of knowing that each press was the thing keeping it dead. The
-  padlock and the drain are what turn a punishment into a thing you can wait out. No digits — a two
-  second countdown reads as "2, 1", where a drain is the same number said the way this game says
-  every other window.
+### Every deadline is on the server's clock
 
-  Two smaller things fall out of it. The **halo comes off** (`class:armed={catchArmed &&
-  !catchLocked}`): a seat can owe the table a call while we are locked out of answering it, and a
-  control that pulses over a press it will refuse is the one lie a reaction bar cannot afford — the
-  capsule above still names the window, because the opening is real and simply not ours. And
-  `catchLiveUntil` becomes **the lock's own end** while it runs, so `GameView`'s single timer brings
-  the button back on the clock rather than on the next message: a lock is two seconds and a quiet
-  table is longer than that. `catchAvailability.test.ts`, `catchDerivation.test.ts` and
-  `actionBar.test.ts` own the three halves; the scene is `game-catch-locked`.
-- `src/test/realtime.test.ts` owns all of the above on the client side.
+`turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until`, `forfeit_deadline` and the snapshot's
+deadlines are absolute server instants, and every bar on screen (`drainBar`, `pruneCatchWindows`,
+`turnCountdownSfx`, `OpponentAway`) counts against `Date.now()`. A device six seconds fast would see
+every catch window already shut; six slow, a capsule inviting a press that costs a card.
 
-### Every deadline is on the server's clock, and the client has to know how far off its own is
-`turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until`, `forfeit_deadline` and the
-snapshot's `turn_deadline` / `catch_seats` / `catch_locked_until` are absolute unix-millisecond
-instants written by the server, and every bar and capsule
-on screen (`drainBar`, `pruneCatchWindows`, `turnCountdownSfx`, `OpponentAway`) counts them down
-against `Date.now()`. Those are two clocks, and the difference used to be nobody's. A device six
-seconds fast saw every five-second catch window already shut on arrival — `pruneCatchWindows` dropped
-it, `catchTarget` never lit, and the player was told nobody was on the hook. Six seconds slow, the
-capsule stayed up after the server's window had closed, and the press it invited cost a card. Neither
-is latency, and no amount of it explains what the player saw.
-
-- The server stamps every message with `server_now` (`Client.Send`, `broadcastToRoom`).
-- `hooks/serverClock.ts` keeps the last `CLOCK_SAMPLES` values of `server_now - Date.now()` and reads
-  the **largest** as the offset: a sample undershoots the true offset by exactly that message's
-  one-way latency, so the largest is the closest and errs towards a window shown a few tens of
-  milliseconds longer than it is. Clock skew was seconds either way. A sliding window rather than an
-  average so a clock that steps (NTP catching up) is followed within a handful of messages.
-- `localizeDeadlines(msg)` is the one door: the handler in `serverMessages.ts` passes every message
-  through it before the `switch`, and every deadline field the protocol has is moved there. A new
-  deadline field is added to that function and nowhere else — a field the handler forgot to convert
-  would fail the way the whole class used to, silently and only on a device whose clock is off. An
-  absent or zero deadline is left alone: zero means no timer, and moving it would invent one.
-- Zero until the server has said anything, so a fixture's deadlines land exactly where the test wrote
-  them, and a message carrying no stamp says nothing about the clock.
-- `serverClock.test.ts` pins the estimate, every field, and the store reading the result on its own
-  clock through the real handler.
+- Every message carries `server_now` (`ServerMsg::stamp`, from `Client::send` and `Table::broadcast`).
+- `state/serverClock.ts` keeps the last `CLOCK_SAMPLES` of `server_now - Date.now()` and takes the
+  **largest**: each sample undershoots by its one-way latency, so the largest is closest and errs
+  towards a window shown slightly longer. A sliding window follows a clock that steps.
+- **`localizeDeadlines(msg)` is the one door**: `serverMessages.ts` passes every message through it
+  before the `switch`. A new deadline field is added there and nowhere else. Zero or absent means no
+  timer and is left alone. Before any stamp the offset is zero, so fixtures land where tests wrote
+  them. `serverClock.test.ts`.
 
 ## Client transport
 
-### The socket does not go through the CDN, and that is worth 380 ms a message
+### The socket does not go through the CDN
 
-Production serves the page from `ohloco.com` and dials the socket at `ws.ohloco.com`, a hostname that
-resolves straight to the origin. The reason is a measurement, not a preference. From a Paris
-connection to a Paris origin, on a socket **already established** — so no handshake, no certificate,
-no DNS in the number:
+The page is served from `ohloco.com` and the socket dials `ws.ohloco.com`, straight to the origin.
+Measured Paris to Paris on an established socket:
 
 | | round trip |
 | --- | --- |
 | through the CDN | 228–696 ms, median **389 ms** |
 | direct to the origin | 7.1–10.6 ms, median **8.5 ms** |
 
-The same edge answered two other zones in 40 ms at the same moment, so this is the CDN's path to
-*this* origin rather than the player's path to the CDN, and it congests by the hour. It is also not a
-page-load cost paid once: it is every card, every catch and every interrupt, and **an interrupt is
-decided by arrival order at the server**, which makes it the mechanic rather than the polish.
+That is every card, catch and interrupt, and **an interrupt is decided by arrival order**, so it is
+the mechanic. Only the socket leaves the CDN.
 
-Only the socket leaves. The HTML, the bundle and the images all still want the edge and the cache.
-
-- **`webSocketPolicy.ts` decides the address, `webSocket.svelte.ts` only dials it.** `wsEndpoints()`
-  returns the pair — `direct` (null unless the build named one) and `proxied` (always) — and `wsUrl()`
-  picks. Both are pure, so `wsEndpoint.test.ts` needs no DOM and no socket.
-- **`VITE_WS_ORIGIN` is baked in at build time**, like `VITE_PUBLIC_ORIGIN` and for the same reason:
-  the client image is built per environment. `.gitlab-ci.yml` passes it **on a tag only** — dev has no
-  such hostname, no DNS record, no certificate for one, and does not have the problem either.
-- **The scheme comes from the page, never from the value.** A `wss://` written into an http://
-  deployment (or the reverse) is mixed content, which the browser refuses *before* attempting the
-  socket: it fails as silence and reads exactly like the server being down.
-- **The fallback is one-way, and the CSP has to keep allowing it.** After
-  `DIRECT_FAILURES_BEFORE_FALLBACK` (3) sockets that closed *without ever opening*, the client goes
-  back to the page's own origin for the rest of the page's life. Three, because that is about two
-  seconds of backoff; one-way, because resetting it on every successful connection would spend those
-  three failures again at every drop. A socket that opened and later dropped is a network event and
-  resets nothing — only a socket that never opened is evidence against the hostname. This exists
-  because **the direct hostname's certificate is the one thing in this stack that nothing renews and
-  nothing here can see expire**: a slow game beats a dead one, and a page reload is what tries the
-  direct hostname again.
+- **`webSocketPolicy.ts` decides the address, `webSocket.svelte.ts` dials it.** `wsEndpoints()`
+  returns `direct` (null unless the build named one) and `proxied`; `wsUrl()` picks. Pure, so
+  `wsEndpoint.test.ts` needs no DOM.
+- **`VITE_WS_ORIGIN` is baked in at build time, on a tag only** (`.gitlab-ci.yml`): dev has no such
+  hostname.
+- **The scheme comes from the page, never the value**: a mismatched scheme is mixed content, refused
+  silently before the socket is attempted.
+- **The fallback is one-way.** After `DIRECT_FAILURES_BEFORE_FALLBACK` (3) sockets that closed
+  *without ever opening* (about two seconds of backoff), the client uses the page's origin for the
+  rest of the page's life. A socket that opened and dropped resets nothing. It exists because the
+  direct hostname's certificate is the one thing nothing here renews or watches; a reload retries it.
 - **`security-headers.conf` carries `__WS_DIRECT_ORIGIN__`, substituted by `client/Dockerfile` from
-  the same build-arg the bundle gets**, so the policy and the socket cannot disagree. The build
-  *fails* rather than shipping an unsubstituted placeholder — a policy naming a literal
-  `__WS_DIRECT_ORIGIN__` blocks the socket the game is about to dial and reports it nowhere.
-- **The server has to be told.** `hub.originAllowed`'s default rule is "the `Origin`'s hostname equals
-  the request's `Host`", which two different hostnames do not satisfy, so production sets
-  `LOCO_ALLOWED_ORIGINS` to the **page's** origin. Without it every upgrade is refused, and a refused
-  upgrade is indistinguishable from a server that is down. See
-  [`docs/notes/server.md`](server.md).
-- **nginx serves the socket and a 404 on that hostname** (`server_name ws.*`), never the SPA: serving
-  the site there too would publish the whole thing under a second hostname with only the canonical
-  arguing against it. Both server blocks `include ws-proxy.conf`, because a socket reconnecting onto
-  the fallback must reach a server that cannot tell the difference — the seat it is reclaiming was
-  taken on the other one.
+  the same build-arg**, and the build fails rather than ship the placeholder (which would block the
+  socket silently).
+- **The server must be told**: `serve::origin_allowed` matches the `Origin`'s hostname against the
+  `Host`, which two hostnames fail, so production sets `LOCO_ALLOWED_ORIGINS` to the **page's**
+  origin. See [`docs/notes/server.md`](server.md).
+- **nginx serves only the socket and a 404 on `ws.*`**, never the site. Both server blocks
+  `include ws-proxy.conf`, so a socket falling back reaches a server that cannot tell the difference.
 
 ### The rest of the transport
 
-- **The socket's URL comes from `import.meta.env.VITE_WS_PORT`, and a config that narrows the env
-  prefix hides it.** Astro narrowed Vite's `envPrefix` to `PUBLIC_`, which leaves `import.meta.env.VITE_*`
-  in the transformed module verbatim and reading `undefined` in the browser, with no warning at any
-  layer. `webSocket` then took its production branch in dev and dialled same-origin `/ws`, which
-  is the Vite dev server proxying nothing: `ws://localhost:5173/ws` closed before it opened, and the
-  symptom a player got was a table that never opened and a queue that never paired.
-  The prefix was restored rather than the variable renamed, and since SvelteKit `vite.config.ts`
-  writes Vite's own default out (`envPrefix: ['VITE_']`) so the test has something to read, because `docker-compose.dev.yml`, `e2e/playwright.config.ts`, `client/Dockerfile` and the
-  README all already name it. `src/test/wsEnv.test.ts` fails whenever the hook reads a prefix the
-  config does not expose. Anything else the app needs from the environment obeys the same rule.
-- `webSocket.send(msg)` queues `{ type, data, at }` when not OPEN; FIFO flush on `onopen`, **after**
-  the reclaim message, and a gameplay intent that aged past `PENDING_INTENT_MAX_AGE_MS` is dropped at
-  the flush rather than replayed onto a board that has moved on (`keepPendingIntent`, above).
-- Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
-  (250ms, 500ms, 1s, 2s, 4s, 8s, 15s, then held), `attempts` resets on `onopen`. The
-  schedule and the `WsStatus` vocabulary live apart from the socket, in `hooks/webSocketPolicy.ts`:
-  a backoff curve belongs to no framework and a component that only needs the status should not
-  import the transport to get it.
-  **The first retry is deliberately almost immediate.** Most drops are a single lost connection
-  that comes straight back, and the flat 2s first retry it replaced cost the player an entire
-  interrupt window of dead board every time one happened. The tail still backs off, so a server
-  that is genuinely down is not hammered.
-- **There is no attempt ceiling, and removing it was a bug fix rather than a tuning.** Ten attempts
-  ran out at 27.75 s, and past that the client never tried again for the life of the tab, under a
-  "Reconnexion…" curtain with nothing on it to press. A normal deploy does not produce that (compose
-  holds the old server for its whole 90 s drain), but everything around one does: a slow image pull,
-  a crash loop, `stop_grace_period` reached, a phone that suspended the tab. And the client's 27.75 s
-  could expire before the server had even started counting the 60 s it holds the seat for, which is
-  the case where giving up cost a seat that was still there.
-- **The recovery path is not the schedule.** `reconnectNow()` retries from the top and is wired to
-  four things that all mean the same thing: `online`, the tab becoming visible again (`focus` +
-  `visibilitychange`), the page being restored from the back/forward cache (`pageshow` with
-  `persisted`), and the button on the curtain (`GameView`'s `onRetryConnection`). `connect()`
-  refuses a socket that is already CONNECTING or OPEN, so every entry point is safe to fire twice.
-- **A frozen page is not a player, and the socket has to be given up for it.** Navigating from `/`
-  to a content page does not unload the document, it freezes it into the back/forward cache — and
-  the browser keeps the open WebSocket with it. Nothing on the server distinguishes that socket from
-  somebody sitting at the home screen, so `players_online` went on counting a visitor who was
-  reading the rules, and clicking *Play* back to `/` built a second document with a second socket
-  beside the first. What a player saw was the count going up by one on their own, for as long as the
-  browser kept the cached copy, which is exactly the shape of a bug that reads as the game inventing
-  people. `pagehide` drops the socket and `pageshow` asks for it again when `persisted` says the
-  page was restored; on a real unload the drop costs nothing, because the socket was going anyway.
-  A restore lands on the ordinary reconnect path, seat reclaim included, so a player who wandered
-  off mid-match and came back with the Back button is covered by the machinery that was already
-  there.
-
-  Two things about finding it, both worth keeping in mind for the next one of these. **The end-to-end
-  suite is blind to it**: Playwright launches Chromium with `--disable-back-forward-cache`, so every
-  navigation in the suite really does unload the page and the socket really does close. It reproduces
-  in a browser the way a player has one — measured in Brave with the cache back on, three connected
-  sockets for one person. And **the count itself was never lying**: `players_online` is
-  the number of registered sockets and it reported exactly what the server was holding, which is why the first place
-  to look, the broadcast in `loco-hub/src/online.rs`, had nothing wrong with it. The 5s tick only decides how
-  long the wrong number stays on screen after the truth changes.
-- `getReconnectMsg` is `reconnectMessageFor`; see "session persistence" below for what each screen
-  sends.
-- **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.
-  `createServerMessageHandler(unoTimer)` is built once, during App's setup, and takes its store
-  snapshot at creation: the action functions are created once by the store factory and are stable for
-  the life of the app, so closing over them costs nothing. Branches needing CURRENT store *values*
-  call `gameStore.getState()` at the moment they need it — a frozen snapshot would be reading the
-  store as it was at mount, which is a different value on every branch that asks about the current
-  screen. The one thing passed in is the LOCO! banner's timer (`UnoBannerTimer`), because it belongs
-  to a component and the handler is not one.
-- **The match screen is built once and then left alone.** It is the most expensive tree in the app
-  and the store underneath it changes several times a second. Svelte gives this by construction —
-  `GameView` is instantiated once and only the reactive reads inside it update — but the guarantee
-  is losable in one line: a `{#key}` around the board, or a keyed block whose key moves with the
-  state, tears it down and rebuilds it on every change. That is the same bug the React version had
-  with a defeated `memo`, spelled differently.
-  - `src/test/appSubscription.test.ts` pins it by counting how many times the stub's *script body*
-    runs, which under Svelte is the number of instantiations. Its `webSocket` mock returns a
-    **stable** `send` on purpose: an unstable one would make `handleSend` unstable by itself and
-    quietly prove nothing.
+- **The env prefix must expose `VITE_*`.** `vite.config.ts` writes `envPrefix: ['VITE_']`; a narrower
+  prefix leaves `import.meta.env.VITE_WS_PORT` reading `undefined` with no warning, and dev dials
+  same-origin `/ws`, which proxies nothing. `src/test/wsEnv.test.ts` fails when the socket reads a
+  prefix the config does not expose.
+- `webSocket.send(msg)` queues `{ type, data, at }` when not OPEN and flushes FIFO on `onopen`,
+  **after** the reclaim message, dropping aged gameplay intents (above).
+- **Reconnect backoff** (`state/webSocketPolicy.ts`, apart from the socket): `RECONNECT_DELAYS_MS`
+  250ms, 500ms, 1s, 2s, 4s, 8s, 15s, then held; `attempts` resets on `onopen`. The first retry is
+  near-immediate because most drops come straight back.
+- **There is no attempt ceiling.** A ceiling is a curtain that never comes down over a seat the server
+  may still hold for 60s (a slow image pull, a crash loop, a suspended phone tab).
+- **The recovery path is not the schedule.** `reconnectNow()` retries from the top on `online`, the
+  tab returning (`focus` + `visibilitychange`), a bfcache restore (`pageshow` with `persisted`) and the
+  curtain's button (`GameView`'s `onRetryConnection`). `connect()` refuses a socket already
+  CONNECTING or OPEN, so each is safe to fire twice.
+- **The socket does not survive the page being frozen.** A navigation to a content page can freeze
+  the document into the back/forward cache *with* its socket open, so `players_online` counted the
+  reader and Back built a second socket beside the first. `pagehide` drops the socket and `pageshow`
+  asks back when `persisted`; the restore takes the ordinary reconnect path, seat reclaim included.
+  **Playwright runs with the bfcache off**, so `wsFreeze.test.ts` is the only guard.
+- **Everything the server can say lives in `state/serverMessages.ts`.**
+  `createServerMessageHandler(unoTimer)` is built once in App's setup and closes over the store's
+  actions (stable for the app's life); branches needing current *values* call `gameStore.getState()`
+  at that moment. The LOCO! banner's timer (`UnoBannerTimer`) is passed in because it belongs to a
+  component.
+- **The match screen is built once and left alone.** `GameView` is instantiated once; a `{#key}`
+  around the board, or a keyed block whose key moves with state, would rebuild it on every change.
+  `src/test/appSubscription.test.ts` counts script-body runs; its `webSocket` mock returns a **stable**
+  `send`, or the test proves nothing.
 
 ## Session restore across a reload
-The socket-level reconnect only ever covered a **dropped connection**: the store was still in memory,
-so it still knew the room, the seat and the token. A refresh, a crashed tab, an accidental navigation
-or a phone killing a backgrounded page threw all of that away, and the player landed on the lobby
-while the server held their hand and their score for another minute with nobody able to claim it.
-That is the disconnect people actually have, and it was the one that could not be undone.
 
-- `hooks/sessionPersistence.ts` owns the record (`loco_session`) and `reconnectMessageFor(state)`.
-  **One pure function builds the rejoin for every case**, so a reclaim cannot mean two different
-  things depending on how the connection was lost.
-- **It used to answer three screens out of six, and the other three each failed silently and
-  differently.** `searching`: the server takes a dropped socket out of the queue, correctly, and the
-  client said nothing coming back — so the screen went on timing a wait in a queue the player was no
-  longer in, which is precisely what `searchStages` says no copy may imply. It re-sends `find_match`
-  now. `matchfound`: a real seat with a real token, two seconds from a deal, and saying nothing left
-  a player watching a versus screen that was never going to resolve; it reclaims like a game seat,
-  and `appEffects` stopped clearing the stored record there for the same reason. `gameover`: the
-  server holds that seat now (see the server note), so it is reclaimed with its token — **except in
-  a matchmade room**, where the seat is released outright and the pair is done.
-- **An error on `matchfound` resets to the lobby**, unlike every other screen, which gets a toast.
-  It is the one screen in the game with nothing on it to press: a pairing that fell apart there is
-  the end of that pairing, and a player left holding a countdown that expires into nothing has no
-  way to find that out. `searching` keeps the toast — it has a cancel button.
-- **`sessionStorage`, deliberately, not `localStorage`.** It is per tab, so two seats played from one
-  browser (how this game is tested, and how a lot of people play with a friend on one machine) cannot
-  overwrite each other's token and reclaim the wrong seat; it survives a reload, a back/forward
-  navigation and a crash restore, which is every case this exists for; and it dies with the tab
-  rather than handing the next person a live seat.
-- `initSessionRestore()` runs in `boot.ts` **before the first render**, last in the boot sequence, for
-  this reason: `webSocket` connects in an effect on App's first mount and the rejoin goes out
-  from that very first `onopen`, so the store has to already know what it is reclaiming.
-- `screen: 'restoring'` is its own screen, not a flag over `'game'`: the board has no hand, no discard
-  and no players at that point, and a table drawn from an empty state behind an overlay is a broken
-  table with a curtain over it. `restoreTarget` says which rejoin is in flight; `setScreen` retires it,
-  which is what "the reclaim landed" means (every landing path goes through it).
-- `SESSION_TTL_MS` (30 min) is a **staleness guard, not a correctness one**: the server is the only
-  authority on whether a slot can still be claimed. Its job is to stop a cold open days later from
-  flashing a reconnect screen at somebody who just wants the lobby. The stored fields change once, at
-  join time, so `touchSession()` re-stamps on `pagehide`/`visibilitychange`. Otherwise `at` would be
-  the join time and a long match would age its own record past the TTL.
-- **A refusal ends the restore and takes the record with it** (`abortRestore`, called from the `error`
-  branch and by `useRestoreTimeout`, 12s). Replaying the same refusal on every load is how a tab
-  becomes permanently unusable, and a spinner with no end is worse than a lobby with a reason.
-  `reconnect failed` / `reconnect cancelled` are the only entries in `serverErrors.ts` with no server
-  string behind them: they land in the same `errorMsg` slot, so they resolve through the same table.
-- The persistence subscription **dedupes on the four persisted fields**. It fires on every store
-  change, i.e. several times a second during a match, and `sessionStorage` is synchronous. See "The
-  realtime path": work added there is work added between a tap and the wire.
-- **`ServerMsg.PlayerID` is a `*int`, for the same reason as `PlayerIndex`.** `omitempty` dropped seat
-  **0**, and this hid longer because the client's `?? 0` fallback was right by luck everywhere it
-  mattered: the host is seat 0 on `room_created`, so an absent field and the default agreed. A tab
-  reloading straight into a match has no earlier value to fall back on, so a dropped `player_id` seated
-  the restored client at **-1**, holding a hand it could not match to any seat on the board. The
-  field is an `Option` on the server and optional in the generated type, so seat 0 is written and an
-  absent one means the message assigns no seat; the wire fixtures (`loco-protocol/tests/parity.rs`)
-  pin seat 0 onto the wire for **both** fields. `player_reconnected` additionally falls back to
-  `state.your_index`, which is the same seat and is not omittable.
-- **The token is one-shot, so the answer to a reclaim carries the next one and the client has to keep
-  it.** `hub.handleReconnect` spends the token the reclaim was made with and issues a fresh one on
-  `player_reconnected`, and the reasoning it gives for rotating is explicitly that the client stores
-  whatever it is handed: the old token has been on a socket that died, it is in `sessionStorage`, and
-  if the process restarted on the way it has also been written to a snapshot on disk. The client's
-  branch did not store it. Everything looked right — the seat came back, the hand came back — and the
-  record kept a token that had just been spent, so the *next* reclaim of that tab was refused. That
-  refusal is `game already in progress`, deliberately the same string a stranger knocking on a live
-  table gets (the server must not confirm the roster), so what a player who reloaded twice, dropped a
-  socket after a reload, or sat through a deploy saw was a lobby telling them the cards were already
-  dealt at the table they were sitting at. **Only the second reclaim fails**, which is why a test
-  that reloads once cannot see it: `sessionRestore.test.ts` asserts the fresh token reaches the store
-  *and* the record, and the E2E reloads twice.
-- Client: `store.myNickname` is kept separately from `players` because a reloaded tab has no roster to
-  derive it from and the rejoin is keyed on the nickname. `<Reconnecting />` names the room so the
-  player recognises it and offers the way out; scenes `reconnecting-game` / `reconnecting-room`.
+A reload, a crashed tab or a killed background page loses the store, and the server would hold the
+seat for a minute with nobody able to claim it.
+
+- `state/sessionPersistence.ts` owns the record (`loco_session`) and `reconnectMessageFor(state)`:
+  **one pure function builds the rejoin for every screen**. `searching` re-sends `find_match` (the
+  server drops a dropped socket from the queue); `matchfound` reclaims like a game seat; `gameover`
+  reclaims with its token, **except in a matchmade room**, where the seat is released.
+- **An error on `matchfound` resets to the lobby**: it is the one screen with nothing to press.
+  `searching` keeps the toast; it has a cancel button.
+- **`sessionStorage`, not `localStorage`**: per tab, so two seats from one browser cannot overwrite
+  each other's token; it survives reload, back/forward and crash restore; it dies with the tab.
+- `initSessionRestore()` runs last in the boot, before the first render: the rejoin goes out on the
+  first `onopen`, so the store must already know what it reclaims.
+- **`screen: 'restoring'` is its own screen**, not a flag over `'game'`: a board drawn from an empty
+  state is broken behind any curtain. `restoreTarget` names the rejoin in flight; `setScreen` retires
+  it (every landing path goes through it).
+- `SESSION_TTL_MS` (30 min) is a **staleness guard**, not correctness: the server decides. It stops a
+  cold open days later flashing a reconnect screen. `touchSession()` re-stamps on
+  `pagehide`/`visibilitychange` so a long match does not age its own record out.
+- **A refusal ends the restore and takes the record with it** (`abortRestore`, from the `error` branch
+  and `restoreTimeout`, `RESTORE_TIMEOUT_MS` 12s): replaying a refusal on every load makes a tab
+  permanently unusable. `reconnect failed` / `reconnect cancelled` are the only `serverErrors.ts`
+  entries with no server string behind them.
+- The persistence subscription **dedupes on the four persisted fields**: it fires several times a
+  second and `sessionStorage` is synchronous.
+- **Seat 0 is a value.** `player_id` and `player_index` are `Option`s on the server and optional in
+  the generated type, so seat 0 is written and an absent one means the message assigns no seat;
+  `loco-protocol/tests/parity.rs` pins seat 0 onto the wire for both. `player_reconnected` falls back
+  to `state.your_index`, which is never omitted.
+- **The reclaim's fresh token must be stored.** The server spends the token a reclaim used and issues
+  a new one on `player_reconnected`; the client writes it to the store *and* the record. Keeping the
+  spent one breaks only the **second** reclaim — answered `game already in progress`, the same string
+  a stranger gets — so `sessionRestore.test.ts` checks both places and the E2E reloads twice.
+- `store.myNickname` is kept apart from `players`: a reloaded tab has no roster and the rejoin is keyed
+  on the nickname. `<Reconnecting />` names the room and offers the way out; scenes
+  `reconnecting-game` / `reconnecting-room`.
 
 ## One tab at a time
-`hooks/tabLock.ts` elects one tab to hold the game; `Root.svelte` mounts the app in that one and
-`<TabTaken />` in the others. Scenes `tab-taken` / `tab-taken-seated`.
 
-**What was wrong.** Every tab was a session of its own, and that half is deliberate — the section
-above is the reason `loco_session` is in `sessionStorage`. What nothing owned was the other half. A
-second tab looked like a fresh game, so it counted a second time in `players_online` (which counts
-sockets on purpose, and correctly), and it entered the 1v1 queue as a second player: `queueIndex`
-deduplicates by `*Client` pointer, `tryPair` takes the first two entries, and with a quiet queue the
-two of them are a player paired against their own reflection. `uniqueNickname` renames the duplicate
-and nothing else notices. That is the game lying to somebody, which is worse than any of the
-resource questions around it.
+`state/tabLock.ts` elects one tab to hold the game; `Root.svelte` mounts the app in that one and
+`<TabTaken />` in the others. Scenes `tab-taken` / `tab-taken-seated`. Without it a second tab counted
+twice in `players_online` and entered the 1v1 queue as a second player, which could pair a player
+against their own other tab.
 
-**Why the election is a synchronous `localStorage` read.** The obvious version asks the other tabs
-over `BroadcastChannel` and waits for a reply. That wait is the bug: for as long as it lasts the tab
-either shows a curtain it may have to take back down (a flash over the tab that turns out to be the
-owner) or opens a socket "just in case" — and the socket is the entire thing being prevented. One
-read of one key decides it before the first paint, and the channel is demoted to what it is good at,
-making a handover instant instead of `STALE_MS` late.
-
-**Why the record is a heartbeat.** A flag would be correct exactly until a tab crashed, was killed
-by the OS, or lost its `pagehide` to a force-quit — after which the game is unplayable in every
-future tab of that browser, forever, and the only fix is clearing site data. `at` is rewritten every
-`BEAT_MS` (2s) and anything older than `STALE_MS` (5s) belongs to nobody. Two and a half beats:
-enough that one throttled timer in a background tab does not hand the game away, short enough that
-nobody sits looking at a curtain over a tab that no longer exists. **A timestamp in the future counts
-as stale too** — a clock that moved backwards would otherwise leave a record that is younger than
-`STALE_MS` for as long as it takes the clock to catch up, which is the same permanent lockout by
-another road.
-
-**Why every failure ends with this tab owning the game.** No `localStorage`, storage that throws on
-write (Safari's private mode has done exactly that while still exposing the object, which is why the
-probe writes rather than checks for presence), no `BroadcastChannel`, a record that will not parse.
-All of them fall through to "you are the owner", which is the behaviour that shipped before this file
-existed. A player wrongly shut out of the game has no argument available to them; two tabs is a
-lesser failure than that, every time.
-
-**Why it is `Root.svelte` and not a branch inside `App.svelte`.** `webSocket()` is called at the top
-of `App.svelte`'s script, so there is no way to mount the app and not open a socket. Not mounting is
-also what makes yielding correct in the other direction: the app unmounts, the socket closes, and the
-server holds the seat exactly as it does for any other dropped connection. It is the one place a
-`{#if}` may rebuild the app — see `appSubscription.test.ts` for the guarantee it is an exception to.
-
-**Why the curtain says what the button costs.** Taking the game inherits nothing. The other tab's
-seat record is in *its* `sessionStorage` and cannot be read from here, so the tab that takes over
-starts at the menu and the tab that yields loses its seat. That is fine when the other tab is sitting
-on the menu and expensive when it is mid-match, so the record carries `seated` and the copy turns on
-it — the same rule as the board's `leaveNote`: what the player cannot see from this screen is what
-the press costs somewhere else. **The curtain does not close on `Escape`**, which is the one
-documented exception to *Every panel closes twice* below: that rule is about panels somebody chose to
-open, and this is the state of the tab, with nothing behind it to go back to.
-
-**The first `storage` listener in this client**, and it should stay the only one. Everything else in
-`localStorage` here — the nickname, the preferences, the language, the theme — is read at boot and
-deliberately does not follow another tab: changing somebody's language mid-match because they picked
-one next door is not a courtesy. The lock is different because it is the one key whose whole meaning
-is cross-tab.
-
-**What it does not cover, and what nothing on the client can.** The storage is per origin *and* per
-profile, so a second browser, a private window or another machine bypasses all of it — including the
-self-pairing in the queue. The server-side fix is not free: refusing to pair two sockets on one
-`netKey` refuses two friends on one wifi, and behind a proxy whose forwarded header is not trusted
-(see `server.md`, where that trap is already written up) it refuses everybody. It is left open
-knowingly.
+- **The election is one synchronous `localStorage` read before the first paint.** Asking other tabs
+  over `BroadcastChannel` means waiting, and the wait either flashes a curtain or opens the very
+  socket being prevented. The channel only makes a handover instant instead of `STALE_MS` late.
+- **The record is a heartbeat**: `at` rewritten every `BEAT_MS` (2s), stale after `STALE_MS` (5s) —
+  enough for one throttled background timer. A flag would lock the game forever after a crash. **A
+  timestamp in the future is stale too** (a clock moving back).
+- **In every doubt this tab owns the game**: no `localStorage`, storage that throws on write (the probe
+  writes; Safari's private mode has exposed the object while throwing), no `BroadcastChannel`, an
+  unparseable record. A player wrongly shut out has no recourse; two tabs is the lesser failure.
+- **It is `Root.svelte`, not a branch inside `App.svelte`**, because `webSocket()` runs at the top of
+  `App`: not mounting is the only way not to open a socket, and yielding unmounts it so the server
+  holds the seat like any drop. The one `{#if}` allowed to rebuild the app.
+- **The curtain says what the button costs.** The other tab's seat record is in *its*
+  `sessionStorage`, so taking over starts at the menu and the yielding tab loses its seat; the record
+  carries `seated` and the copy turns on it. **It does not close on `Escape`**: it is the tab's state,
+  not a panel somebody opened.
+- **The only `storage` listener in this client.** Every other `localStorage` key is read at boot and
+  deliberately does not follow another tab.
+- **Out of reach**: a second browser, a private window or another machine bypasses it. Refusing to
+  pair two sockets on one network would refuse two friends on one wifi; left open knowingly.
 
 ## Remembering the nickname
-A returning player should not retype their name on every visit, so `hooks/nicknameMemory.ts` keeps the
-last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mount.
 
-- **`localStorage` here, not `sessionStorage`**, which is the exact opposite of the choice above and
-  for the same reason it was made: `loco_session` is a live claim on a seat (token-bearing, TTL'd,
-  and catastrophic if the wrong tab reclaims it), while this is a keyboard shortcut that authenticates
-  nothing. Surviving the tab and being shared across tabs is the whole point of it. Two seats played
-  from one browser now start from the same suggested name, and either can overwrite it: nothing is
-  lost, because the field is still editable and the server still refuses a duplicate nickname in a
-  room.
-- **Written on submit, never on keystroke.** A half-typed name is not what anyone wants handed back,
-  and the write would land on the realtime path for no benefit.
-- Seeded from `readNickname()` during setup, i.e. **read once at mount**. Re-reading storage while the lobby
-  is open would fight whatever the player is typing.
-- It is a prefill, not a submission: an emptied field still refuses to send. In the join form
-  `autofocus` follows the same fact, landing on the room code when the name is already known and on
-  the name when it is not, which is the only thing a returning player still has to type.
+`state/nicknameMemory.ts` keeps the last name entered (`loco_nickname`); `<Lobby />` seeds its field
+from it at mount.
+
+- **`localStorage`, not `sessionStorage`**: unlike `loco_session` it authenticates nothing, so
+  surviving the tab and being shared across tabs is the point.
+- **Written on submit, never on keystroke**; **read once at mount**, so it never fights typing.
+- A prefill, not a submission. In the join form `autofocus` lands on the code when the name is known
+  and on the name when it is not.
 
 ## Answering a nickname as it is typed
-`components/nicknameRules.ts`, used by `<Lobby />` on every keystroke and again on submit. It mirrors
-the **shape** half of `loco-game/src/nickname.rs`: 20 characters counted as characters, the Latin /
-Greek / Cyrillic allowlist, `-_.'` and one space, at most one combining mark per letter, at least one
-letter or digit.
 
-- **It decides nothing.** The server validates again on `create_room`, `join_room` and `find_match`,
-  and its answer is the one that seats a player. This exists so the refusal is instant instead of a
-  round trip; a client that skipped it would be refused a fraction of a second later.
-- **The word list is not shipped.** It is 19 embedded files on the server. Downloading a few thousand
-  slurs on every page load, in a bundle anyone can read, for a check the server has to repeat anyway,
-  buys nothing — and a blocked term is rare enough that a round trip for it is the right trade.
-- **One line for both halves.** `t.errors.nicknameRejected` is what the shape check shows and what
-  `nickname not allowed` resolves to, so a player cannot tell whether the client or the server
-  refused them, and cannot read the rule off the message. That is the same reason the server sends
-  one string for all three of its rules; see `docs/notes/server.md`.
-- The message appears in the alert the lobby already had, and clears the moment the field becomes
-  acceptable again — the same behaviour a server error has there.
-- The canonical form (trimmed, runs of spaces squeezed) is what is sent and what is remembered, so
-  `  Jean   Luc  ` and `Jean Luc` are one player and one seat label.
+`game/nicknameRules.ts`, on every keystroke and on submit, mirrors the **shape** half of
+`loco-game/src/nickname.rs`: 20 characters counted as characters, the Latin / Greek / Cyrillic
+allowlist, `-_.'` and one space, at most one combining mark per letter, at least one letter or digit.
+
+- **It decides nothing**: the server validates on `create_room`, `join_room` and `find_match`. It
+  makes the refusal instant.
+- **The word list is not shipped**: thousands of slurs in a readable bundle, for a check the server
+  repeats anyway.
+- **One line for both halves**: `t.errors.nicknameRejected` is what the shape check shows and what
+  `nickname not allowed` resolves to, so nobody can read the rule off the message (`server.md`).
+- The canonical form (trimmed, spaces squeezed) is what is sent and remembered.
 
 ### The button is off until the shape is there, and only until then
-The three submits — `Find an opponent`, `Open the table`, `Take a seat` — are `disabled` while
-`isNicknameShapeValid` is false, which on an empty field is the state the screen opens in. It removes
-the press whose entire outcome was an error line under a form nobody had finished filling in.
 
-- **What may grey a button out is shape and nothing else.** A disabled control gives no reason and
-  takes no answer, so it may only ever say something the player can see for themselves: the field is
-  empty, or it holds `---`, or it holds a character that will not render on a seat. The bar is
-  deliberately at the floor — **one letter or digit is a nickname** — because everything above that
-  floor is taste, and taste belongs in a refusal a player can read.
-- **The word list is therefore not part of it.** The client does not carry the list (above), so a
-  blocked term reaches the button as an ordinary name and is refused by the server on the ask. The
-  answer is `<Lobby />`'s one `$effect` on `error`: any refusal matching `/nickname/i` — the blocked
-  term, and `nickname "Bob" already taken` with it — **focuses the field and selects what is in it**,
-  so the next keystroke replaces the name instead of appending to it. Asking again *is* the refusal;
-  the alert only says the ask failed.
-- The submit handlers still call `acceptNickname()`, which checks the shape a second time. The guard
-  is not the disabled attribute, on this field for the same reason it is not on the table code.
+`Find an opponent`, `Open the table` and `Take a seat` are `disabled` while `isNicknameShapeValid` is
+false.
+
+- **Greying out may only answer shape**: a disabled control gives no reason, so it may only say what
+  the player can see. The floor is **one letter or digit**; everything above it is taste, and belongs
+  in a refusal.
+- **A blocked term is not one of them.** It reaches the server, and `<Lobby />`'s one `$effect` on
+  `error` answers any refusal matching `/nickname/i` (the blocked term, `nickname "Bob" already
+  taken`) by **focusing the field and selecting its contents**.
+- The submit handlers still call `acceptNickname()`: the guard is not the disabled attribute.
 
 ## Answering a table code the same way
-`components/tableCodeRules.ts`, the same idea applied to the join form's second field. It mirrors
-`hub.roomCodeRe` and the alphabet `hub.generateRoomCode` draws from: six characters of `A-Z2-9`,
-minus `I`, `O`, `0` and `1`.
 
-- **Those four are missing for a product reason, not a technical one.** A table code is read out loud
-  on a stream and typed back by somebody watching it, and in that setting `I`/`1` and `O`/`0` are the
-  same character. The server never generates one, so the client never has to accept one.
+`game/tableCodeRules.ts` mirrors `ROOM_CODE_CHARS` / `ROOM_CODE_LEN` (`loco-hub/src/router/rooms.rs`):
+six characters of `A-Z2-9` without `I`, `O`, `0`, `1` — **a product reason**: a code is read out on a
+stream and typed back by a viewer, where those pairs are the same character.
+
 - **The field drops, it does not refuse.** `sanitizeTableCode` uppercases, strips everything outside
-  the alphabet and caps the length, on every keystroke and on paste. A code copied out of a chat
-  message with a trailing space, a newline or surrounding punctuation is still the right code, and a
-  player typing `0` where they meant `O` gets nothing rather than a character that fails six
-  keystrokes later, in an error line, after a round trip.
-- **"Take a seat" is disabled until the code is whole** *and* until the nickname is (above), which is
-  the difference between a button that does nothing and a button that says why. `handleJoin` checks
-  both again anyway: the guard is not the disabled attribute.
-- **It decides nothing either.** `join_room` is validated server-side, and an unknown table still
-  comes back as `room not found` — the code being *shaped* like a table is not the code being one.
-  The nickname is unaffected: it keeps its own instant refusal, and a valid code does not make an
-  unacceptable name sendable.
+  the alphabet and caps the length, on keystroke and paste, so a code pasted with punctuation is still
+  right.
+- **"Take a seat" is disabled until the code is whole** and the nickname is; `handleJoin` checks both
+  again.
+- **It decides nothing**: an unknown table still comes back `room not found`.
+- Both mirrors are pinned to the server's source by `serverMirrors.test.ts`.
 
 ## The link a table is shared with
-`hooks/tableInvite.ts`. The waiting room's code is a button, and what the press copies is a URL
-carrying the code (`tableInviteUrl`), not the six characters. On the other end, `initTableInvite`
-reads that code off the URL before the first render and `App` acts on it. The URL is `/i/CODE`, a
-page of its own, and `src/routes/i/+page.svelte` plus `seo/meta.ts`'s `INVITE` are the other half of
-this section.
 
-- **Why a link at all.** A code costs the receiver three steps: read it, retype it without a slip,
-  and find the screen to type it into. A link costs one tap, and the seat is the only thing on the
-  other side of it. The code stays on screen, unchanged: it is what a stream reads out loud and what
-  somebody already sitting at the join form types.
-- **The plate says so before it is pressed.** `<TableCode link />` draws a chain beside the code, and
-  it exists because every tester was surprised once: they pressed a plate labelled "table code" and
-  got a URL. The toast said "Link copied!" — afterwards, which is the wrong side of the press. Two
-  details make it the right icon rather than any icon: it is **drawn**, like every other icon in the
-  game (a font glyph lands on the baseline where this has to sit on the code's middle, and it would
-  inherit the code's own 2px ink stroke), and it sits **outside everything streamer mode blurs**.
-  What has to stay off a stream is the six characters; that the plate copies a link is not a secret.
-  The prop is off by default, because `<Reconnecting />` prints the code as information with nothing
-  to press, and a chain there would promise a gesture that does not exist.
-- **It is `/i/?t=CODE`, and the page is the point.** It used to be `?t=CODE` on the home page, and
-  the reason it moved is the one thing a link does that the game cannot: it gets pasted into a chat
-  window, which unfurls it. An unfurler reads the *served* HTML and runs no script, so every
-  invitation previewed as "LOCO, a card game" — true, and not what somebody is being handed. `/i/`
-  is `noindex`, carries the invitation's own title, description and art (`seo/meta.ts`: `INVITE`,
-  `INVITE_OG`), and is the home page in every other respect: same mount, same bundle, same game,
-  through `GamePage` with `chrome={false}`.
-- **The code stays a query parameter, and `/i/CODE` was tried and rejected.** A path form is not a
-  page the build emitted — a static build cannot emit one per table — so it needs a fallback in
-  whoever serves the request. nginx can do that in four lines. Under Astro the dev server could not
-  be made to at all, and this is worth writing down because all three attempts looked correct: a Vite plugin's
-  `configureServer` never fires under Astro 7 (it does under Vitest, which is what makes it look
-  wired up), `astro:server:setup` fires but its middleware never sees the URL even at the head of
-  the connect stack — Astro routes first and answers the 404 itself — and a dynamic entry in
-  `redirects` refuses to start the server without an SSR adapter. So a path form would resolve in
-  production and 404 under `make dev` and the entire Playwright suite: a link a developer cannot
-  open and the E2E suite cannot exercise, in exchange for three characters. The query form is the
-  same URL in every environment and needs nothing in `nginx.conf`. (Vite's own dev server, under
-  SvelteKit, could be given the fallback; the reason above is gone, the conclusion is not — one URL
-  that needs no help anywhere is still worth more than three characters.)
+`state/tableInvite.ts`. The waiting room's code plate copies a URL carrying the code
+(`tableInviteUrl`); `initTableInvite` reads it off the URL before the first render and `App` acts on
+it. The page is `src/routes/(game)/i/+page.svelte`, with `seo/meta.ts`'s `INVITE`.
 
-- **The link carries no language.** It is always `/i/?t=…`, whichever language it was copied from. A
-  link gets forwarded, and the person who copied it does not know who ends up pressing it, so
-  shipping `/fr/` would decide the reader's language from the other side of the table. That choice
-  belongs to whoever opens it and the i18n provider already makes it (a stored choice, then the
-  browser). It is also why `/i/` is served with **no `data-served-lang`**: `langUrl` treats a missing
-  attribute as "nothing to disagree with" and leaves the document where it is, so an invitation never
-  moves on its way to a table. Nothing is swapped there either — `chrome={false}` leaves that
-  document with no served copy in it at all.
-- **The parameter is only read on `/i/`.** It used to be read on every page, because `/?t=CODE` is
-  what the button handed out before the invite page existed. One URL is an invitation now, and this
-  runs on every page load: reading a `?t=` anywhere would let a query string somebody put on the
-  home page seat a player. Elsewhere it is left in the address bar untouched, like every other
-  parameter this module was not asked about. Both spellings of the page are read, though — nginx
-  resolves `/i` through `try_files $uri/`, so a link that lost its slash in a chat client is still
-  an invitation.
-- **The code is spent on arrival.** `initTableInvite` takes it back out of the address bar with
-  `replaceState` before anything else looks at it. Three reasons, and any one of them is enough: a
-  reload must not re-join a table the player has since left (a reload's job is the seat reclaim
-  below), a code sitting in the address bar is a code on stream in the one place `TableCode`'s blur
-  cannot reach, and a URL copied later would keep pointing at a table that has closed. **Spending it
-  on the invite page spends the page too**: what is left in the address bar is `/`, because `/i/`
-  with no code is a door with nothing behind it and a reload has to arrive somewhere real. This is
-  `replaceState` rather than a navigation, so the game itself carries on untouched. The parameter is
-  dropped by string surgery rather than by `searchParams.delete` +
-  `url.search`: re-encoding the query rewrites the parameters it was not asked about, and
-  `?showcase` comes back as `?showcase=`.
-- **A link outranks a stale reclaim, unless they name the same table.** A record naming another room
-  is cleared, because following a link is a fresh intent and the tab would otherwise be sent back
-  where it was last. A record naming *this* room is left alone: that is a seat to reclaim, which is
-  strictly better than a seat to take.
-- **A link carries a table, never a player.** So `App` sends `join_room` on its own only when this
-  browser already remembers a name (`nicknameMemory`), and otherwise hands the lobby the join form
-  with the code filled and the caret on the name. A remembered name the client can already tell is
-  refusable counts as no name at all — better the field than a round trip whose only outcome is an
-  error over a form nobody filled in. The invite is spent whether or not it ends in a join, so
-  leaving that table lands on an ordinary lobby and not back at its door.
-- **The lobby is keyed on its entry point alone.** Spending the invite must not change `<Lobby />`'s
-  key: a remount would take the prefilled code back out from under the player mid-typing.
+- **A link is one tap**; a code is read, retyped and taken to the right screen. The code stays on
+  screen for streams and the join form.
+- **The plate says so before it is pressed**: `<TableCode link />` draws a chain, **drawn** (a glyph
+  would sit on the baseline and take the code's ink stroke) and **outside everything streamer mode
+  blurs** (that it copies a link is no secret). Off by default: `<Reconnecting />` prints the code with
+  nothing to press.
+- **It is `/i/?t=CODE`, a page of its own, because a link preview reads served HTML.** `/i/` is
+  `noindex`, carries the invitation's title, description and art (`INVITE`, `INVITE_OG`), and is
+  otherwise the home page with no chrome.
+- **The code stays a query parameter**: a path form needs a fallback in every server that serves it
+  (nginx and the dev server); the query form is the same URL everywhere and needs nothing.
+- **The link carries no language.** Whoever opens it decides (stored choice, then browser); `/i/` is
+  served with **no `data-served-lang`**, which `langUrl` reads as nothing to disagree with.
+- **The parameter is read on `/i/` only**, both spellings (`/i` resolves through nginx's `try_files
+  $uri/`); elsewhere a `?t=` is left untouched.
+- **The code is spent on arrival**: `replaceState` before anything else reads it, leaving `/` — so a
+  reload does not re-join a table since left, the address bar does not show the code on stream, and a
+  later copy of the URL does not point at a closed table. Removed by string surgery, because
+  re-encoding the query rewrites other parameters (`?showcase` → `?showcase=`).
+- **A link outranks a stale reclaim unless they name the same table**: a record for another room is
+  cleared; one for this room is a seat to reclaim, which is better.
+- **A link carries a table, never a player.** `App` sends `join_room` only when this browser remembers
+  a name that passes the shape check; otherwise the join form opens with the code filled and the caret
+  on the name. The invite is spent either way.
+- **`<Lobby />` is keyed on its entry point alone**: spending the invite must not remount it under a
+  player mid-typing.
 
 ## The host's controls over a row
-`WaitingRoom.svelte` puts one ⋯ button on every roster row but the host's own, and
-`RosterRowMenu.svelte` is what it opens: hand the table over (`transfer_host`), remove from the table
-(`kick_player`). Guests render neither, on any row.
 
-- **Never on seat 0.** The way out of your own seat is the quit link at the bottom, which asks first.
-  A control that could take seat 0 would hand the table away through a button that says nothing of
-  the sort, and it sits two pixels from every other row's.
-- **One button, not two icons.** The two presses are not the same kind of thing — handing the table
-  over is routine, taking somebody's seat is not — and a roster row carrying both in the open is a
-  dense row with a destructive target on it, at phone widths, next to the row above. The ⋯ is one
-  44px target and the panel is where the two are told apart.
-- **Both ask, and the question takes the menu's place.** The kick used to ask nothing, on the
-  argument that it costs nothing to undo — which is still true, and is no longer the point: two items
-  in one menu where one fires on the press and the other does not is a menu that has to be read
-  twice. The question is the same move the quit link makes below the roster: it lands where the
-  finger already is, and nothing else on the screen shifts. It **names the row**, because on a phone
-  the sheet covers the roster it was opened from.
-- **Escape backs out one step at a time** (`escapeKey`, like every other dismissible surface):
-  the question first, then the menu. `pointerdown` outside the row shuts it, scoped to the row so the
-  ⋯ keeps working as a toggle.
-- **Right-click opens the same menu, and is never the only way in.** It is a shortcut for whoever
-  reaches for one; a control nothing announces is a control nobody finds. `preventDefault` is what
-  makes it one — the browser's own menu over a roster row offers nothing this screen means.
-- **Below 46rem the dropdown is a bottom sheet with a scrim**, at the same row heights as the
-  preferences and audio sheets: same thumb, same reach. A 244px panel hanging off a roster row is a
-  desktop object; on a phone it opens under the finger that summoned it and half of it is off the
-  side. The scrim exists only there — above that width a full-screen veil over a two-item list would
-  be the heaviest thing on the page.
-- **A bot's row carries the kick and not the transfer.** There is no other way to take a bot's seat
-  back, and a roster with the kick on every row except those would be lying about which of them the
-  host owns. The transfer is absent because the server refuses it: a table handed to a bot can never
-  deal. **`is_bot` rides the roster** for exactly this — `Bot1` is a nickname a player is allowed to
-  take, so the name is not a way to tell. **The in-game score table reads the same field**, and it
-  has to: `buildScoreRows` used to take the bot flag off the latency broadcast alone, which the
-  server holds back until a human has answered a ping (`PingPeriod` 5s, `LatencyBroadcastPeriod`
-  3s). For the first six seconds of every match the bot's cell therefore said "no ping" — a
-  connection nobody can measure, which is the one thing a bot's seat is not. The broadcast's flag
-  stays as the second source; the roster is what answers in time.
-- **The removed player is told, and it lands where every refusal lands.** `kicked` resets the store
-  like `left_room` and then writes `removed by the host`, which `serverErrors.ts` resolves to
-  `errors.kicked` under the lobby form. Order matters: `resetToHome` clears `errorMsg`.
-- **`host_changed` is applied from the message, not re-derived** (`applyHostChange`). The server sends
-  it per recipient carrying that client's own seat; `setPlayers` re-resolves `myIndex` from the
-  nickname instead, which is right for a departure and one indirection too many for a swap the server
-  has already resolved.
+`WaitingRoom.svelte` puts one ⋯ on every roster row but the host's; `RosterRowMenu.svelte` offers
+hand the table over (`transfer_host`) and remove from the table (`kick_player`). Guests see neither.
+
+- **Never on seat 0**: the way out of your own seat is the quit link, which asks.
+- **One button, not two icons**: a routine press and a destructive one side by side on a dense row at
+  phone width; the ⋯ is one 44px target.
+- **Both ask, and the question takes the menu's place**, naming the row (on a phone the sheet covers
+  the roster).
+- **Escape backs out one step at a time** (question, then menu); `pointerdown` outside the row shuts
+  it.
+- **Right-click opens the same menu, never the only way in**; `preventDefault` refuses the browser's.
+- **Below 46rem it is a bottom sheet with a scrim**, at the preferences sheet's row heights.
+- **A bot's row carries the kick, not the transfer** (the server refuses a bot host). **`is_bot` rides
+  the roster** because a nickname cannot tell. The in-game score table reads the same field: the
+  latency broadcast waits for a human's first ping (`ping_period` 5s, `latency_broadcast_period` 3s),
+  so it cannot say "bot" in time.
+- **The removed player is told where every refusal lands**: `kicked` resets like `left_room`, *then*
+  writes `removed by the host` (`errors.kicked`). `resetToHome` clears `errorMsg`, so order matters.
+- **`host_changed` is applied from the message** (`applyHostChange`): the server sends it per
+  recipient with that client's seat.
 
 ## The 1v1 queue on screen
-Three screens: the home button, `<Searching />` and `<MatchFound />`. `screen: 'searching'` and
-`screen: 'matchfound'` are screens rather than flags over the lobby, for the same reason `'restoring'`
-is: there is no board to draw behind either of them.
 
-- **The screen is entered optimistically.** `findMatch` sets `screen: 'searching'` and *then* sends
-  `find_match`. The acknowledgement carries nothing (the server never says how long the queue is), so
-  waiting a round trip would make the one button in the game with nothing behind it feel like the
-  slowest. `matchmaking_queued` is only acted on when we are *not* already searching, which is the
-  case the server can produce on its own: a pairing whose other half closed their tab during the
-  reveal puts the survivor back in the queue unprompted.
-- **`endSearch` is guarded on the screen.** A cancel that raced a pairing arrives after the seat does,
-  and acting on it would drag a seated player out of a match about to be dealt.
-- **The wait is timed locally, and the copy is staged off it** (`searchStage`: 0-15s, 15-45s, 45s+).
-  None of the three things it says may imply the queue is empty. "Nobody is searching" reads as "close
-  the tab", and it is self-fulfilling: the player who leaves on that sentence is the opponent the next
-  one was about to get. So the third stage says the honest thing, that this can take a while, stay here,
-  you get the next arrival, and adds the one alternative that needs a friend rather than a stranger:
-  open a private table. `matchmaking.test.ts` asserts none of the copy can name a number.
-- The empty chair opposite is drawn as an empty chair. A spinner would be a smaller promise than the
-  truth.
-- **The searching screen carries the same top bar as every other screen.** It is the longest single
-  screen in the game, and turning the music down or reading the rules is exactly what somebody does
-  while queueing. It was the one screen without the row.
-- **Being found reaches a player who is not looking, two ways, and both are deliberately bounded.**
-  `soundsForTransition` plays `matchFound` on the transition into `screen: 'matchfound'` (stacked
-  fifths rather than the thirds every other cue uses: nothing has been *won*, somebody has arrived),
-  and `tabAlert` alternates the browser tab's title with `t.matchFoundTab`. The alert **only ever
-  arms while the tab is hidden**, and coming back disarms it and restores the real title on the spot,
-  never re-arming: a title blinking under the player's eyes says nothing the screen does not, and one
-  still blinking after they came back is a bug they can only fix by reloading. `tabAlert.test.ts`
-  pins both rules. The two are a pair rather than a redundancy: a backgrounded tab is exactly where a
-  mobile browser has parked the AudioContext, so the sound covers the player who is on the page and
-  the title covers the one who is not.
-- **The reveal counts down but decides nothing.** `starts_in_ms` sizes the counter; the match starts
-  when `game_started` lands. A counter that reaches zero first holds on "dealing", which is the right
-  behaviour for a screen whose server is the one deciding.
-- **A forfeit never renders as a victory.** `<GameOver />` with `forfeitBy` set drops the fall and
-  the trophy and says what happened, on both sides: the player who left is told they left. The
-  rematch button stays where it is and goes grey rather than disappearing: a reaction game does not
-  reflow its buttons, and the state being shown is "there is nobody to agree with", which is a state
-  and not an absence.
-- **Which side of it we are on is answered once, when `match_end` lands** (`store.forfeitedByMe`,
-  read by `<GameOver />` instead of `forfeitBy === mySeat`). A forfeit is the one match end that
-  moves the seats it has just named: the leaver is taken out of the roster and everybody above them
-  re-bases, `setPlayers` re-resolves `myIndex` from our own nickname, and a table of two whose *host*
-  walks out therefore hands seat 0 — the seat `forfeitBy` names — to the player who stayed. The
-  screen then told the winner they had walked out, with the leaver's column under their name in the
-  recap. Both halves of the fix are the same rule: **a seat is an index, and an index is only true
-  for as long as the roster it indexes.** So the boolean is taken while the message is the newest
-  thing on the wire, and the recap is re-sent by the server on the `player_left` that moved it
-  (`setMatchHistory`) rather than re-derived here.
-- **The rematch button has three states, and the middle one is the point.** Ask, wait, accept, at
-  every table and for every seat: `rematchOffers` and `rematchNeeded` come straight off
-  `rematch_offered`, and the button reads "they want another, go" once somebody else has asked first,
-  because an ask nobody can see is an ask nobody answers. Past two seats the wait is on the table
-  rather than on one named opponent, and the button carries `x/y`; at two the count is noise. **How
-  big the table is comes off the roster, never off `rematchNeeded`**: two asks deal the next match at
-  any size (server `RematchQuorum`), so the quorum stopped being able to say how many seats there
-  are the moment it stopped counting them — a four-player game over read as a 1v1 for exactly as long
-  as that line kept asking the quorum.
-  `player_left` clears the pair, and the server republishes right behind it in every room that still
-  has an agreement to publish.
-- **The asks are per match, so the deal spends them** (`applyRematch`, beside `applyMatchFound`,
-  which was already doing it). They are the one piece of game-over state that survives into the
-  match it dealt if nothing drops it, and the seat it strands is the one that pressed the button:
-  our own ask still in `rematchOffers` makes `iOffered` true at the *next* game over, so that screen
-  opens on a disabled button waiting on an opponent who was never asked — and there is no ask left
-  to send, because as far as the client is concerned it is already ours. A private table with a bot
-  reaches it in one press, since the quorum there is one. The server clears its half in
-  `table.resetForNextMatch`, which is why nothing on the wire contradicted the button: the ask it
-  was waiting on genuinely did not exist.
-- **A matchmade table with nobody left at it requeues by itself** (the effect in `App.svelte`,
-  `rematchRequeue.test.ts`). The ask cannot complete, the only other thing on the screen is the
-  queue, and making the player press it is asking them to confirm the only remaining option.
-  Cancelling the search is how they leave. Ordinary tables are left alone: there is a room, a code
-  and a lobby to reopen, and nobody there queued for a stranger.
-- **The same requeue, pressed, is the `searchAgain` button** (`rematchRequeue.test.ts`, and the E2E
-  that watches the seat come free). The offer is the *search*, not the opponent — who turns up is the
-  queue's to say and the label must not promise a name, which is why "find another opponent" became
-  "Search again" / "Relancer". It stays **one message**: `find_match` releases the seat server-side
-  before it enqueues (`loco-hub/src/matchmaking.rs`), so a `leave_room` sent ahead of it buys nothing and costs
-  the screen — its `left_room` runs `resetToHome`, which would reset the store out from under the
-  search we just opened.
-- **Leaving is the quietest control on that card** (`.btnQuit`, under both offers): no outline, no
-  fill, `--color-muted` and 44px of target under 13px of type. Two offers and an exit is three
-  buttons, and only one of them is what somebody came back to this screen for; the exit competing
-  with them is what put two queue buttons on it in the first place. It is an ordinary `leave_room` at
-  every table, matchmade or not.
-- `<OpponentAway />` is the only thing on the board that reads `opponentAway`, and the store only fills
-  it when the server sent a `forfeit_deadline`, i.e. never in an ordinary room, where the seat is
-  simply held and a countdown to losing would be a worse table. Its bar is a `drainBar` animation:
-  a board frozen on somebody else's connection is exactly when the main thread must stay free.
+`screen: 'searching'` and `screen: 'matchfound'` are screens, like `'restoring'`: there is no board
+behind them.
+
+- **Entered optimistically.** `findMatch` sets the screen, then sends `find_match`; the acknowledgement
+  carries nothing. `matchmaking_queued` is acted on only when not already searching (a reveal whose
+  other half left requeues the survivor unprompted).
+- **`endSearch` is guarded on the screen**: a cancel that raced a pairing must not drag a seated
+  player out.
+- **The wait is timed locally and the copy staged off it** (`searchStage`: 0-15s, 15-45s, 45s+). **No
+  copy may imply the queue is empty**: "nobody is searching" makes the player leave, and they were the
+  next one's opponent. The third stage says it can take a while and offers a private table.
+  `matchmaking.test.ts` asserts no copy names a number. The empty chair is drawn as an empty chair.
+- **The searching screen carries the same top bar** as every other screen.
+- **Being found reaches a player who is not looking**: `soundsForTransition` plays `matchFound`, and
+  `tabAlert` alternates the title with `t.matchFoundTab`, **only while the tab is hidden**; returning
+  disarms it and restores the title, never re-arming. The sound covers the player on the page; the
+  title covers one whose backgrounded tab has its AudioContext parked. `tabAlert.test.ts`.
+- **The reveal counts down but decides nothing**: the match starts on `game_started`; a counter at zero
+  holds on "dealing".
+- **A forfeit never renders as a victory.** `<GameOver />` with `forfeitBy` drops the fall and says
+  what happened on both sides. **Which side we are on is answered once, when `match_end` lands**
+  (`store.forfeitedByMe`): a forfeit removes the leaver and re-bases seats, so a host walking out
+  hands seat 0 to the player who stayed. **A seat is an index, true only for the roster it indexes**;
+  the recap is re-sent by the server on the `player_left` that moved it (`setMatchHistory`).
+- **The rematch button has three states: ask, wait, accept**, every table, every seat
+  (`rematchOffers` and `rematchNeeded` from `rematch_offered`). Past two seats it carries `x/y`. **The
+  table's size comes off the roster, never `rematchNeeded`**: two asks deal at any size
+  (`REMATCH_QUORUM`). A table nobody is left at keeps the button in place and disabled.
+- **The deal spends the asks** (`applyRematch`, like `applyMatchFound`); otherwise our own ask opens
+  the next game over on a disabled button. The server clears its half in `reset_for_next_match`.
+- **A matchmade table with nobody left requeues by itself** (`App.svelte`, `rematchRequeue.test.ts`);
+  ordinary tables are left alone.
+- **`searchAgain` is the same requeue, pressed, and it is one message**: `find_match` gives the seat up
+  server-side before it enqueues (`loco-hub/src/router/matchmaking.rs`). A `leave_room` ahead of it
+  would land `left_room` → `resetToHome` under the new search. The label promises a search, never a
+  name.
+- **Leaving is the quietest control on that card** (`.btnQuit`: no outline, no fill, `--color-muted`,
+  a 44px target under 13px type), an ordinary `leave_room` at every table.
+- `<OpponentAway />` alone reads `opponentAway`, filled only when the server sent a `forfeit_deadline`
+  (never in an ordinary room). Its bar is a `drainBar`.
 
 ## The count of connected players
-A small plate opposite the chip row, saying how many players are connected. `players_online` off the
-wire, `store.playersOnline`, `components/playersOnline.ts` for the one rule about drawing it, and a
-`role="status"` line in `Lobby.svelte` and `Searching.svelte` — nothing here is pressable and
-nothing here decides anything.
 
-- **The floor is the whole design, and it is two.** One is "you are alone", and a plate saying it is
-  the same sentence the searching screen is forbidden from writing, printed on the screen a visitor
-  arrives on. So below two the plate is **absent**, not zeroed, not softened into "a few players":
-  what is on screen is always exactly the number the server sent, and the floor decides whether the
-  screen speaks at all. That is also why the threshold is the client's and not a server-side refusal
-  to send — the number stays true, the screen decides what is worth drawing.
-- **It is not the queue and must never be read as one.** The queue's size is nowhere on the wire and
-  stays that way; this counts sockets, which answers "are the lights on" rather than "how long until
-  I am paired". The copy says *connected* / *online*, never *searching* or *waiting*, for that
-  reason: it names the state of a connection, which is what the number actually measures.
-- **It belongs to the screens before a seat, and the wait is one of them.** The entry screen draws
-  it because it is a sign of life on the screen a visitor arrives at; the searching screen draws it
-  because that is where the question it answers is actually being asked, by somebody who has just
-  been told nothing at all about how long they will wait. Withholding it there was a smaller screen
-  than the one before it: the plate exists to say the lights are on, and the wait is the only place
-  anybody doubts it. What must not follow it there is a **second wording** — the copy stays
-  `t.playersOnline`, floor and all, because a number reworded for that screen would be read as the
-  queue, and the queue's size is kept off the wire on purpose.
-- **The board still has no use for it.** The server does not send it to a seated socket, so
-  a match never pays for it, and the board has no room for a number nobody is playing against.
-  `setPlayersOnline` is deliberately **not** in `resetToHome`'s reset: the count belongs to the
-  socket rather than to the seat, and the screen a reset lands on is the one that draws it — clearing
-  it would blank the plate on every return from a table until the server next had something to say,
-  which on a quiet server is a while.
-- **It reserves no layout.** `position: absolute`, like the chip row it faces: `/` is one viewport
-  that never scrolls, and a status line taking a row would shift the wordmark lockup the moment the
-  count crossed its floor. Under 46rem it moves to the **foot** of the screen, centred, **on both
-  screens that draw it**: that top line is spoken for at this width on either of them, and a second
-  row of chrome stacked under the first would sit above the wordmark, which is the first thing on
-  either screen anybody should read. It stays absolute, so it still reserves nothing and `/` still
-  never scrolls. **Centred, it has to be sized with `width: max-content`**: an absolutely positioned
-  box anchored at `left: 50%` is offered the half of the line it starts at, and the count wrapped
-  onto a second row inside its own plate.
-- **The wait needed that move as much as the entry screen did, and for a different reason.** On `/`
-  the burger owns the left corner (`GamePage.css` fixes it at these very offsets) and the plate
-  landed straight across it. On `Searching.svelte` there is no burger — that corner is free — and the
-  plate was left in it at every width on exactly that reasoning. What the reasoning missed is the row
-  opposite: three controls, and the middle one of them is a **word**, because "How to play" is a pill
-  before the deal and only becomes a chip at the table. Gear + speaker + pill is around 250px of a
-  390px line, `2 JOUEURS CONNECTÉS` is around 200px of it, and the two are absolute, so nothing
-  wrapped and nothing pushed — the plate simply ran underneath the gear and the speaker with half the
-  count covered, on the one screen a player sits and stares at. Neither half could give way: the
-  copy is never reworded or truncated (above), and the pill is the only onboarding a first-time
-  player gets on the screens where they are still deciding. So the plate takes the bottom, where the
-  two ways out are centred in the column and it sits clear below them. The whole failure is a
-  collision between two absolutely positioned boxes, which is invisible to every test in this
-  repository: it was found in a photograph of a phone, and it is `matchmaking-searching-online` —
-  drawn at the long stage, the tallest this screen ever gets — that is the scene to look at.
-- The dot beside it is decoration: the words already say what it means, so no shape is owed to colour
-  assist. `playersOnline.test.ts` pins the floor, the unrounded number, the survival across a reset,
-  and both screens — the searching half against `en.searchCancel`, so a query finding nothing over
-  markup that rendered nothing cannot pass.
+`players_online` → `store.playersOnline` → `game/playersOnline.ts` → a `role="status"` line in
+`Lobby.svelte` and `Searching.svelte`.
+
+- **Drawn from two up, absent below.** One is "you are alone", the sentence the searching screen may
+  never say. The number shown is always exactly the server's; the floor is the client's.
+- **It is not the queue.** The queue size is off the wire; this counts sockets. The copy says
+  *connected*, never *searching* — a queue-flavoured wording would be the queue size in disguise. The
+  searching screen keeps `t.playersOnline` word for word.
+- **Never at a table**: the server does not send it to a seated socket. `setPlayersOnline` stays out
+  of `resetToHome` — the count is the socket's, and the screen a reset lands on draws it.
+- **It reserves no layout** (`position: absolute`: `/` never scrolls). **Below 46rem it sits at the
+  foot, centred, on both screens**, sized `width: max-content` (an absolute box at `left: 50%` is
+  offered half a line and wraps). At the top it collided with the chip row, whose "How to play" pill
+  is a word; neither the count nor the pill may be shortened. Scene
+  `matchmaking-searching-online`.
+- The dot is decoration. `playersOnline.test.ts` pins the floor, the unrounded number, survival across
+  a reset, and both screens.
 
 ## Protocol validation (client)
 
-**Both type files are generated. Neither is edited.** `client/src/types/protocol.ts` and
-`client/src/types/protocolSchemas.ts` come out of `server/crates/protocolgen`, which reads
-`server/crates/loco-protocol`. Change the Rust, run `make protocol`, commit both.
-`protocol_check` in CI regenerates and fails on any difference (CRLF and LF compare equal), so a
-hand edit is undone by the next run rather than merged. The crate's wire fixtures (frames the
-original Go server wrote) hold the bytes where they were; see `docs/protocol.md`.
+**Both type files are generated; neither is edited.** `client/src/types/protocol.ts` and
+`client/src/types/protocolSchemas.ts` come from `server/crates/protocolgen` reading
+`server/crates/loco-protocol`: change the Rust, run `make protocol`, commit both. CI's
+`protocol_check` regenerates and fails on any difference. The wire's golden frames are the crate's
+fixtures (`docs/protocol.md`).
 
-The wire used to be described three times: the server's structs, a hand-written TypeScript file, and a
-hand-written file of schemas. Nothing checked that the three agreed, and the failure is silent by
-construction. That is the same shape as the mirrors this repository already pins by test
-(`serverMirrors.test.ts` for the nickname's shape and the table code's alphabet); the difference is
-that a mirror can be pinned and a copy can be deleted, and these two were copies.
+- `webSocket` runs `v.safeParse(serverMsgSchema, …)` on every payload. Dev: invalid → log and drop,
+  which surfaces drift in tests. Prod: log and pass through, so one new server field cannot take the
+  client offline.
+- **The converter refuses rather than guesses.** `tools/protocol/valibot.mjs` handles the JSON Schema
+  constructions the protocol uses and stops on anything else (`anyOf`, a nullable required field,
+  `pattern`, `minimum`, an open map, a recursive type…), naming the path. `valibot.test.mjs`
+  (`node --test`) covers the refusals.
+- **`ServerMsg` is a union narrowed by `type`**: a field is required exactly when the server always
+  writes it (`turn` on `turn_changed`, `drawn_count` on `card_drawn`). The validator is never stricter
+  than the server, because the fixtures are real frames read by the same types.
+- **`Option<T>` is `T`, optional, never `T | null`**: the server never writes `null`, so
+  `generate.rs: AbsentNotNull` removes it from every non-required property.
+- **The wire enums live in `loco-protocol/src/enums.rs`**, so TypeScript keeps its narrowing;
+  `tests/enums.rs` pins them to `loco-game` by walking the domain.
 
-- `webSocket` runs `v.safeParse(serverMsgSchema, …)` on every payload. Dev: invalid → log and
-  drop, which is what surfaces drift in tests. Prod: log and pass through, so one new server field
-  cannot take the client offline.
-- **The converter refuses rather than guesses.** `tools/protocol/valibot.mjs` understands the handful
-  of JSON Schema constructions the protocol uses and stops the build on anything else (`anyOf`, a
-  nullable required field, `pattern`, `minimum`, an open map, a recursive type…), naming the path.
-  Each of those has a Valibot spelling that type-checks and means something nobody decided:
-  approximating it would put an unwritten rule in front of every message. `valibot.test.mjs`
-  (`node --test`, run by `protocol_check` and `make protocol`) covers the refusals; the happy path
-  is covered from the other end by the drift check plus every client test that runs against the
-  committed output.
-- **`ServerMsg` is a union, and the client narrows it by `type`.** One variant per message, so
-  `msg.streamer_mode` does not type-check on `room_created`, which never carries it. The old
-  generator made every envelope field optional because one flat struct stood in for thirty message
-  types; per variant, a field is required exactly when the server always writes it (`turn` on
-  `turn_changed`, `drawn_count` on `card_drawn`) and optional everywhere the server may leave it
-  out. The validator is never stricter than the server, because the wire fixtures are real frames
-  read by the same types.
-- **`Option<T>` is `T`, optional, in the schema, never `T | null`.** `schemars` spells an `Option` as
-  nullable, which is what serde would read; the server never writes a `null`, so
-  `generate.rs: AbsentNotNull` takes it out of every non-required property, and the validator agrees
-  with the `x?: T` that `ts-rs` writes.
-- **The wire enums live in `loco-protocol/src/enums.rs`** rather than as bare strings, because a
-  string in Rust generates a `string` in TypeScript and would throw away a narrowing the client
-  always had. `tests/enums.rs` pins them to `loco-game` by walking the domain (colours and kinds
-  through their integer spelling, formats through what `Room::set_format` accepts) rather than
-  listing it.
+**Valibot, not Zod**: Zod 4 JIT-compiles schemas with `Function()`, which `script-src 'self'`
+refuses — the game works and reports a CSP violation on every load. `csp.test.ts` runs a real
+validation with `Function` behind a recording Proxy and fails if anything reaches for it. Only
+`make csp` sees a dependency's behaviour behind the real header, which is why it runs after a
+dependency bump.
 
-**Valibot, not Zod.** Zod 4 JIT-compiles each schema with `Function()` the first time it runs; under
-`script-src 'self'` the call is refused, Zod catches the throw and interprets instead, so the game
-works and reports a `securitypolicyviolation` on every page load, indistinguishable from a real one.
-That was answered with `z.config({ jitless: true })` and a test pinning the flag, which tested the
-workaround rather than the property. Valibot has no such path, and `csp.test.ts` now asserts the
-property directly: it runs a real validation with `Function` behind a recording Proxy and fails if
-anything reaches for it. That test would have caught Zod, which the flag pin could not have.
+## Nothing continuous goes through reactive state
 
-Worth keeping: `csp.test.ts` scans *our* sources, and a dependency is under no obligation to appear
-in them. Only `make csp`, the built client behind the real nginx in a real browser, found the Zod
-problem. That is the standing argument for running it after a dependency bump and not only after an
-`nginx.conf` edit.
+A value that changes every frame must never be a `$state` the board hangs off: a write per frame
+re-derives seat layout, hand slots and pile positions sixty times a second.
 
-### Nothing continuous goes through reactive state
-A value that changes every frame must never be a `$state` the board hangs off.
-`<GameView />` owns the whole match screen, and a write per frame re-derives whatever
-reads it — seat layout, hand slots, pile positions — sixty times a second. Svelte's
-granularity narrows the blast radius compared to a re-render; it does not make the
-write free, and it does not help at all when the value feeds a `$derived` the board
-reads.
-
-- **Countdown bars use `drainBar`, not a percentage in state.** The bar is handed a
-  CSS animation whose duration is the window and whose *negative* delay is the part
-  already elapsed (`--drain-ms` / `--drain-delay`, keyframes `loco-drain` +
-  `loco-drain-heat` in `tokens.css`). The browser then drains it on the compositor:
-  zero JS per frame, zero framework work, and the bar stays smooth while the main
-  thread is dealing a hand. This replaced a `requestAnimationFrame` → state loop that
-  re-rendered the entire board for the whole 30-second turn *and* the 5-second catch
-  window, i.e. exactly during the two moments the game asks for a fast reaction.
-- It drains by a transform, never `width`: width lays out the page every frame. `loco-drain` is a
-  `scaleX`; `loco-slide` moves the whole fill out of its track instead, which is what the turn
-  clock and the catch capsule wear so their rounded tip stays a tip (`docs/notes/visual.md`,
-  "The turn clock").
-- The colour is a second readout of the same clock (`loco-heat`), so no timer or state
-  is needed to change it. The 5s catch bar opts out: five seconds cannot show a trend.
-- **A countdown bar survives `prefers-reduced-motion`.** The blanket 0.01ms rule at the
-  end of `tokens.css` has an explicit exception for `.loco-draining`: the bar is the
-  only place the remaining time is written down, and a player who asked for less motion
-  still has to know their turn is about to be auto-passed. Same principle as `.armed`
-  degrading to a static halo rather than to nothing.
-- **`drainBar`'s own effect must not re-arm while the window runs down.** Arming is two
-  `setProperty` calls; anything that re-runs the effect writes them again and restarts
-  the animation from the top, which reads as a bar that jumps back. Every argument it
-  takes is an accessor for that reason — it is called once, during setup, and has to
-  keep seeing the current node and the current deadline without being called again.
-  `drainBar.test.ts` watches those two calls across twenty seconds of fake time.
+- **Countdown bars use `drainBar`, not a percentage in state.** The bar gets a CSS animation whose
+  duration is the window and whose *negative* delay is the elapsed part (`--drain-ms` /
+  `--drain-delay`, keyframes `loco-drain` + `loco-drain-heat` in `tokens.css`), drained on the
+  compositor with zero JS per frame — through the turn and the catch window, the two moments that ask
+  for a fast reaction.
+- It drains by a transform, never `width`. `loco-drain` is a `scaleX`; `loco-slide` moves the whole
+  fill, which the turn clock and the catch capsule wear so the rounded tip stays a tip (`visual.md`).
+- The colour is a second readout of the same clock (`loco-heat`). The 5s catch bar opts out.
+- **A countdown bar survives reduced motion** (`.loco-draining` is excepted from the blanket rule): it
+  is the only place the remaining time is written.
+- **`drainBar`'s effect must not re-arm while the window runs**: every argument is an accessor, read
+  once at setup. `drainBar.test.ts` watches the two `setProperty` calls across twenty seconds of fake
+  time.
 
 ## A deploy, from the player's seat
-- `server_updating` sets `serverUpdating` in the store, and `<ServerUpdating />` renders a line of
-  text. That is the entire client side of the graceful shutdown, and the smallness is the point: the
-  server drains, the match plays to its end, and if the process is replaced before the last card the
-  restart costs the one-second reconnect the client already does on its own. **No new screen was
-  needed** because a restart is indistinguishable from a dropped socket, which
-  `sessionPersistence` + `getReconnectMsg` have handled since they were written.
-- It is the quietest thing on the board on purpose. Everything else that appears over the felt is
-  either a deadline (OpponentAway, the turn bar, the catch window) or a moment (InterruptBanner,
-  CatchBanner) and all of them are asking for something. This asks for nothing: no countdown, no
-  colour from the alert ramp, no blinking dot, nothing disabled. A player who ignores it entirely
-  loses nothing, which is what it is telling them.
-- It exists at all because a board that quietly changes behaviour is worse than one that says so:
-  during a drain the rematch button stops working, and with no line of text that reads as a bug.
-- **Two screens beyond the board carry it**, since the server stopped gating the notice on
-  `StatusPlaying`: the waiting room and the game-over card, through `<ServerUpdating variant="card" />`
-  — static in the flow rather than absolute, and with copy that says what a deploy actually costs
-  those two (the deal is paused) instead of promising a match that is not running. Both used to find
-  out by pressing their one button and being refused.
-- **Two slots, not one.** Wide: the top chrome row, in the gap between the round pill and the icon
-  row. Narrow: that gap does not exist, so it drops under the chrome and steps down again when
-  OpponentAway is using the slot. The obvious placement (the OpponentAway slot at both widths) put a
-  *permanent* pill on top of the top-centre seat pod, hiding an opponent's card count for as long as
-  the drain lasted. A transient countdown may cover that pod; a notice that can sit there for a
-  fifteen-minute drain may not.
-- `serverUpdating` is cleared on `player_reconnected`, because the process answering may be the new
-  one. If it is draining too, it re-sends `server_updating` right after.
-- The refusal side is ordinary `serverErrors.ts` work: `server updating` maps to `serverUpdating`.
-  The one thing that matters is that it must never fall through to `roomNotFound`, which is what a
-  `join_room` during a deploy used to produce: "Aucune table avec ce code" for a code that was real.
+
+- `server_updating` sets `serverUpdating`; `<ServerUpdating />` renders a line of text. A restart is
+  indistinguishable from a dropped socket, which the reconnect already handles, so no screen is needed.
+- **The quietest thing on the board**: no countdown, no alert colour, nothing disabled — it asks for
+  nothing. It exists because the rematch button stops working during a drain, which unexplained reads
+  as a bug.
+- **The waiting room and the game-over card carry it too** (`<ServerUpdating variant="card" />`, in
+  the flow, copy saying the deal is paused).
+- **Two slots**: wide, the top chrome row between the round pill and the icons; narrow, under the
+  chrome, stepping down when OpponentAway uses the slot. It must never sit on the top-centre seat pod
+  for the length of a drain.
+- Cleared on `player_reconnected` (the new process may not be draining; if it is, it re-sends).
+- `server updating` maps to `serverUpdating` in `serverErrors.ts` and must never fall through to
+  `roomNotFound`.
 
 ## Reconnect visual recovery
-- On `player_reconnected`: store `isReconnecting:true` before applying state.
-- `reconnectAnimation(isReconnecting, onComplete)` shows "Rebuilding table…" overlay for 600ms then calls onComplete (which clears `isReconnecting`).
-- `<GameBoard />` hides its children while reconnecting; on the false→true→false transition it bumps an internal `rebuildKey`, replaying a 350ms board fade-in CSS keyframe.
-- Visual only; server is authoritative.
-- **Nothing but that timer ends the overlay, so nothing may be allowed to swallow it.** The hook used
-  to hold a "have I played this already?" guard outside the effect, and that guard outlived the timer
-  it guarded. A reload mounts the board with `isReconnecting` already true, so the effect runs for the
-  first time *on mount* — and back then the dev tooling ran mount effects twice. The first pass set
-  the guard and armed the timer, the cleanup cleared the timer, and the second pass returned early on
-  the guard without arming another. The seat was reclaimed correctly and the board was live
-  underneath, but the card sat over it saying "setting the table back up" for the rest of the match,
-  and `isReconnecting` was never cleared so the fade-in never played. The effect re-runs only when
-  `isReconnecting` actually changes, so re-arming on every run is the whole guard needed, and a
-  reconnect that resolves early now takes the overlay down with it instead of leaving it on a
-  cancelled timeout. It was invisible to the store-level tests by construction: every assertion about
-  the seat, the hand and the discard passed. `reconnectAnimation.test.ts` covers both shapes —
-  arriving already true, and going false before the timer — and the reload E2E asserts the overlay is
-  gone rather than only that the state came back.
+
+- On `player_reconnected`: `isReconnecting: true` before applying state.
+- `reconnectAnimation` shows the "Rebuilding table…" overlay for 600ms, then clears `isReconnecting`.
+- `<GameBoard />` hides its children while reconnecting; on false→true→false it bumps `rebuildKey`,
+  replaying a 350ms fade-in. Visual only.
+- **Nothing but that timer ends the overlay, so nothing may swallow it**: the effect re-arms on every
+  run (it re-runs only when `isReconnecting` changes), and a reconnect resolving early takes the
+  overlay down. No "played already" guard outside the effect — on a reload the board mounts with
+  `isReconnecting` already true. `reconnectAnimation.test.ts` covers arriving true and going false
+  before the timer; the reload E2E asserts the overlay is gone.
 
 ## Leaving a match, and what it costs the others
-The board carries one way out, drawn at every table: a chip in the top-right chrome row, never on the
-action bar (that bar is a fixed three-column grid a reaction is aimed at, and it must not grow a
-fourth control). It asks first, in place, and the question is two lines rather than one.
 
-**The second line is the whole feature.** "Leave the match?" is a question the player can already
-answer; what they cannot see from their own screen is what leaving does to everybody else, and that
-is different at each of the four tables this game has. So `leaveNote` picks one of four strings —
-the bot minds nothing, a stranger is handed the match, a table of four keeps playing without the
-seat, a table of two ends where it stands and goes to whoever stayed — and the count behind it is the
-server's own (`Hub.canWalkOut`, `WalkOutFloor`): a seat counts while it is a bot, or a human whose
-hold has not run out. If the two ever disagree the server still decides; what is at stake in the
-client is the wording, not the permission.
+One way out at every table: a chip in the top-right chrome row, never on the action bar. It asks in
+place, in two lines.
 
-**Nothing is greyed out here.** A player who has to go is going either way, and the alternative exit
-is the turn clock auto-passing for an empty chair until the AFK threshold — two rounds spoiled for
-everybody else rather than one player leaving. A disabled way out only ever produced a closed tab.
-
-**And the table is told, by name** (`departureNotice`, the pill above the swap notice's). A departure
-mid-match moves the turn, puts a hand back into the deck and takes a chair out of the order, and
-until this notice the only sign of it was a bubble going quiet: held and gone read identically in the
-roster. It rides `noteSeatGone`, so it is idempotent with the seat record — a repeat says nothing new
-and must not put the banner back up over a board the table has moved on from — and it covers both
-departures, the walk-out and the hold that ran out, because to everybody else they are the same news.
+- **The second line is the feature.** `leaveNote` picks one of four strings — the bot minds nothing,
+  a stranger is handed the match, a table of four plays on without the seat, a table of two ends and
+  goes to whoever stayed — counted the way the server's `can_walk_out` counts (`WALK_OUT_FLOOR`). The
+  server decides; the client words it.
+- **Nothing is greyed out.** A player who has to go goes; a disabled exit only produces a closed tab
+  and an empty chair auto-passing.
+- **The table is told, by name** (`departureNotice`, riding `noteSeatGone`, idempotent with the seat
+  record), for a walk-out and an expired hold alike.
 
 ### The curtain underneath it
-Every other seat's hold has expired and nothing on this board will ever move again. The chip alone
-would be enough now that leaving is never refused, but the state still deserves saying out loud rather
-than leaving the player to work out that the table is empty.
 
-The server now settles an expired hold itself (`settleExpiredSeat`, `docs/notes/server.md`): a table
-that can spare the seat retires it and sends the same `player_left` + `game_state` a walk-out sends,
-a table that cannot ends the match with a `match_end { forfeit }` to the seat that stayed. So the
-state this curtain describes is reached far less often than it was — a snapshot restore nobody else
-came back from, mostly — but the client keeps answering it, because the answer is right whenever the
-question is asked and the server is free to be the one that changes.
+When every other seat's hold has expired the board says so. The server settles most of these itself
+(`settle_expired_seat`), so it is reached mostly after a snapshot restore nobody returned from.
 
-- **Held and gone read identically in the roster.** Both are `connected: false`, and only one of them
-  can come back — so the difference is remembered rather than derived. `goneSeats` is written by
-  `player_left`, and the server names a seat on exactly one of those: the mid-match expiry, the only
-  departure that cannot re-base anybody (a running match indexes hands by the seat, so nothing moves).
-  Every other `player_left` carries no index and adds nothing here, which is correct — after a lobby
-  departure the number would name somebody else.
-- **The client's question and the server's are the same question.** `tableAbandoned` in `GameView` and
-  `table.abandonedBy` in the hub both mean "every other seat is a human who cannot come back", and the
-  hub answers it the same way: the seat goes and the table goes with it, with no forfeit, because
-  there is nobody to award the match to.
-- **It is a curtain, not a button on the bar.** The bar is fixed three columns and never reflows
-  mid-match; the board stays visible underneath, because it is still the match that was being played.
-- **It waits behind the two reconnect curtains.** Our own socket being down is the more urgent
-  problem and may be the whole reason nobody has been heard from. One curtain at a time.
-- `tableAbandoned.test.ts` owns all four cases, including the one that matters most: nothing is
-  offered while the other seat is merely disconnected.
+- **Held and gone read identically in the roster** (`connected: false`), so the difference is
+  remembered: `goneSeats` is written by a `player_left` that names a seat, which only the mid-match
+  expiry does.
+- `tableAbandoned` in `GameView` and `Table::abandoned_by` ask the same question: every other seat is
+  a human who cannot come back.
+- **A curtain, not a button on the bar**; the board stays visible underneath.
+- **It waits behind the two reconnect curtains**: our own socket may be the reason nobody is heard.
+- `tableAbandoned.test.ts`, including nothing offered while the other seat is merely disconnected.
 
 ## The evening's recap, on a phone
-The server's half of `table.matchHistory` is in
-[`domain-rules.md`](domain-rules.md); this is the grid the game-over card draws it as, and every
-decision in it comes from the same measurement: the card is 380px wide, so on a 360px phone the
-scroller inside the recap panel is **244px**, and four matches × four seats has to live in it.
 
-**The two columns that answer the question are pinned** (`.recapName` and `.recapTotal`, `position:
-sticky` left and right). The block exists because a rematch nils the scoreboard and nobody could say
-who had won the evening; the column that says so is the last one, and the last one is precisely what
-a table wide enough to scroll carries off the right edge of a phone. Pinned, the matches scroll
-*between* who and how many, and the conclusion is on screen at every scroll position. The pinned
-edges are drawn as borders on the cells, and the table is `border-collapse: **separate**` for that
-reason alone: a collapsed border belongs to the pair of cells that share it, so the rule marking the
-pinned right-hand column stayed behind with the column it was collapsed against and never moved.
+The server's half (`Table.match_history`) is in [`domain-rules.md`](domain-rules.md). The card is
+380px, so on a 360px phone the recap's scroller is **244px** for four matches × four seats.
 
-**Three things were each sizing the grid on something other than its numbers, and all three cost
-about the same.** The head was `Match %n` — 55px of label over 34px of data, four times over. The
-rounds and the points sat side by side, 62px a column. And the head was set at 10px, under the 11px
-floor, which bought back nothing because the label was still the widest thing in the column. The
-head is `M%n` now, which is the score table's own convention for exactly this (`scoreTableRoundCol`
-is `R%n`/`M%n`); the points sit under the rounds rather than beside them, which also puts the two
-numbers in the order they are read — what was won, then what it was won by; and the head is 11px.
-The grid came from 335px to fitting a four-match evening whole.
-
-**The seat that took a match is a gold pill, not a red digit.** `--color-primary` on
-`--color-surface-strong` measures 2.9:1, so a 14px number in it failed AA outright — but the reason
-to change it is that the scoreboard directly above wins in gold, and a spectator does not pick a
-recoloured digit out of a grid at 720p. A filled body with an outline is the same information as a
-shape, which is also what colour assist asks of anything meaning something by hue.
+- **The two columns that answer it are pinned** (`.recapName`, `.recapTotal`, `position: sticky` left
+  and right), so who and how many stay on screen while the matches scroll between. The table is
+  `border-collapse: separate`: a collapsed border belongs to the pair of cells and stays behind.
+- **Heads are `M%n`** (the score table's convention), **the points sit under the rounds**, and the
+  head is 11px, the floor.
+- **The seat that took a match is a gold pill**: `--color-primary` on `--color-surface-strong` is
+  2.9:1, and the scoreboard above wins in gold. A filled shape also serves colour assist.
 
 ## The round the format did not plan for
-The server's half is in [`domain-rules.md`](domain-rules.md): a match is settled on rounds won, then
-points, then the smallest lost-hand total, and when that chain separates nobody `determineMatchWinner`
-returns `""`, the match keeps running and one more round is dealt. This is what that reaches the
-player as.
 
-**It cost nothing to get wrong and it was wrong at the worst moment of the evening.** A BO3 that goes
-to a fourth round drew `Round 4 · BO3` on the board and `Round 4 of 3 down` on the summary card — a
-counter that has come loose, at the one point in a match where the player most needs to be told why
-the game-over screen did not come. Nothing anywhere said the round they were about to play was for
-the match.
+When rounds won, points and lost-hand total separate nobody, `Room::determine_match_winner` returns
+`None`, the match goes on and one more round is dealt (`domain-rules.md`).
 
-**So the round beyond the format has no number, it has a name.** `decisiveRound` replaces the whole
-chip (`roundNumber > formatRounds(matchFormat)`, `matchLengthModel.ts` — the third copy of that
-switch is gone with it) and replaces the summary card's title the same way. The chip goes gold, the
-hue the scoreboard and the recap already win in: `--color-primary` is 3.43:1 under white and the chip
-is 13px, so the accent could not be the red, and a spectator has to be able to tell this round from
-an ordinary one at 720p without reading it.
-
-**The card announces the *next* round, and the condition for that is not "the format ran out".** It
-is the format having run out with the match still running — `roundNumber >= matchRoundsNeeded &&
-!matchOverPending`, where `matchOverPending` is `pendingMatchEnd !== null`, the match-end payload the
-store buffers behind the summary so the player sees the round breakdown before the game-over screen.
-The last round of a settled BO3 and the last round of a tied one are the same number and the opposite
-answer.
-
-**That band fades in on a 0.35s delay, and the delay is the mechanism rather than the polish.**
-`round_ended` and `match_end` are two messages: the card is composed and can be painted before the
-second one lands, so without the delay an ordinary final round announces a decisive round for a frame
-and then takes it back. The delay survives reduced motion for the same reason (the duration goes, the
-delay does not) — it is not decoration, it is what stops the false announcement. `decisiveRound.test.ts`
-owns both halves, and the case that fails without any of this is the fourth: a finished decisive round
-titled `Round 4 of 3`.
-
-**What the band must not say is who the extra round crowns.** The winner of a decisive round is not
-automatically the match winner: past two seats a third player taking it can leave the two who were
-level still level on rounds, and the chain reruns. So the copy says what is true — nothing separates
-the table, one more round — and lets the scoreboard answer the rest.
+- **That round has a name, not a number** (`t.decisiveRound`, on `roundNumber >
+  formatRounds(matchFormat)`, `game/matchLengthModel.ts`), on the chip and the summary card's title.
+  The chip goes **gold**: red under white needs 1.2rem and the chip is 13px, and a spectator must tell
+  it apart at 720p.
+- **The card announces the *next* round on `roundNumber >= matchRoundsNeeded && !matchOverPending`**
+  (`pendingMatchEnd !== null`), never on the format alone: the last round of a settled BO3 and of a
+  tied one share a number.
+- **That band's 0.35s fade-in delay is a mechanism**: `round_ended` and `match_end` are two messages,
+  and without the delay an ordinary final round announces a decisive round for a frame. The delay
+  survives reduced motion (the duration goes). `decisiveRound.test.ts`.
+- **The band never says who the extra round crowns**: past two seats it may not decide the match.
 
 ## i18n
-- `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
-- `initI18n()` (`client/src/i18n/store.ts`) runs in the boot sequence (`boot.ts`); `redetectLang()` decides again when the router brings the game back to a game page. `i18n` → `{ lang, t, setLang }`.
-- Detect order (`chooseLang` in `src/lang.ts`, the one definition): `localStorage('loco_lang')` →
-  `navigator.language` **but only on a document served as the default language or as none at all** →
-  `data-served-lang` on `<html>`. `detectLang` in the store is that function read against the DOM.
-- `setLang` persists to localStorage + syncs `document.documentElement.lang`.
-- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `store.ts`, add `{code, label}` to `LANGS` in `LanguageSwitcher.svelte` — **the label is the autonym, untranslated** — **and to `LANGS`/`HOME_PATH` in `src/lang.ts`**.
-- The chooser is no longer mounted bare: it renders inside the preferences panel (below), as a
-  dropdown rather than a segmented pair. The pick applies itself on every screen.
-- `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
-- Storage key and home paths: `src/lang.ts`, not the provider — see below.
+
+- `client/src/i18n/en.ts` is the source of truth; its `Translations` interface types `fr.ts`, so a
+  missing key is a type error.
+- `initI18n()` (`i18n/store.ts`) runs in the boot; `redetectLang()` decides again when the router
+  brings the game back. `i18n` → `{ lang, t, setLang }`.
+- **Detect order** (`chooseLang` in `src/lang.ts`, the one definition): `localStorage('loco_lang')` →
+  `navigator.language` **only on a document served as the default language or none** →
+  `data-served-lang`.
+- `setLang` persists the choice and syncs `document.documentElement.lang`.
+- Add a language: create `xx.ts` implementing `Translations`, add it to `translations` in `store.ts`,
+  add `{code, label}` to `LANGS` in `LanguageSwitcher.svelte` (**the label is the autonym**) and to
+  `LANGS` / `HOME_PATH` in `src/lang.ts`.
 
 ### One document, one language
 
-The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework,
-and the decision itself is `chooseLang` there, pure. `src/langRoute.ts` is the part that acts on it.
+The key, the languages and the home paths live in `src/lang.ts`, framework-free; `chooseLang` there
+decides, and `src/langRoute.ts` acts. A stored choice outranks the URL and half of `/` is markup
+prerendered per URL, so `/` with French stored must not render French under an English footer.
 
-The bug that produced it. A stored choice outranks the URL in `detectLang`, and half of `/` is markup
-prerendered per URL — the bar, the drawer, the sheet of prose. So `/` opened with French stored
-rendered the game in French under a footer reading "With friends", having rewritten `<html lang>` to
-`fr`: a document declaring itself French while half its text was English, which is a lie to a screen
-reader before it is anything else.
+**A language is a navigation**: `langRoute.ts: initLang` decides and, when this page is the wrong
+one, `goto`es the right one with `{ replace: true, reset: false }`; the gear's pick does the same
+after `setLang` (`moveTo`). Never a document load or a redirect on the canonical URL, and no page
+carries its other language in `data-alt*` attributes — `langSync.test.ts` fails on one.
 
-It has had three answers, and the reason for each is worth keeping:
+- **A detection is never persisted**: a stored value is a *choice* and outranks the URL, so storing a
+  detection would open every later French link in English. `rememberLang` is called by the gear and
+  the globe's links, the two places a language is chosen.
+- **The browser wins only on the default URL.** `/` is somebody saying nothing; `/fr/` is somebody
+  asking. `chooseLang` is tested exhaustively, and decides the same on the page its answer names, so
+  `initI18n()` need not wait for the move.
+- **It runs before `initTableInvite()` and carries the query string and fragment**, **in place of the
+  history entry** so Back does not bounce. `/i/` has no `data-served-lang` and is left alone.
+- **The document at the new URL is real**: `/fr/` was emitted by the build.
 
-1. **A document load** — `location.replace` to the other language's URL. A round trip on the page the
-   game is played from, and a redirect on the canonical English URL, which is the pattern Google
-   names when it asks sites not to redirect on a visitor's presumed language.
-2. **A rewrite in place** (Astro). Every string and link of the served half carried its other
-   language in `data-alt*`, and `langSwap.ts` exchanged them and moved the address bar with a bare
-   `history.replaceState`. The right answer for a static page with no router: nothing else could
-   render the other page without a load. It cost a second copy of every string in the markup, a test
-   counting `href={` against `data-alt-href={`, and a URL the router did not know it was at.
-3. **A navigation** (now). The other language's page exists, the router renders it without a round
-   trip, and the game is kept across the move because it lives in the root layout. So
-   `langRoute.ts: initLang` decides and, when this page is the wrong one, `goto`es the right one with
-   `{ replace: true, reset: false }`; the gear's language pick (`LanguageSwitcher`) does the same
-   after `setLang`. The `data-alt*` attributes, `langSwap.ts` and its test are gone, and
-   `langSync.test.ts` fails on a `data-alt` coming back.
+`data-served-lang` is always the page on screen (rewritten on every move by `seo/document.ts:
+applyDocument`). `<html lang>` is the game's to write once booted (`i18n/store.ts`), since on `/i/`
+the game is in the reader's language and the page in none.
 
-The properties that made the swap safe are the properties of the navigation:
-
-- **A detection is never persisted.** The browser's language is re-read on every boot and gives the
-  same answer, so storing it buys nothing — and it would cost the case it exists to protect: a stored
-  value is a *choice*, and a choice outranks the URL, so the next French link that player was sent
-  would open in English for good. `rememberLang` is called by the gear and by the globe's links, the
-  two places a language is *chosen*.
-- **The browser only ever wins on the default URL.** `/` is where somebody lands without saying
-  anything; `/fr/` is somebody having asked. `chooseLang` is tested exhaustively, and whatever it
-  decides for a document it decides again for the document at the URL that answer names — which is
-  also why `initI18n()` need not wait for the move to land: asked on either page, it gets the same
-  answer.
-- **It runs before `initTableInvite()`, and it carries the query string and the fragment.** That one
-  spends the invitation out of the address bar and this one moves the address bar; in this order
-  neither loses anything to the other. **In place of the history entry**, never a new one: Back must
-  not point at a URL that would send the player straight here again. An invitation is untouched —
-  `/i/` is served with no `data-served-lang`, which `langUrl` reads as nothing to disagree with.
-- **It is not a redirect.** The request for `/` was answered with the English page, with its own
-  canonical and its `hreflang` pair; a crawler asking holds exactly that. The client-side move is
-  neither a redirect nor a canonicalisation signal.
-- **The document at the new URL is real.** `/fr/` is a page the build emitted, so reloading serves
-  it and sharing the link hands it over.
-
-`data-served-lang` says what the page on screen was built as. Since every language change is now a
-navigation, it is always true of the page showing, and the root layout rewrites it with the rest of
-the document's attributes on every move (`seo/document.ts: applyDocument`). `<html lang>` is the
-game's to write once it has booted (`i18n/store.ts`), because on `/i/` the game is in the reader's
-language and the page is in none.
-
-The globe is the other half. Its two links are real `<a href>`s on every page that is not a seat —
-the href is what makes an `hreflang` pair navigable, and a crawler follows nothing else — and each
-records the choice on the press. Without that the choice reached the pages and never the game: a
-reader who switched to French, read the rules and pressed "Jouer" arrived at `/fr/` with English
-still stored, and the stored choice won. Arriving back at a game page, the root layout decides again
-(`initLang()`, `redetectLang()`), so the game follows whichever way the reader came.
+The globe's two links are real `<a href>`s (an `hreflang` pair a crawler can follow) and record the
+choice on the press, so the game follows the reader back to a game page, where the root layout
+decides again.
 
 ## Preferences
-`Preferences.svelte` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
-the board. It holds the language chooser (`LanguageSwitcher`, a child), the graphics tier, and three
-switches: streamer mode, colour shapes, reduced motion.
 
-Each on/off preference is a `createBooleanPref` module store over `localStorage`, and vibrations
-are the same shape on a touch screen that can vibrate (`hooks/haptics.ts`, one pattern per moment and
-never a chain, decided beside the sounds so the two cannot disagree about what happened). The
-icons are drawn SVG, never a font character, like every other glyph a player sees.
+`Preferences.svelte` is the gear on the lobby, the waiting room, the reconnect splash and the board:
+the language chooser (`LanguageSwitcher`), the graphics tier, and switches for streamer mode, colour
+shapes and reduced motion — and vibrations on a touch screen that can vibrate (`state/haptics.ts`, one
+pattern per moment, decided beside the sounds). Each on/off one is a `createBooleanPref` module store
+over `localStorage` (`state/prefStore.ts`, one factory so they cannot drift). Icons are drawn SVG,
+never a font character (a `⚙` is a different object on every platform).
 
-**Streamer mode is the one preference that also leaves the client**, and only from the host's seat
-(below). Every other one is local and must stay that way: a presentation preference on the wire is
-a second thing the server has to hold per seat, and the reason streamer mode earns it is that the
-table code is one string shared by everybody who can see it.
+**Streamer mode is the one preference that also leaves the client**, and only from the host's seat.
+Every other one is local: a presentation preference on the wire is per-seat state the server holds,
+and only the shared table code earns it.
 
 ### Fullscreen, beside the gear and not inside it
-`FullscreenButton.svelte` is the chip to the left of the gear, in every row the gear is in (the
-lobby, the search, the waiting room, the board, the reconnect splash, the tab-taken curtain). It is
-deliberately not a preference and not in the panel: a preference is something the player sets once
-and the game remembers, and fullscreen is a state the browser owns and drops on its own terms —
-Escape leaves it, so does a tab switch on some desktops, and a reload always does. Nothing is stored;
-the chip reads the document's `fullscreenchange` and its icon and name follow it, so a player who left
-with Escape is offered "Full screen" again and never a button that thinks it is still in.
 
-- **Desktop only.** Below 46rem the chip is hidden with the rest of the row's desktop concerns — that
-  width already belongs to the burger — and a phone has nothing to gain from an API half its browsers
-  refuse (iOS Safari answers only for `<video>`). Where `document.fullscreenEnabled` is false (an
-  iframe without `allowfullscreen`, a WebView, jsdom) the chip is not rendered at all: a button that
-  throws on press is worse than no button.
-- **Two drawings, never one rotated**: four brackets pointing out to enter, pointing in to leave. The
-  chip sits beside two others and is read at a glance; a rotation is not a word.
-- **Not a keyboard shortcut.** There is no key bound to it here (F11 is the browser's, and does not
-  go through the API on every desktop). Its one listener is `fullscreenchange`, which reads no key —
-  `noKeyboardShortcuts.test.ts` is about keys and is untouched.
-- `fullscreenButton.test.ts` pins the absent-when-unsupported case, the request and the exit, the
-  name following the document, the French name, the 46rem rule and that every row with a gear has it.
+`FullscreenButton.svelte` is the chip left of the gear in every row that has one. Not a preference:
+the browser owns that state and drops it on its own terms. Nothing is stored; the icon and name follow
+`fullscreenchange`.
 
-- **The graphics tier is the one preference that decides how much a render may cost**
-  (`hooks/graphicsPref.ts`, `components/scene/quality.ts`, `sceneQuality.test.ts`): `auto` / high /
-  medium / light, a segmented row of four with the hint naming what `auto` resolved to on this
-  device. Framework-free like the other preference modules, read by the renderer through
-  `resolveGraphics()` and by Svelte through `uiPrefs.svelte.ts`; part of the scene cache's key, so
-  moving it mid-match renders the room again. What each tier buys is in `visual.md`.
+- **Desktop only**: hidden below 46rem, and **not rendered where `document.fullscreenEnabled` is
+  false** (an iframe without `allowfullscreen`, a WebView, jsdom) rather than a button that throws.
+- **Two drawings**: brackets out to enter, in to leave; never one rotated.
+- No key is bound to it; its one listener reads no key.
+- `fullscreenButton.test.ts`: absence, request and exit, the name following the document, French, the
+  46rem rule, presence in every row with a gear.
 
-- **The language is a dropdown, and the pick is the application — on every screen.** The graphics tier below
-  it is a segmented row applied on the press, which is right for a setting that changes the screen
-  in place, and the language is now exactly that setting: `setLang` swaps the game's strings and
-  records the choice, and on a home page the router moves to the same page in that language
-  (`langRoute.ts: moveTo`), which re-renders the page around a game it keeps.
+### The panel's controls
 
-  It used to be two steps at the entry screen, and the reason is worth keeping. Applying there *left
-  the page* — half of `/` is markup built per URL — and a control that reloads must not fire on the
-  press that was aiming for it: a thumb sliding across a segmented pair on a phone hit a language and
-  lost the page it was reading. So the choice was made first and spent second, on a real `<a href>`,
-  under a sentence promising the reload. Nothing reloads any more, so the button protected nothing
-  and the sentence had become false; both are gone, along with `prefsApply` and `prefsLanguageHint`.
-  **If a language ever costs the page again, the button comes back with it** — that is the rule, not
-  the button.
-
-  The dropdown lists autonyms (`English`, `Français`), never translated and never `EN`/`FR`: it is
-  read by somebody who cannot read the language currently on screen.
-- **The list is ours, and that is the point.** This was a `<select>`, which is two objects: the
-  closed control, ours to draw, and the open list, painted by the platform. `appearance: none`
-  reaches the first and nothing else, so a panel of ink outlines and hard shadows dropped a white
-  system menu with a blue system highlight over a dark board — on the one screen a streamer is
-  guaranteed to open, in a game whose whole art direction is that nothing is a system object. No CSS
-  fixes that half: `color-scheme` only re-tints what the OS drew, and the shape, the radius, the
-  outline and the checkmark stay the platform's.
-
-  So it is a `<button role="combobox">` and a `<ul role="listbox">`, and the contract it replaces is
-  kept whole rather than approximated. The button keeps the focus and every key: arrows move,
-  Home/End jump, Enter picks, `aria-activedescendant` names the row, so no option ever takes focus
-  and none has to give it back. Arrowing moves the highlight and picks nothing — a language may be
-  arrowed *past*. The chosen one carries a checkmark and not only a tint, because "the pointer is
-  here" and "this is the language you are reading" cannot be the same picture, and the pointer and
-  the arrows share one highlight because two cursors on one list is two answers to "where am I".
-
-  **Escape there closes the list and only the list.** The panel around it listens for that key on
-  `document`, so the handler stops the event while the list is open and lets it through while it is
-  shut: without that, backing out of a menu opened by mistake took every other setting off the screen
-  with it. Same rule as `escapeKey`'s `enabled` getter, one level down. A press anywhere outside puts
-  the list away, and Tab closes it on the way out rather than leaving it floating over the panel.
-
-  Scene `lobby-prefs-lang` exists because this state had no screenshot before: the open list was
-  drawn by the OS, so `make visual` could not have caught it going wrong. Worth the `small` viewport
-  too — there the rows are 46px in a sheet, not 40px in a 292px dropdown.
-- **Why a panel.** Language and the theme (since dropped, see `visual.md`) sat bare in the top bar, which is right for one or two
-  preferences. The row also carries sound and rules; one more bare control makes it a settings strip,
-  and the one after that makes it unreadable on a phone. The gear replaced the theme chip rather than
-  being added beside it, so the cluster is the same size it was.
-- **The chip is a drawn SVG**, like `RulesButton`. A `⚙` font character renders as a different object
-  on every platform, and the first attempt here (a small circle with eight long spokes) read as a
-  sun, which in a row that used to toggle the theme is the wrong word entirely. Teeth are short thick
-  stubs on a large ring.
-- **The on/off preferences share one store factory** (`hooks/prefStore.ts`). Three copies of the same
-  subscribe/persist boilerplate is how they drift.
-- **Streamer mode blurs the table code.** Six characters read off a stream is an open table, and the
-  waiting room — the one screen a streamer is guaranteed to sit on while friends join — prints them
-  at display size. `streamerMode.ts` (`localStorage`, key `loco_streamer_mode`) is a module store,
-  not store or context state: the flag is read by two screens with no common parent and written from
-  a third, and it must survive a reload with no round trip.
-- **The host's copy of that flag is the table's, and it is the one preference in this client that
-  leaves it.** A table code is a single string shared by everybody who can see it: a host streaming
-  their own screen is exposed by the friend who joined and left the waiting room up on a second
-  monitor, and by the seat that reads the code out. Blurring only the host's copy protects the one
-  screen that was already being careful. So `hostStreamerSync` (`hooks/appEffects.svelte.ts`) sends
-  `set_streamer_mode`, the server keeps one answer per table and broadcasts it, and the client keeps
-  it in `store.tableStreamer`, **ORed** with the local preference and never merged into it — a guest
-  who wants the code hidden for their own stream must not be uncovered by the host stopping theirs.
-  - **Two moments send, and a change of seat is not one of them.** The preference moved at a table we
-    host, or we opened a table with it already on (the host who set it yesterday). `transfer_host`
-    hands seat 0 to somebody whose own switch is probably off, and treating that as an instruction
-    would uncover the code for a host still sitting there with it on camera. Their switch is theirs
-    to touch.
-  - **Nothing consults `store.tableStreamer` before sending.** It would swallow the ask that changes
-    nothing, and with it the retry after one that never landed; the server answers a repeat with
-    silence, which is the cheaper place to put that.
-  - **Hostless tables never send.** The server refuses the message there, and an error nobody asked
-    for would land on the board mid-match. `tableStreamerMode.test.ts` pins all of it.
+- **The graphics tier decides how much a render may cost** (`state/graphicsPref.ts`,
+  `components/scene/quality.ts`, `sceneQuality.test.ts`): `auto` / high / medium / light, a segmented
+  row whose hint names what `auto` resolved to. Framework-free, read by the renderer through
+  `resolveGraphics()` and by Svelte through `uiPrefs.svelte.ts`; part of the scene cache key, so
+  moving it mid-match renders the room again. What each tier buys: `visual.md`.
+- **The language pick applies itself, on every screen**: `setLang`, plus `moveTo` to the same page in
+  that language on a home page; nothing reloads, so there is no Apply button. **If a language ever
+  costs the page again, the button comes back**: a control that reloads must not fire on the press
+  aiming for it.
+- The list shows autonyms (`English`, `Français`), never `EN`/`FR`.
+- **The list is ours.** A `<select>`'s open list is painted by the OS (white menu, blue highlight over
+  a dark board) and no CSS reaches it. It is a `<button role="combobox">` and a `<ul role="listbox">`:
+  the button keeps focus, arrows move, Home/End jump, Enter picks, `aria-activedescendant` names the
+  row. Arrowing picks nothing. The chosen row carries a checkmark, not only a tint; pointer and arrows
+  share one highlight. **Escape closes the list and only the list** (stopped while open, let through
+  while shut); a press outside or Tab puts it away. Scene `lobby-prefs-lang`, worth the `small`
+  viewport too.
+- **Streamer mode blurs the table code.** `streamerMode.ts` (`localStorage`, `loco_streamer_mode`) is
+  a module store: read by two screens with no common parent, written by a third, surviving a reload.
+- **The host's flag is the table's.** A table code is one string everybody at the table can see, so
+  blurring only the host's copy protects nothing. `hostStreamerSync` (`state/appEffects.svelte.ts`)
+  sends `set_streamer_mode`, the server broadcasts one answer per table, and the client keeps it in
+  `store.tableStreamer`, **ORed** with the local preference, never merged into it.
+  - **Two moments send**: the preference moves at a table we host, or we open a table with it already
+    on. **A change of seat sends nothing**: `transfer_host` must not uncover a code still on camera.
+  - **Nothing consults `store.tableStreamer` before sending**: the server answers a repeat with
+    silence, and checking would swallow a retry.
+  - **Hostless tables never send** (the server refuses). `tableStreamerMode.test.ts`.
 - **`TableCode.svelte` is the only way a screen prints the code.** The blur is a CSS filter over the
-  real text, so the copy button still copies the real code and a screen reader still reads it out. A
-  screen that renders `roomCode` directly leaks it the moment the mode is on, and nothing will fail
-  loudly: go through `TableCode`.
-- **There is no reveal, and the history of this line is why.** It started as "one hover away, reading
-  the code out loud is a normal thing to want", and every version after that was a narrower guard on
-  the same idea. `:focus` matched the mouse click that copies, so pressing the button uncovered the
-  code and left it uncovered until the next click landed elsewhere. A touch screen, which has no
-  hover, emulates one on tap and leaves it stuck on the element, so a tap to copy did the same — that
-  was guarded with `@media (hover: hover) and (pointer: fine)`, which only narrowed it to a mouse.
-  And a mouse hover is the pointer resting on the plate, which on a waiting-room screen being
-  captured is exactly where it already is. `:focus-visible` survived one revision longer and went the
-  same way: the keyboard reach is deliberate, but the thing it uncovers is on camera either way.
-  **So the blur has no state selector at all** — `preferences.test.ts` fails on `:hover`, on `:focus`
-  and on a second `filter: none` — and the span is out of the tab order, since the only reason it was
-  reachable was the reveal. **Sharing the table with the mode on is the link**, which the plate
-  copies whole and which travels through chat rather than through the capture. A player who wants to
-  read the code out loud turns the mode off.
-- **The lobby's join field is deliberately not masked.** It holds what the player is typing, and a
-  blurred input is a typo you cannot see. The leak there is the code the player already knows.
-- **Both dropdowns are 292px, and the sizes inside them are a thumb's, not a cursor's.** They were
-  250px and 230px, packed to the minimum that fit: 13px labels against their switches, hints wrapping
-  to three lines, a 30px segmented option, a 10px slider track. The pointer manages all of that and
-  nothing else does — and the panels open from one row at the top right, so two widths made the
-  cluster change shape between one press and the next. One width now, `--space-base` of padding, and
-  every control sized to be pressed: switch rows 50px, segmented options 38px, the language control
-  and its rows 42px and 40px, the slider track 14px under a 26px thumb, labels 14px and hints 12px.
-  The sheet's own sizes below are unchanged — this closed the gap from underneath.
-- **A section is told apart by space, not by a line drawn across the panel.** The mixer separated its
-  sliders from the music bed with a 2px ink rule, inside a card that already carries a 3px ink
-  outline: it read as the panel having been cut in half, and it was the loudest thing in a surface
-  whose job is to be quiet. It is gone. The gap above the block and the micro-caps `.sectionLabel`
-  heading — the same treatment as the panel title — do the grouping, and the track still sits in its
-  own recessed card. Anything new in either panel groups the same way.
-- **A panel that opens over a screen sets its own `text-align`, because that property inherits and
-  `position` does not stop it.** The searching screen centres its column — it is a radar, a heading
-  and two buttons stacked in the middle — and the rules modal opened from there arrived with every
-  heading, every bullet and the deck's copy centred, while the same modal opened from the table read
-  normally. Nothing was wrong with either component: the alignment simply belonged to whichever
-  screen happened to be underneath. `.backdrop` in `RulesModal` and `.panel` in `Preferences` and
-  `AudioSettings` all declare `text-align: left` for that reason. It is a one-line rule with no
-  visible symptom on most screens, so it is pinned in source scans (`rulesModal.test.ts`,
-  `preferences.test.ts`) rather than left to be noticed: jsdom applies no component styles, and a
-  rendering test here would pass over any rule at all. **Anything new that opens over a screen takes
-  the same line** — the alternative is an overlay that is a different panel depending on where it
-  was opened from.
-- **Below 46rem it is a sheet, not a dropdown, and on the lobby the gear stands down.** 292px of
-  panel hanging off a 40px chip is a desktop object: four settings, two of them with a sentence
-  under them, in a column narrower than the thumb that opened it. At that width it becomes what the
-  rules already are — a sheet up from the bottom edge, scrim behind it, title and ✕ pinned while the
-  settings scroll. The breakpoint is `content.css`'s, because that is where the burger's drawer takes
-  over: on `/` the drawer's `Preferences` row is the way in, so `Lobby` passes
-  `triggerBelowPhone={false}` and the chip goes. **Only the lobby may pass it.** The drawer lives in
-  the footer `data-seated` hides, so from the waiting room onwards the gear is the only entry there
-  is, at every width.
-- **Two things about that sheet are worth not rediscovering.** The scrim **wraps** the panel rather
-  than sitting beside it, which is what `RulesModal` does: as a sibling, "click outside" becomes an
-  argument about z-index, and nested it is `target === currentTarget`, a fact about the DOM. And the
-  ✕ needs `position: relative` — `.hit-target` positions its 44px pseudo-element absolutely, so
-  without it the nearest positioned ancestor was the scrim and the button's touch area sat in the
-  middle of the screen, eating every press aimed at a setting. The panel opened and could not be
-  used. `tokens.css` states the requirement; this control is the one that forgot it.
-- **The sound mixer changes shape at the same width, into the same thing.** It sits in the same row,
-  it is opened by the same thumb, and it was the panel left behind: three sliders and a track card in
-  a column too narrow for either, under a track a pointer was meant to grab. It is the sheet the
-  preferences panel is now — same scrim wrapping the same `.panel`, same head with a title and a ✕,
-  same `display: contents` trick keeping the dropdown untouched above the breakpoint — and it carries
-  `audioClose` for that ✕, because below 46rem the speaker chip that opened it is behind the scrim and
-  the ✕ is the entire pressable way out. `escapeClose.test.ts` owns both halves.
-- **On a sheet the type is not the dropdown's.** 14px labels, 12px hints and a 26px switch are sized
-  for a mouse on a 292px surface; at full-screen width they read as a dropdown that grew a scrim.
-  Labels step to 15px, hints to 13px, the switch row to 56px, the language control and its rows to
-  46px, the slider track to 16px with a 30px thumb — all of it inside the same `max-width: 46rem`
-  block, in each component, so the two shapes stay one decision.
-- **The drawer opens it by event.** `#navPrefs` is rendered by the page, the panel by the game in the
-  root layout, so `SiteDrawer.svelte` closes the popover and dispatches `loco:preferences`; the mounted `<Preferences />`
-  answers. Only one screen is mounted at a time, so only one panel opens. It also remembers what had
-  the focus, because `hidePopover()` hands it back to the burger and closing the panel has to return
-  it somewhere real.
-- Showcase: `streamerMode`, `colorAssist`, `prefsOpen`, `langOpen` and `audioOpen` scene flags
-  (`dev/scenes.ts`), scenes `waiting-streamer`, `lobby-prefs`, `lobby-prefs-lang`, `lobby-audio`,
-  `card-sheet-assist` and `game-color-picker-assist`. `applyScene`
-  resets both module stores so neither leaks into later captures.
+  real text, so copy still copies and a screen reader still reads.
+- **There is no reveal at all.** Every reveal (`:hover`, `:focus`, `:focus-visible`, a touch's stuck
+  hover) uncovered the code exactly where the pointer or the press already was, on camera.
+  `preferences.test.ts` fails on `:hover`, `:focus` and a second `filter: none`, and the span is out
+  of the tab order. Sharing with the mode on is the link; reading the code aloud means turning the mode
+  off.
+- **The lobby's join field is not masked**: a blurred input is a typo you cannot see.
+- **Both dropdowns are 292px and sized for a thumb**: switch rows 50px, segmented options 38px, the
+  language control 42px and its rows 40px, a 14px slider track under a 26px thumb, labels 14px, hints
+  12px.
+- **A section is grouped by space and a micro-caps `.sectionLabel`**, never a rule drawn across the
+  card.
+- **Anything that opens over a screen declares its own `text-align`**: it inherits through
+  `position: fixed`, so the rules modal opened from the centred searching screen came out centred.
+  `.backdrop` in `RulesModal` and `.panel` in `Preferences` and `AudioSettings` declare `text-align:
+  left`, pinned by source scan (`rulesModal.test.ts`, `preferences.test.ts`; jsdom applies no
+  component styles).
+- **Below 46rem it is a sheet** (see "One sheet, four surfaces"). On `/` the drawer's Preferences row
+  is the way in, so `Lobby` passes `triggerBelowPhone={false}`. **Only the lobby may**: from the
+  waiting room on, the drawer is hidden and the gear is the only entry.
+- **The sheet's scrim wraps the panel** (outside is `target === currentTarget`, not a z-index
+  argument), and **its ✕ needs `position: relative`**, or `.hit-target`'s 44px pseudo-element lands
+  on the scrim and eats every press aimed at a setting.
+- **The sound mixer becomes the same sheet at the same width** and carries `audioClose` for its ✕,
+  the only way out once the speaker chip is behind the scrim. `escapeClose.test.ts`.
+- **A sheet's type is not the dropdown's**: labels 15px, hints 13px, switch rows 56px, the language
+  control and rows 46px, a 16px track with a 30px thumb, all inside one `max-width: 46rem` block per
+  component.
+- **The drawer opens the panel by event**: `SiteDrawer.svelte` closes its popover and dispatches
+  `loco:preferences`, which the mounted `<Preferences />` answers, remembering the focus to return.
+- Showcase flags `streamerMode`, `colorAssist`, `prefsOpen`, `langOpen`, `audioOpen`
+  (`dev/scenes.ts`); scenes `waiting-streamer`, `lobby-prefs`, `lobby-prefs-lang`, `lobby-audio`,
+  `card-sheet-assist`, `game-color-picker-assist`. `applyScene` resets both module stores.
 
 ## Colour assist
-Colour is the rule in this game: a card is legal because it matches the pile. Red-green is the most
-common colour-vision deficiency there is, and the four suits are separated in luminance as well as
-hue for that reason, but "survives" is not "reads".
 
-- **`SUIT_SHAPE` (`cardTheme.ts`) is the vocabulary**: triangle (red), circle (yellow), square
-  (green), diamond (blue). They differ at every corner count, which is the only property that
-  survives a card overlapped down to a sliver. `SuitMark.svelte` draws them the way every card glyph is
-  drawn: an ink pass under an off-white fill, because off-white on the green suit is 1.18:1 alone.
-- **Three sites, and they are the whole set**: under the value on the card (top-left, the corner a
-  fanned hand still shows), on each `ColorPicker` swatch (four discs that differ *only* in hue: the
-  one control that is unusable without this), and inside the active-colour chip on the discard pile
-  (after a wild, the only place the answer to "what can I play?" is written).
-- **Never a letter.** `R` is red in both languages, `V` is `vert` in one and nothing in the other,
-  and a rotated `B` is a `D`. **A wild has no suit** and gets no mark: inventing a fifth shape for it
-  would say the opposite of what the card does.
-- Off by default: the card face is the brand and this adds a mark to it.
+A card is legal because it matches the pile, and red-green is the most common colour-vision
+deficiency. The suits are separated in luminance too, but "survives" is not "reads".
+
+- **`SUIT_SHAPE` (`cardTheme.ts`)**: triangle (red), circle (yellow), square (green), diamond (blue),
+  differing at every corner count. `SuitMark.svelte` draws ink under an off-white fill (off-white on
+  green alone is 1.18:1).
+- **Three sites**: under the value on the card's top-left, on each `ColorPicker` swatch, and in the
+  active-colour chip on the discard pile.
+- **Never a letter** (`V` is `vert` in one language and nothing in the other). **A wild has no suit**
+  and no mark.
+- Off by default: the face is the brand.
 
 ## Reduced motion
-The setting has three values (`auto` / `reduce` / `full`, `hooks/motionPref.ts`) and the UI shows
-two, because `auto` is what the switch reads before it is ever touched.
+
+Three values (`auto` / `reduce` / `full`, `state/motionPref.ts`); the UI shows two.
 
 - **`:root[data-motion="reduce"]` is the single source of truth in CSS**, written by `initMotion()`
-  before the first paint. The media query is deliberately gone: it cannot be overridden, and a player
-  whose system is set to reduce for reasons of their own is allowed to ask this game for its
-  animations back. `reducedMotionCss.test.ts` fails on any new `@media (prefers-reduced-motion)`.
-- There is no animation runtime left to hand the preference to: the attribute drives the stylesheet,
-  and the two Web Animations shakes (`GameBoard.kickBoard`, `GameView.shakeScreen`) ask
-  `prefersReducedMotion()` themselves before they animate anything. `motionPref.test.ts` pins the
-  wiring — that `boot.ts` calls `initMotion()` at all, that a system asking for less motion reaches
-  the attribute, and that an explicit answer wins over the system in both directions.
-- The capture harness still works unchanged: Playwright emulates the media query, `initMotion` reads
-  it, and the attribute lands before the first paint.
+  before the first paint. No media query: `full` must be able to win over the system.
+  `reducedMotionCss.test.ts` fails on a new `@media (prefers-reduced-motion)`.
+- The two Web Animations shakes (`GameBoard.kickBoard`, `GameView.shakeScreen`) ask
+  `prefersReducedMotion()` themselves. `motionPref.test.ts` pins the wiring.
+- Playwright's media emulation still reaches the attribute through `initMotion`.
 
 ### The voice
-The copy is the cheapest thing in the product and the first thing a player judges it by. A screen
-that says "Waiting Room", "Create Room" and "Game Rules" is a website with cards on it; the same
-screen saying "The table", "New table" and "How to play" is a game. Every string is written as
-something a person at the table would say, and rewriting one means keeping it inside these rules.
 
-- **The name is `LOCO!`, and the exclamation is a letter of it.** Not `LOCO`, and not `LOCO !` with
-  a space in French — `Yahoo!` is the precedent, and nobody has ever written `Yahoo !`. The rule
-  covers the wordmark, every `<title>`, the manifest, the favicon's `<title>`, the shipped licence
-  file, the prose on the content pages and the call on the action bar alike.
+The copy is the first thing a player judges. "The table", "New table", "How to play" is a game;
+"Waiting Room", "Create Room", "Game Rules" is a website.
 
-  It was a discoverability decision before it was a typographic one. Bare, `loco` is a Spanish
-  adjective and the name of a dozen other card games, so a search for it returns everything except
-  this one and a streaming category named that way is a category nobody can find — which is exactly
-  the question that came up when the game was submitted to IGDB for a Twitch category. Whole, the
-  word is unambiguous.
-
-  Two things it costs, both of them worth knowing before rewording anything. **A `<title>` is capped
-  at 60 characters** and `seo.test.ts` holds that line, so the extra character comes out of the copy
-  and not out of the ceiling — the French home title sits at 59 and has no room left. And **the name
-  no longer composes with terminal punctuation**: `What is LOCO!?` reads as a typo before it reads as
-  a question, so `homeSheetBtn` drops its question mark in both languages rather than stacking two
-  marks. A comma behind it (`LOCO!,`) is fine and appears in `PAGES`; a second terminal mark is not.
-
-  `src/test/vocabulary.test.ts` fails on a bare `LOCO` **or** a spaced `LOCO !` in `en.ts`, `fr.ts`,
-  `UI`, `PAGES` and anywhere under `src/content/`, and pins the wordmark in all three places it is
-  spelled — the `aria-label`, the `<span>`, and the two dark-theme `::before` blocks, because a
-  rename that reaches only the markup leaves the dark repaint spelling the old name over the new one.
-  Internal naming is untouched, exactly as for the rule below: `LOCO_MARK_PATH`,
-  `LOCO_ALLOWED_ORIGINS`, `LOCO Red`, `locoMark.ts`.
-- **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
-  seats a code is shared for — a player opens one, shares its code, takes a seat, leaves it. A
-  **room** (French: *décor*) is one of the four places a match is dealt in, and nothing else.
-  `lobby` is still banned outright, and so are `salle`, `salon` and `pièce`: they are
-  venue-booking words that named both objects at different times.
-
-  Three words for two things is what this replaced, and the navigation was the worst of it: an entry
-  labelled **Tables** opened a page about the four *places*, so the one control whose job is to say
-  which of the two you are about to read said the wrong one. The label is `Rooms` / `Les décors`
-  now, the `<h1>` follows it, and **the path and the `<title>` deliberately do not** — `/tables/`
-  carries the search value, and a URL is not copy. The store's internal names (`room_code` on the
-  wire, `screen === 'waiting'`, `maps`, `mapPreload`) are unaffected for the same reason.
-  `src/test/vocabulary.test.ts` fails on any of the three banned words in `fr.ts`, in `UI`, in
-  `PAGES` or anywhere under `src/content/`, and it also asserts the positive half: having banned
-  the synonyms, the page about the four places has to actually say *décor*.
-- **French is tutoiement**, stated at the top of `fr.ts`. `vous` puts a service counter between the
-  game and four friends on a sofa. It is a translation convention, not a per-string decision.
-- **A button is a verb the player is about to perform**, in as few words as the control allows.
-  `Deal`, `Take a seat`, `Next round`.
-- **The rules opener says what it opens everywhere except at the table.** `RulesButton` has two
-  variants and the screen picks one. In `GameView` it is `variant="icon"`: the top-right row there is
-  a cluster of round chips, mid-match nobody is reading words, and a question mark is read faster at
-  720p — `rulesBtn` (`Rules` / `Règles`) is its aria-label and its tooltip, never drawn. On the lobby,
-  the waiting room and the search screen it is `variant="text"`, a pill drawing `rulesHowBtn`
-  (`How to play` / `Comment jouer`): those screens are where somebody who has never played is
-  deciding whether to, and a glyph makes them guess at what is the one piece of onboarding the game
-  has. The pill keeps the chips' height, outline and shadow so the row still reads as one row, and
-  **it carries no aria-label**: the visible word is the accessible name, and a label over it would
-  give the control a name voice control cannot say.
-  - `rulesHowBtn` and `rulesTitle` are deliberately the same words, so **the E2E suite scopes the
-    modal's heading to its dialog** (`rulesModalTitle()` in `e2e/helpers/game.ts`). A bare
-    `getByText(T.rulesTitle)` matches the opener too and resolves to two nodes under strict mode.
-- **A refusal says what to do next, and never blames.** "Someone beat you to it", not "Too late" —
-  the window closed because somebody else was faster, and that is information, not a scolding. One
-  pill, read in under a second, no wire vocabulary (`interrupt`, `session`, `payload`).
-- **The one destructive press asks, and the safe answer is a word.** Leaving the table is the only
-  thing on that screen a player cannot undo (a guest loses the table code with the seat), so the
-  link swaps itself for `Tu quittes la table ?` with `Rester` and `Oui, je pars`. The question takes
-  the link's place instead of opening a modal over it: the answer lands where the finger already is
-  and nothing else on the screen moves. `Rester` comes first and is the coloured one — the safe
-  answer should be the easy one to hit — and Escape means it too. Nothing else in the game gets a
-  confirmation: it is a reaction game, and a second press on every action is how it stops being one.
-- **Nothing is exclamatory twice.** The banners shout (`INTERCEPTED!`, `CAUGHT!`, `LOCO!`) because
-  they are the streamable moments; everything around them stays calm so those keep their weight.
-- **The five-second capsule names an opening, it does not give an order** (`t.catchWindow`, drawn
-  by `UnoTimer`). *Catch them!* / *Attrape-le !* reads as the game telling you to go, and it made
-  the press sound free — where it is a wager that costs a card whenever it misses, and **missing is
-  the ordinary outcome**, because the seat it is aimed at is looking straight at its own LOCO! chip.
-  *A chance to catch* / *Une chance de contrer* is the same five seconds said as what they are: an
-  opening, which may or may not be yours. The price is taught where there is time to read it — the
-  rules modal — and never on a capsule that is up for five seconds.
-- **No em dash in copy**, in either language: a colon, a full stop, or two sentences.
+- **The name is `LOCO!`; the mark is a letter of it.** Never bare `LOCO`, never `LOCO !` in French.
+  Bare, `loco` is a Spanish adjective and a dozen other games, so neither search nor a Twitch category
+  finds it. A `<title>` is still capped at 60 (`seo.test.ts`), so the character comes out of the copy;
+  and the name takes no further terminal mark (`homeSheetBtn` drops its question mark), though a comma
+  is fine. `src/test/vocabulary.test.ts` fails on either misspelling in `en.ts`, `fr.ts`, `UI`,
+  `PAGES` and `src/content/`, and pins the wordmark in the `aria-label`, the `<span>` and the
+  `::before` blocks. Internal naming is untouched (`LOCO_MARK_PATH`, `LOCO_ALLOWED_ORIGINS`,
+  `locoMark.ts`).
+- **One word per thing: a table is the seats, a room is the place** (French *décor*). `lobby` is
+  banned in player copy, and so are `salle`, `salon` and `pièce`. The navigation entry for the places
+  is `Rooms` / `Les décors`, the `<h1>` follows, and **the path and `<title>` keep "tables"** (search
+  value; a URL is not copy). `vocabulary.test.ts` fails on the banned words and asserts the rooms page
+  actually says *décor*.
+- **French is tutoiement** (stated at the top of `fr.ts`).
+- **A button is the verb about to happen**: `Deal`, `Take a seat`, `Next round`.
+- **The rules opener**: `RulesButton` `variant="icon"` at the table (a "?" chip; `rulesBtn` is its
+  aria-label and tooltip), `variant="text"` on the lobby, waiting room and search (a pill drawing
+  `rulesHowBtn`, *How to play*), where a newcomer is deciding whether to play. The pill keeps the
+  chips' height, outline and shadow, and **carries no aria-label**: its visible word is its name.
+  `rulesHowBtn` and `rulesTitle` are the same words, so the E2E scopes the heading to its dialog
+  (`rulesModalTitle()` in `e2e/helpers/game.ts`).
+- **A refusal says what to do next and never blames**: "Someone beat you to it", not "Too late". One
+  pill, readable in under a second, no wire vocabulary.
+- **The one destructive press asks, and the safe answer is a word**: leaving the table swaps the link
+  for `Tu quittes la table ?` with `Rester` (first, coloured, and what Escape means) and
+  `Oui, je pars`, in place, nothing else moving. Nothing else in the game confirms.
+- **Only the streamable moments shout** (`INTERCEPTED!`, `CAUGHT!`, `LOCO!`); everything else is calm.
+- **The five-second capsule names an opening, not an order** (`t.catchWindow`, drawn by `UnoTimer`):
+  *A chance to catch* / *Une chance de contrer*. The press is a wager and missing is the ordinary
+  outcome; the price is taught in the rules modal.
+- **No em dash in copy**, in either language.
 
 ### What is different, and where it is allowed to be said
 
-A visitor arrives holding a model of a card game of colours and symbols, and the only question they
-have is the delta. The showcase used to answer it badly in two places at once: the home page carried
-three bullets of which exactly one was about the rules (the other two were the LOCO call and there
-being no signup, which is already `homeAbout`'s second sentence), and the real differences were
-spread across ten sections of the rules page — which is a rulebook's worth of reading to find out
-whether a game is worth ten seconds.
+A visitor arrives with a model of a colours-and-symbols card game and wants the delta.
 
-- **`src/content/contrasts.ts`** is that answer, eight lines, first thing on the rules page and
-  above the `t.rules` mapping. **Its numbers are constants checked against the server**, exactly as
-  the deck table is: `HAND_SIZE` against `INITIAL_HAND_SIZE` in `loco-game/src/room.rs`, the
-  number range against `NUMBER_LOW..=NUMBER_HIGH` in `Deck::standard`, the deck size against
-  `DECK_SIZE` (all read through `src/test/serverSource.ts`). A hand size typed by hand is
-  right on the day it is written, and this is the copy nobody plays against, so it goes wrong
-  silently.
-- **It is not in the rules modal, and must not be put there.** The modal is a reference read
-  standing up in the middle of a round; this is an argument read before the first one. Same content
-  in two registers is two features as far as a player is concerned, and the modal's whole discipline
-  is that every line is a rule.
-- **The home page's three bullets are three mechanics.** Interception with no deadline, doubles going
-  down together, and the two cards that move whole hands. Nothing there spends the visitor's
-  attention on something the other game also does.
-- **The sheet's control asks the question rather than offering a section.** `homeSheetBtn` is
-  `What is LOCO?` / `C'est quoi LOCO ?`, and it heads the sheet as well as opening it.
-- **The phone has to be able to reach that prose.** Under 46rem `.homeIntroMain` is
-  `display: none` and the drawer deliberately carries no copy, so a first visit was a logo, a
-  tagline, two buttons and a burger. `#navAbout` is the drawer's first row: it shuts the popover and
-  opens the same `<details>`. It ships `hidden` and is revealed once a script runs — the same contract
-  as `#navPrefs`, for the same reason. Two details make it work rather than look like it does: at
-  that width only the *closed* sheet's button is hidden (`.homeSheet:not([open])`), so the open sheet
-  survives the row it lives in being gone, and the game's layout remembers **which** control opened
-  the sheet, so closing it hands the focus back to the drawer row rather than to a `display: none`
-  summary.
+- **`src/content/contrasts.ts`** is that answer: eight lines, first on the rules page, above the
+  `t.rules` mapping. **Its numbers are checked against the server** like the deck table: `HAND_SIZE`
+  against `INITIAL_HAND_SIZE` (`loco-game/src/room.rs`), the number range against
+  `NUMBER_LOW..=NUMBER_HIGH` in `Deck::standard`, the deck size against `DECK_SIZE`, all through
+  `src/test/serverSource.ts`.
+- **It is not in the rules modal and must not be put there**: the modal is a reference read mid-round,
+  and every line of it is a rule.
+- **The home page's three bullets are three mechanics**: interception with no deadline, doubles going
+  down together, the two cards that move whole hands.
+- **The sheet's control asks the question** (`homeSheetBtn`), and heads the sheet.
+- **The phone reaches that prose through `#navAbout`**, the drawer's first row (below 46rem
+  `.homeIntroMain` is `display: none`). It ships `hidden` until a script runs; only the *closed*
+  sheet's button is hidden (`.homeSheet:not([open])`), and closing hands focus back to the row that
+  opened it.
 
-The rules modal follows the same voice and one extra constraint: **it is read once, standing up,
-by somebody who wants to play now.** Section headings are the promise (`The cards that hurt`,
-`Photo finish`, `One card left: say it`), items are one sentence each, and the sentence leads with
-what the player does. Nothing in there is phrased as a specification, and every LOCO deviation from
-ordinary UNO is stated where a player would trip over it, not in a footnote. `docs/rules.md` stays
-the authoritative spec; the modal is its player-facing telling and must not contradict it.
-
-The card names in the copy are the domain's: **Global Switch** (`global_switch`), not "Global Swap".
-FR uses `Rotation` and `Échange`, and both banners and rules use those same two words.
+The rules modal is read once, standing up, by somebody who wants to play now: headings are the
+promise (`The cards that hurt`, `Photo finish`, `One card left: say it`), items one sentence, leading
+with what the player does, and every deviation stated where a player would trip on it. `docs/rules.md`
+stays the spec; the modal must not contradict it. Card names are the domain's: **Global Switch**
+(`global_switch`); French `Rotation` and `Échange` in banners and rules alike.
 
 ### Refused actions never show a wire string
-`i18n/serverErrors.ts` maps the server's error prose onto `Translations.errors` (`ErrorCopy` in
-`en.ts`). The server's strings are written for the log — `illegal card play`, `not your turn`,
-`nickname %q already taken` — and they used to render verbatim, so a French player tapping the
-wrong card was refused in English by a UI that is otherwise entirely in their language.
 
-- Matching is by **ordered regex, first match wins**, because several server messages interpolate
-  values (`nickname %q already taken`, `room is full (max %d players)`, `hand has %d copies`).
-  Narrower rules come first — the counter-card rule must beat the generic card rules.
-- Unrecognised input resolves to `errors.generic`, never to the raw string. A new server message is
-  a vaguer message, not a leak and not a crash.
-- **Resolution happens at render**, in `Lobby` and `GameView`, not at `store.setError`. The store
-  keeps the raw string so switching language re-renders the error in the new one.
-- Deliberately **not** a protocol change: the wire keeps its human-readable string and the client
-  owns how a refusal is phrased, the same way it owns all other copy.
+`i18n/serverErrors.ts` maps the server's error prose onto `Translations.errors` (`ErrorCopy` in
+`en.ts`).
+
+- **Ordered regex, first match wins**, because several messages interpolate values (`nickname "Bob"
+  already taken`, `room is full (max 7 players)`); narrower rules first.
+- Unrecognised input resolves to `errors.generic`, never the raw string.
+- **Resolved at render** (`Lobby`, `GameView`), not at `store.setError`: the store keeps the raw
+  string, so a language switch re-renders the error.
+- Not a protocol change: the wire keeps its log-readable string, the client owns the phrasing.
 - `src/test/serverErrors.test.ts` asserts every player-reachable server string resolves to something
   other than itself, in both languages. **Add the string there when you add a server error.**
 
 ## TAB is the scoreboard key (`heldKey`)
 
-Hold TAB, the standings are there; let go, they are gone. It is the one keyboard gesture a player
-arrives already knowing, and it only reads that way if **the press itself is the gesture**.
+Hold TAB, the standings are there; let go, they are gone — and only if **the press itself is the
+gesture**.
 
-The hook has been through both ends of that. It first owned the key from the first keydown with no
-way back, so from the moment the board mounted TAB and Shift+TAB went nowhere and a keyboard or
-switch user could not reach a card, the draw pile or the bar: the "focused control is the
-accessibility path" contract below was unreachable in practice. The fix at the time was to hand the
-first press back to the browser and arm the hold on a timer, and that traded one failure for a
-different one — the panel arrived a beat after the press, and the beat it arrived after was the
-browser moving the focus ring somewhere on the board on the way in. A scoreboard key that navigates
-first and reports second is not the gesture anybody meant.
+- **The key is ours from the press**: `preventDefault` on keydown, `held` true in the same event,
+  false on keyup. No timer, and the focus never moves.
+- **Shift+TAB is never taken**, and is the keyboard's whole way around the board, so the plain key is
+  not a trap (WCAG 2.1.2). Ctrl/Alt/Meta combinations go to the browser.
+- **A modifier pressed mid-hold changes nothing**: every repeat is swallowed once the key is down.
+- **`blur` releases it** (alt-tab swallows the keyup).
+- **`enabled: false` hands the key back whole** inside the rules modal, a picker or the round summary.
 
-What is there now:
-
-- **The key is ours from the press.** `preventDefault` on the keydown, `held` true in the same
-  event, false again on the keyup. No timer, nothing to discover, and the focus never moves.
-- **Shift+TAB is never taken, and it is the keyboard's whole way around the board.** Every control
-  is reachable in reverse order, so owning the plain key is not a keyboard trap — WCAG 2.1.2 asks
-  for a documented way out and this is it. Ctrl/Alt/Meta go the same way: those combinations belong
-  to the browser and the window manager.
-- **A modifier pressed mid-hold changes nothing.** Once the key is down every repeat is swallowed
-  whatever the modifiers now say, or a Shift held during an open panel would walk the focus
-  backwards underneath it.
-- **`blur` releases it.** Alt-tabbing away swallows the keyup, and the panel would stay pinned over
-  the board with no way to dismiss it.
-- **`enabled: false` hands the key back whole.** Inside the rules modal, a picker or the round
-  summary, TAB is the dialog's, and the summary already shows the same numbers.
-
-`heldKey.test.ts` runs the press, the release, the swallowed repeats, every modifier and the blur;
-`score-table.spec.ts` asserts end to end that a held TAB moves no focus and that Shift+TAB still
-walks the board without opening anything. The E2E `holdScores` helper holds the key and waits, which
-is the same gesture a player makes.
-
-The two decision panels — a wild's colour, a Swap's target — are dialogs (`role="dialog"`,
-`aria-modal`, the label as the name) and `components/dialogFocus.ts` moves the focus in, cycles TAB
-inside, and hands it back on close. They were the only overlays here without any of that, and the
-two that stop the whole table on a choice. What a card is called aloud is `t.colorNames` plus
-`t.cardNames`, in the player's language — it used to be the wire identifiers, "wild wild_draw_four".
+`heldKey.test.ts` runs press, release, repeats, modifiers and blur; `score-table.spec.ts` asserts a
+held TAB moves no focus and Shift+TAB walks the board. The colour and swap-target panels are dialogs
+(`role="dialog"`, `aria-modal`), and `components/dialogFocus.ts` moves focus in, cycles TAB inside,
+and hands it back. A card's spoken name is `t.colorNames` plus `t.cardNames`, never the wire id.
 
 ## No gameplay keyboard shortcuts, ever
 
-There is no key that plays a card, draws, passes, calls LOCO! or throws a Contre-LOCO!, and
-there is not going to be one. It has been asked for by competitive players and it is refused.
+No key plays a card, draws, passes, calls LOCO! or throws a Contre-LOCO!, and none will. It has been
+asked for by competitive players and refused.
 
-**Aiming a mouse at a button that lights up for a few seconds *is* the skill the game measures.**
-A reaction window is not a prompt to acknowledge; it is a target to find, under time pressure,
-while the rest of the board is moving. LOCO! and Contre-LOCO! on a key do not assist that
-gesture, they delete it — you stop aiming and start pressing, and the thing being timed stops
-being a reaction and becomes a reflex with nothing to point at. Drawing, passing and playing the
-n-th card go the same way for the same reason.
+**Aiming at a button that lights up for a few seconds *is* the skill the game measures.** A key
+deletes the gesture: the thing timed stops being a reaction to find and becomes a reflex. This and the
+fixed action bar are one decision: the bar holds its coordinates (Catch centred all match, live from
+two cards out) so a player can park the cursor and commit, and that only means something if aiming is
+the only way in.
 
-**This and the fixed action bar are one decision seen from two sides.** The bar is a fixed
-three-column grid with Catch mounted in the centre all match and nothing else ever in it (see
-`visual.md`, "Action bar") precisely so a player can park the cursor on the button before the card
-that needs it lands — and it goes live from two cards out, so the cursor can be there *and*
-committed before the server has named anybody. That work only means something if aiming is the only way in. A shortcut would make the
-geometry pointless — the controls hold their coordinates so they can be aimed at, and there is
-no way not to aim at them.
+**Global versus focused is the line, both ways.**
 
-**The line is global versus focused, and it matters in both directions.**
+- A **global** handler (`window` / `document`) fires on a press nobody aimed: refused.
+- A **focused** control is the accessibility path (a card and the draw pile act on Enter/Space once
+  focused; the language listbox answers arrows on its own button). `PRODUCT.md` commits to WCAG AA,
+  and **it must not be removed or made conditional in the name of this rule**. At the table the way in
+  is Shift+TAB.
 
-- A **global** handler (`window` / `document`) fires on a press nobody aimed. That is the thing
-  being refused.
-- A **focused** control demands that you got there first: a card and the draw pile carry their
-  own `onkeydown` and act on Enter/Space once focused, and the language listbox answers arrows
-  and Home/End on its own button. That is not a shortcut, it is the accessibility path, and
-  `PRODUCT.md` commits to WCAG AA on every player-facing surface. **It must not be removed,
-  reduced or made conditional in the name of this rule** — reading the rule that way is reading
-  it backwards. **At the table the way in is Shift+TAB**, because the plain key is the scoreboard
-  (above): the sequence is the same one in reverse, every control is on it, and nothing else about
-  those handlers changes.
+Three global key listeners exist and no fourth may be added: `heldKey` (`state/viewEffects.svelte.ts`),
+`state/escapeKey.svelte.ts`, and the audio unlock (`state/appEffects.svelte.ts`, which reads no key).
+Anywhere else a global listener may read `Escape` and nothing else.
+`src/test/noKeyboardShortcuts.test.ts` holds the rule, including that the allowlist is not stale, and
+ignores handlers bound to an element.
 
-Three global key listeners exist and no fourth may be added: `heldKey` in
-`hooks/viewEffects.svelte.ts` (the score table, held on TAB — a read-only panel that moves
-nothing on the board), `hooks/escapeKey.svelte.ts` (the one Escape hook, below), and the audio
-unlock in `hooks/appEffects.svelte.ts`, which listens for a key press as evidence a human is
-there and reads no key at all. Anywhere else, a global key listener may read `Escape` and nothing
-else — the panels that own their own lifetime (the gear, the mixer, the leave confirmation, the
-home sheet) do exactly that. `src/test/noKeyboardShortcuts.test.ts` holds the whole rule,
-including the check that the allowlist has not gone stale, and it deliberately does not look at
-handlers bound to an element.
+### The browser's menu stops at the seat
 
-### The mouse has one refusal, and it is the same gate as the pinch
+`src/contextGuard.ts` refuses `contextmenu` while `data-seated` is on the document (waiting room,
+queue, table, game over): the browser's image menu over a hand during a five-second window means
+nothing. **The landings keep it** — `/` before a seat, the prose sheet, every content page are read,
+and copying a link or translating is their ordinary use. Same gate and event-time read as
+`pinchGuard.ts`.
 
-`src/contextGuard.ts` refuses `contextmenu` while `data-seated` is on the document, which is the
-waiting room, the queue, the table and the game-over screen — and nothing before a seat is taken.
+It is **not a protection** (the art is in the bundle) and **not a capture-phase listener**: it
+bubbles, so a screen that means something by right-click (`WaitingRoom.svelte`'s ⋯) acts first.
+`src/test/contextGuard.test.ts` dispatches a real event on both sides of the attribute.
 
-The board is not a document. A right-click on it opens a menu about one: copy image address, save
-image as, search the web for this image, reload. None of those is a thing this screen means, and
-all of them land over a hand of cards during a five-second window somebody is about to aim at.
-`WaitingRoom.svelte` had already worked that out row by row — its right-click opens the host's ⋯
-menu and calls `preventDefault` for exactly this reason — so the refusal is the document's now
-rather than one screen's, and a long-press on a card face costs nothing either.
-
-The landings keep the menu, and that is the whole point of gating it rather than declaring it:
-`/` before a seat, the prose sheet behind its `<details>`, and every content page are surfaces
-somebody **reads**. Copying a link, opening a rule in a new tab, translating the page — that is
-the ordinary use of a landing, and taking it away buys nothing. Same argument, same attribute and
-the same event-time read as `pinchGuard.ts`: leaving the table gives the menu back on the frame
-the attribute comes off.
-
-Two things it is not. It is **not a protection** — the card art is in the bundle, the DOM is one
-keystroke away in devtools, and anything sold as "you cannot save this" would be a lie the first
-time somebody opened the network tab. And it is **not a capture phase listener**: it bubbles, so a
-screen that means something by the right-click has already opened its own thing by the time the
-browser's is refused. `src/test/contextGuard.test.ts` dispatches a real event on both sides of the
-attribute.
 ### The hand's hover is a mouse's and nobody else's
 
-`Hand.svelte` gates `pointerenter` on `pointerType === 'mouse'`.
-
-A touch screen synthesises `mouseenter` on the tap for the benefit of pages written before touch
-existed, and then never follows it with a `mouseleave`, because a finger does not leave anywhere —
-it stops existing. So a card tapped and refused stayed lifted out of the fan for the rest of the
-turn, over a hand the player was still trying to read, and nothing but another tap somewhere else
-put it back.
-
-A finger gets `.slot:active` instead, which is press feedback rather than hover state: it exists
-exactly as long as the contact does. The platform's grey tap wash is off the card, because a card
-is a physical object and the wash is a web control's. Same rule and the same reason as the deck's
-`@media (hover: hover)`. `handTouch.test.ts`.
-
-**And the mouse's lift outlives its `pointerleave` by `HOVER_GRACE_MS` (140 ms).** A fan leaves
-wedges of felt between its tilted cards, so a sweep across the hand crosses one between every pair;
-dropping the lift on the leave made the whole fan flicker down and up under a moving mouse. The next
-card's `pointerenter` cancels the drop, and only a pointer that has really left the hand puts the
-card back. Same test file.
-
-**Which card is under the mouse is read off the pointer's x against the fan at rest, never off the
-element the browser hit-tests** (`cardAt`). A lifted card is drawn over its neighbour and
-straightens, so a hover decided by `pointerenter` held a card for a whole card width in one direction
-and let go a card early in the other, and every straightening moved the target under the pointer:
-the sweep stuttered. **The card under the pointer goes all the way up at once and its neighbours
-step aside, each on a stiff spring** (`LIFT_HZ` 8, `LIFT_DAMPING` 0.72: ~40 ms to 90 %, ~3 % past),
-the neighbours lifting `NEIGHBOUR_LIFT` of the way. A continuous wave eased towards the pointer
-(τ 55 ms) was tried first and read as mush: smooth, and a beat late on every card — a game's hand
-answers the mouse on the frame. Written straight onto `.lift` in a frame loop, because nothing
-continuous goes through reactive state; only the index (`hoveredIdx`, the z-order) is. At full lift
-it is exactly the old `scale(1.08) translateY(-14px)`, so `turnPillPlace`'s reserve holds.
-`.lift` carries `will-change: transform`, or every frame repaints each moving card's face, masks
-and shadow. The hand's box is read once per visit (`handBox`), never per `pointermove`, which would
-force a style recalc after every frame's writes. Reduced motion lifts the one card and snaps. Same test file.
+- **`Hand.svelte` gates `pointerenter` on `pointerType === 'mouse'`**: a touch synthesises a
+  `mouseenter` and never a `mouseleave`, so a tapped card stayed lifted. A finger gets `.slot:active`,
+  press feedback that lasts as long as the contact; the grey tap wash is off the card. Same rule as
+  the deck's `@media (hover: hover)`.
+- **The lift outlives its `pointerleave` by `HOVER_GRACE_MS` (140 ms)**, so a sweep across the felt
+  wedges of the fan does not flicker; the next card's `pointerenter` cancels the drop.
+- **The card under the mouse is read off the pointer's x against the fan at rest** (`cardAt`), never
+  off the hit-tested element, which moves as a lifted card straightens.
+- **The card goes all the way up at once and its neighbours step aside, each on a stiff spring**
+  (`LIFT_HZ` 8, `LIFT_DAMPING` 0.72: ~40 ms to 90%, ~3% overshoot; neighbours `NEIGHBOUR_LIFT` of the
+  way). A hand answers the mouse on the frame; an eased wave reads a beat late. Written onto `.lift`
+  in a frame loop (only `hoveredIdx`, the z-order, is state); `.lift` carries `will-change: transform`.
+  Full lift is `scale(1.08) translateY(-14px)`, which `turnPillPlace`'s reserve assumes. The hand's
+  box is read once per visit (`handBox`), never per `pointermove`. Reduced motion lifts and snaps.
+- `handTouch.test.ts` covers all of it.
 
 ## Every panel closes twice
 
-Two ways out, on everything that opens over the board, and they are not interchangeable:
+Everything that opens over the board closes two ways:
 
-- **Escape**, through `hooks/escapeKey.svelte.ts`. One `document` listener rather than one effect
-  per panel, which is how the wild colour picker and the swap target picker ended up with a scrim, a
-  ✕ and nothing on the keyboard while the rules modal, the legal modal, the gear, the mixer and the
-  waiting room's leave confirmation all answered it. The panels do not take focus — a picker opens
-  under the pointer, not under the caret — so the listener cannot live on the element. `enabled`
-  keeps a shut dropdown from eating an Escape aimed at whatever is actually open.
-- **A control that can be pressed**, because Escape is a key a phone does not have and a scrim is
-  not an obvious thing to tap. The pinned score table is the case that was missing one: it is pinned
-  by a touch-only button that its own scrim then covers, and the header's "Hold TAB" hint names a
-  key that device does not have either, so pinned it shows a ✕ where the hint sits. Held with TAB it
-  shows the hint and no ✕: there is nothing to close, and a button that exists for a fifth of a
-  second is noise.
+- **Escape**, through `state/escapeKey.svelte.ts`: one `document` listener, since the panels do not
+  take focus (a picker opens under the pointer). `enabled` keeps a shut dropdown from eating an
+  Escape aimed elsewhere.
+- **A pressable control**, because a phone has no Escape and a scrim is not obviously tappable. The
+  pinned score table shows a ✕ where its "Hold TAB" hint sits; held with TAB it shows the hint and no
+  ✕.
 
-`src/test/escapeClose.test.ts` owns the rule for the surfaces that had no coverage; the rules,
-legal, preferences and waiting-room panels are pinned in their own test files. A dropdown anchored
-to its own opener (the gear, the mixer) needs no ✕ — the button that opened it is the button that
-shuts it, and it is never behind a scrim.
-
-The rule is about panels somebody chose to open. A screen a tab boots onto instead of the game is
-not one: `<Reconnecting />` and `<TabTaken />` both answer nothing on the keyboard, because there is
-no game underneath to reveal by dismissing them. Both carry the one control worth carrying instead —
-give up and go to the menu, bring the game here.
+`src/test/escapeClose.test.ts`; the rules, preferences and waiting-room panels in their own test files.
+A dropdown anchored to its own opener (the gear, the mixer) needs no ✕. `<Reconnecting />` and
+`<TabTaken />` are screens, not panels: no Escape, one control each instead.
 
 ## Rules modal
-- `RulesModal` accessible from Lobby + WaitingRoom (top-right) and GameView (action bar "Rules").
-- Close: ✕, footer Close, backdrop click, `Escape`.
-- Mobile (`max-width:46rem`): the game's sheet — see below.
-- `document.body.style.overflow='hidden'` while open; restored on unmount.
-- Content lives in translations; component is content-agnostic.
+
+- Opened by `RulesButton`: the "How to play" pill on the lobby, waiting room and search, the "?" chip
+  in the chrome row at the table.
+- Closes on ✕, the footer Close, a backdrop click, `Escape`.
+- `document.body.style.overflow='hidden'` while open, restored on unmount.
+- Content lives in translations; the component is content-agnostic.
 
 ### One sheet, four surfaces
 
-Below **46rem** four panels stop being what a pointer opens and become the same thing a thumb does:
-this modal, `<Preferences />`, `<AudioSettings />` and the home page's prose sheet. Up from the
-bottom edge, full width, `border-radius: var(--radius-xl) var(--radius-xl) 0 0` over a 4px stroke,
-92vh, a 20px title beside a 40px ✕ carrying a 20px drawing, the body scrolling between a pinned
-header and a pinned foot, and the last control clear of `--safe-bottom`. The entry is
-`translateY(24px)` at `0.26s var(--ease-bounce)` — from the edge it is anchored to, never a scale: a
-dropdown punches in from the control it hangs off, and a sheet scaling up is a card growing out of
-the bottom of the screen.
-
-Two of them were already that. The modal was the drift, in both directions at once:
-
-- **It flipped at 480px**, which is a table's breakpoint (a column has to go) and not a panel's. The
-  drawer, the two settings panels and every other shape-change on this site happen at 46rem, so
-  between 480px and 46rem the rulebook arrived as a centred desktop card over a screen whose
-  navigation had already become a burger.
-- **And once it flipped it wore its own numbers**: an 18px title over a 32px ✕ — a pointer's target —
-  where the panel it shares a chip row with wears 20 over 40, and a footer button sitting in the
-  home indicator's band.
-
-The home sheet is the fourth and had never been a sheet at all on a phone; `seo.md` has it, because
-what is fixed there is also a `<details>`. The ✕ is now one drawing in all four
-(`M6 6l12 12M18 6L6 18`), never a font character — the fallback chain does not get to choose what a
-close button looks like.
-
-`rulesModal.test.ts` asserts the modal's half **against `Preferences.svelte`** rather than against
-numbers typed into the test: a sheet re-measured once moves all of them or fails. jsdom applies no
-component styles and a media query has no layout to be wrong in, so it is a source scan, like every
-other rule of this kind here.
+Below **46rem** this modal, `<Preferences />`, `<AudioSettings />` and the home page's prose sheet are
+one shape: up from the bottom edge, full width, `border-radius: var(--radius-xl) var(--radius-xl) 0 0`
+over a 4px stroke, 92vh, a 20px title beside a 40px ✕ carrying a 20px drawing, the body scrolling
+between a pinned header and a pinned foot, the last control clear of `--safe-bottom`. Entry is
+`translateY(24px)` at `0.26s var(--ease-bounce)` — from the anchored edge, never a scale. **46rem is
+the width everywhere** (the drawer and the panels change there; 480px is a table column's
+breakpoint). The ✕ is one drawing in all four (`M6 6l12 12M18 6L6 18`), never a font character. The
+home sheet's half is in `seo.md`. `rulesModal.test.ts` asserts the modal **against
+`Preferences.svelte`**, so re-measuring one sheet moves all or fails.
 
 ### Two halves, and why the second one exists
 
-The modal answers two questions and only one of them is the rulebook. "What happens now" is read
-standing up in the middle of a round; "what is this card" is read before the first deal, and it was
-answered nowhere the player could reach in one press.
+"What happens now" is read mid-round; "what is this card" is read before the first deal. A newcomer's
+model of the game has a slot for Skip, Reverse and +2 and none for Swap or Global Switch, and a bullet
+naming a card does not make its face recognisable.
 
-The report was about the opener: a first-time player opens "How to play", reads that a Swap takes
-somebody's whole hand and a Global Switch slides every hand one seat along, and still cannot
-recognise either of them when one turns up in their hand thirty seconds later. That is not a wording
-problem. They arrive holding a model of a card game of colours and symbols, that model has a slot for
-Skip, Reverse and +2, and it has no slot at all for the two cards this game adds. A bullet naming a
-card asks somebody to picture it; the face is the thing that makes it recognisable.
+So the second tab draws the deck: `game/cardCatalogue.ts` is the faces (one kind per entry, the real
+`<Card />`, each coloured kind in a different suit so all four colours appear once) and the copy is
+`t.cardNames` plus `t.cardBriefs`, one line each. The lede states the four suits.
 
-So the second tab draws the deck: `components/cardCatalogue.ts` is the faces — one kind per entry,
-`<Card />` itself rather than a picture of one, each coloured kind in a different suit so all four
-colours appear once — and the copy is `t.cardNames` plus `t.cardBriefs`, one line each. The lede is
-the only place the four suits are stated, because a catalogue that drew all four of every coloured
-kind is 16 faces of the same information.
-
-What it is deliberately not:
-
-- **Not the `/cards/` page.** That one is a catalogue for somebody who came looking for one card:
-  copies, points, the long form, every suit drawn. This is eight lines for somebody who wants to be
-  ready in the next thirty seconds. Same reason the two sets of prose are separate — `src/content/`
-  is build-time only and the app never imports it, so a brief here is not a copy of an effect there,
-  it is a shorter sentence with a different job.
-- **Not a link to it either.** The rule the footer comment carries is unchanged: this opens mid-match,
-  and anything navigable is an invitation to leave the table, new tab or not. The tab is how the
-  cards got here *instead of* a link. `rulesModal.test.ts` still asserts zero links.
-- **Not a third place the card numbers live.** No copies, no points. Those are checked against the
-  server's source on the page that prints them, and a number typed here would be right on the day it was
-  written.
-
-Mechanics worth knowing before touching it: the two panels share **one** scroller (a card is a fixed
-height and a second scrolling box inside it is a scrollbar over a scrollbar), so `select()` resets
-`scrollTop` — otherwise a player who read the rules to the bottom lands halfway down a grid they have
-never seen. The tab row is `role="tablist"` with arrows/Home/End **on the focused row**, which is the
-accessibility path the no-shortcuts rule keeps open, not a global listener. `Escape` still closes the
-modal: a tab is not a layer, and one press closes one thing. The `tab` prop only exists so the dev
-gallery can shoot the second half (`lobby-rules-cards`); it is read once, not tracked.
-
-**The switch is a change of contents and nothing else, which took three things.** It read as brutal
-because all three moved at once. The card was sized to its own contents under a `max-height`, and the
-two panels are nothing like the same length — so pressing a tab resized the whole modal, and the
-header, the tab row and the footer all travelled with it, including the control that had just been
-pressed. It is `height: min(88vh, 640px)` now (92vh as a sheet): one box, whatever is in it. The
-scroller was declared `scroll-behavior: smooth`, which turned the `scrollTop` reset into a second
-movement — the outgoing panel scrolling up the card while the new one arrived — so the declaration is
-gone and the jump is instant, which is invisible under the third thing. And the third is the fade:
-each panel is wrapped in a `.panel` div that is mounted fresh on every switch, so a 0.18s
-opacity-only CSS animation runs itself with no state to hold. **Opacity only** — anything that slides
-moves copy towards a player who is reading it, and `select()` returns early on the tab already
-showing so pressing it again replays nothing. Reduced motion drops the animation like every other one
-here.
+- **Not the `/cards/` page** (copies, points, the long form, every suit), and **not a link to it**:
+  the modal opens mid-match, and anything navigable invites leaving the table. `rulesModal.test.ts`
+  asserts zero links.
+- **No copies, no points**: those are checked against the server on the page that prints them.
+- **The two panels share one scroller**, so `select()` resets `scrollTop`. The tab row is
+  `role="tablist"` with arrows/Home/End **on the focused row**. `Escape` closes the modal (a tab is not
+  a layer). The `tab` prop exists for the dev gallery (`lobby-rules-cards`), read once.
+- **The switch changes the contents and nothing else**: the card has a fixed `height: min(88vh,
+  640px)` (92vh as a sheet), so the header and tabs never travel; the scroller has no smooth scrolling,
+  so the reset is instant; each panel is a fresh `.panel` running a 0.18s **opacity-only** fade, and
+  `select()` returns early on the tab already showing. Reduced motion drops the fade.
 
 ## Privacy and terms
-Not a modal any more. Privacy, terms and credits are one content page (`/privacy/`,
-`/fr/confidentialite/`), linked from both footers: at the right-hand end of the content pages' fixed
-bar, and last in the row of links under the game on the home page. What changed and why:
 
-- **A policy has to be linkable.** The modal existed on one screen of one application, so there was
-  no way to send somebody the terms, no way to reach it from a content page, and nothing for a
-  crawler or a store listing to point at. That outweighs the navigation it costs, which is a
-  navigation away from the *lobby* — no seat is taken there, and nothing is lost by leaving.
-- **One page, three sections, with a jump list.** The three documents still answer three unrelated
-  questions, and only one of them is ever the one somebody came for; `#privacy`, `#terms` and
-  `#credits` do what the tab strip did, minus the component state and minus the script, and each one
-  is a URL that can be sent on its own.
-- **The copy left the i18n bundle.** It is `src/content/legal.ts`, typed `Record<Lang, LegalDoc[]>`
-  so a document still cannot exist in one language only, and read at build time by
-  `content/LegalArticle.svelte`. `src/i18n/en.ts` is downloaded by every player on every visit; these
-  three documents are read by almost nobody and they are long. Tutoiement applies here too: a policy
-  that suddenly switches to `vous` is a policy written by somebody else, and it reads that way.
-- **The footer link, not the gear.** It has to be reachable before typing a name and before taking a
-  seat. Preferences are things a player changes; this is something they read once, if ever, and a
-  link they cannot find is the same as no link. The home footer is hidden on `data-seated`, which is
-  exactly the screens where nobody is reading a policy.
+Privacy, terms and credits are one content page (`/privacy/`, `/fr/confidentialite/`), linked from
+every footer, reachable before typing a name.
 
-Where the game's voice and legal accuracy pull apart, accuracy wins and the sentence gets longer.
-`src/test/legal.test.ts` pins the disclosures that are obligations rather than prose, so rewording
-is free and deleting substance is not; it also pins that the page is built, is in the registry, is
-linked from both footers and ships no script. Reasoning and the open questions:
+- **A policy has to be linkable**: by a person, a crawler and a store listing. `#privacy`, `#terms`
+  and `#credits` are each a URL.
+- **The copy is not in the i18n bundle**: `src/content/legal.ts`, typed `Record<Lang, LegalDoc[]>` so
+  a document cannot exist in one language only, rendered at build time by
+  `content/LegalArticle.svelte`. Tutoiement applies here too.
+- **The footer, not the gear**: something read once, before a seat; the footer is hidden on
+  `data-seated`, where nobody is reading a policy.
+
+Where the voice and legal accuracy pull apart, accuracy wins. `src/test/legal.test.ts` pins the
+disclosures, the registry entry, the footer links and that the page ships no script. Reasoning:
 [`docs/notes/legal.md`](legal.md).
-

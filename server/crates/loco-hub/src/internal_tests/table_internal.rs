@@ -1,10 +1,10 @@
-//! Port of `server/hub/table_internal_test.go`.
+//! The table's own task: the hand-off, the stop, the seat bookkeeping.
 
 use crate::HubConfig;
-use crate::actor::TableJob;
-use crate::client::Client;
-use crate::hub::Hub;
-use crate::room::new_room;
+use crate::net::client::Client;
+use crate::router::hub::Hub;
+use crate::table::actor::TableJob;
+use crate::table::room::new_room;
 use crate::table::{MapLoadState, Table};
 use crate::testkit::eventually;
 use std::sync::Arc;
@@ -12,9 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
 
-/// Runs `f` on a table's own task and hands back what it returns. Go's
-/// `onTableValue`: reading a running table from the test task would be the
-/// very race the hand-off exists to remove.
+/// Runs `f` on a table's own task and hands back what it returns: reading a
+/// running table from the test task would be the very race the hand-off
+/// exists to remove.
 async fn on_table<R: Send + 'static>(
     hub: &Hub,
     code: &'static str,
@@ -140,8 +140,8 @@ async fn seat_cancels_the_pending_cleanup() {
     assert!(tbl.cleanup_pending(), "schedule_room_cleanup armed nothing");
 
     let (c, _rx) = Client::detached(&hub);
-    // Go called the hub's seatClient; its Rust half that does the work is
-    // `Table::seat` (`seat_client` only adds the sweep of another table).
+    // `Table::seat` does the work (`seat_client` only adds the sweep of
+    // another table).
     tbl.seat(&c, 0);
 
     assert!(
@@ -155,9 +155,13 @@ async fn seat_cancels_the_pending_cleanup() {
 // set and the session tokens in one move. Shifting one without the others is
 // the class of bug the table type exists to close.
 #[tokio::test]
-async fn drop_seat_shifts_everything_together() {
+async fn remove_seat_shifts_everything_together() {
     let hub = Hub::start(HubConfig::default());
-    let mut tbl = Table::new("AAAAAA", new_room("AAAAAA"));
+    let mut room = new_room("AAAAAA");
+    for n in ["a", "Bot1", "c"] {
+        room.join(n).unwrap();
+    }
+    let mut tbl = Table::new("AAAAAA", room);
     let (a, _ra) = Client::detached(&hub);
     let (c, _rc) = Client::detached(&hub);
     tbl.seat(&a, 0);
@@ -169,9 +173,10 @@ async fn drop_seat_shifts_everything_together() {
 
     // Seat 0 leaves: the bot becomes seat 0 and c becomes seat 1.
     assert!(
-        tbl.drop_seat(0),
-        "drop_seat reported nobody left, but c is still seated"
+        tbl.remove_seat(0).unwrap(),
+        "remove_seat reported nobody left, but c is still seated"
     );
+    assert_eq!(tbl.room.nickname(0), Some("Bot1"), "the room did not shift");
 
     assert!(
         tbl.seats.len() == 2 && tbl.client(0).is_none() && same(tbl.client(1), &c),
@@ -270,9 +275,8 @@ async fn reset_for_next_match_clears_the_gate() {
 
 // Stop waits for the loop to be gone rather than merely asking it to go. It
 // used to close the channel and return, which meant everything after Stop ran
-// alongside a loop still dispatching. Go parked the loop inside a snapshot
-// save whose reply nobody read; here the loop is parked inside a job on it,
-// which is the same claim: Stop does not return mid-handler.
+// alongside a loop still dispatching. The loop is parked inside a job on
+// it: Stop does not return mid-handler.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_waits_for_the_loop_to_leave_the_handler() {
     let hub = Hub::start(HubConfig::default());

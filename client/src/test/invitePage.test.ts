@@ -16,7 +16,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { INVITE, INVITE_OG, OG_IMAGE, PAGES, NAV, LANGS } from '../seo/meta'
-import { tableInviteUrl } from '../hooks/tableInvite'
+import { tableInviteUrl } from '../state/tableInvite'
 import { routeFor } from '../seo/document'
 import { sitemapUrls } from '../seo/sitemap'
 

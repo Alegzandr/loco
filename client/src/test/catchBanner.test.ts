@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from './render'
 import { act } from './renderHook'
 import GameView from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO } from '../types/protocol'
 
 const red3: CardDTO = { color: 'red', kind: 'number', value: 3 }

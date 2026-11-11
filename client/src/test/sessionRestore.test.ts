@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from './render'
 import { act } from './renderHook'
-import { gameStore } from '../hooks/gameStore'
-import { initSessionRestore, RESTORE_TIMEOUT_MS } from '../hooks/sessionRestore'
-import { readSession, writeSession, SESSION_KEY } from '../hooks/sessionPersistence'
+import { gameStore } from '../state/gameStore'
+import { initSessionRestore, RESTORE_TIMEOUT_MS } from '../state/sessionRestore'
+import { readSession, writeSession, SESSION_KEY } from '../state/sessionPersistence'
 import type { ClientMsg, ServerMsg } from '../types/protocol'
 
 /**
@@ -24,7 +24,7 @@ const stableForceClose = () => {}
 let capturedReconnect: (() => ClientMsg | null) | undefined
 let capturedOnMessage: ((msg: ServerMsg) => void) | undefined
 
-vi.mock('../hooks/webSocket.svelte', () => ({
+vi.mock('../state/webSocket.svelte', () => ({
   webSocket: (
     onMessage: (msg: ServerMsg) => void,
     getReconnectMsg?: () => ClientMsg | null,
@@ -35,8 +35,8 @@ vi.mock('../hooks/webSocket.svelte', () => ({
   },
 }))
 
-vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+vi.mock('../state/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/appEffects.svelte')>()),
   gameAudio: () => {},
 }))
 vi.mock('../components/GameView.svelte', async () => ({

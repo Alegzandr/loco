@@ -309,7 +309,7 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
 
 /**
  * The player's address is what every per-network ceiling in the server is
- * keyed on (loco-hub/src/privacy.rs: client_net; serve.rs: admit; the wrong-code budget in rooms.rs), and this proxy
+ * keyed on (loco-hub/src/net/privacy.rs: client_net; serve.rs: admit; the wrong-code budget in rooms.rs), and this proxy
  * is the only thing that decides what the server gets to believe about it.
  *
  * The hole this pins shut: `ws.` is grey-clouded on purpose, so Cloudflare is
@@ -387,8 +387,35 @@ describe('the network key the server is keyed on (ws-proxy.conf)', () => {
 
     const site = serverBlocks().find((b) => b.name === 'default')
     expect(site, 'no default server block found').toBeDefined()
-    expect(site!.sets.loco_cf_ip).toBe('$http_cf_connecting_ip')
-    expect(site!.sets.loco_real_ip).toBe('""')
+    expect(site!.sets.loco_cf_ip).toBe('$site_cf_ip')
+    expect(site!.sets.loco_real_ip).toBe('$site_real_ip')
+  })
+
+  it('believes CF-Connecting-IP on the site only when Cloudflare delivered the request', () => {
+    // The site's hostname is behind the CDN, but the origin's address is public
+    // (`ws.` resolves to it), so a client can reach the site block around the
+    // edge with a CF-Connecting-IP of its own. The gate is the peer Traefik saw,
+    // carried in X-Real-IP: a Cloudflare range forwards the header, anything
+    // else forwards nothing and is keyed on that peer.
+    const geo = /^geo\s+\$http_x_real_ip\s+\$via_cloudflare\s*\{([^}]*)\}/m.exec(conf)
+    expect(geo, 'no geo block gating CF-Connecting-IP on the delivering peer').not.toBeNull()
+    expect(geo![1]).toMatch(/^\s*default\s+0;/m)
+    expect(geo![1]).toMatch(/^\s*173\.245\.48\.0\/20\s+1;/m)
+    expect(geo![1]).toMatch(/^\s*2606:4700::\/32\s+1;/m)
+
+    const cf = /^map\s+\$via_cloudflare\s+\$site_cf_ip\s*\{([^}]*)\}/m.exec(conf)
+    expect(cf, 'no map deciding $site_cf_ip').not.toBeNull()
+    expect(cf![1]).toMatch(/^\s*1\s+\$http_cf_connecting_ip;/m)
+    expect(cf![1]).toMatch(/^\s*default\s+"";/m)
+
+    const real = /^map\s+\$via_cloudflare\s+\$site_real_ip\s*\{([^}]*)\}/m.exec(conf)
+    expect(real, 'no map deciding $site_real_ip').not.toBeNull()
+    expect(real![1]).toMatch(/^\s*1\s+"";/m)
+    expect(real![1]).toMatch(/^\s*default\s+\$http_x_real_ip;/m)
+  })
+
+  it('does not advertise the nginx version', () => {
+    expect(conf).toMatch(/^server_tokens\s+off;/m)
   })
 })
 
@@ -466,7 +493,7 @@ describe('the app stays inside the policy', () => {
   // sub-resource. Stated here rather than left to the shape of a regular
   // expression, because the next person to add a link will read this.
   it('names an external host in one module, and never for a sub-resource', () => {
-    const LINKS = path.join(CLIENT, 'src/components/twitchLinks.ts')
+    const LINKS = path.join(CLIENT, 'src/game/twitchLinks.ts')
     const host = /twitch\.tv/
 
     const namers = sources.filter(f => host.test(readFileSync(f, 'utf8')))

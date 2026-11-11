@@ -1,15 +1,16 @@
 //! Room codes and session tokens. Both come from the operating system's
 //! generator and neither has a fallback: the code is the only thing guarding a
-//! private table and the token the only proof behind a seat reclaim. Port of
-//! `server/hub/tokens.go`.
+//! private table and the token the only proof behind a seat reclaim.
 
 use crate::ids::{RoomCode, SessionToken};
-use rand::TryRngCore;
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 
-/// The 32 characters a table code is drawn from: no `0`/`O`, no `1`/`I`.
-/// Identical to Go's, which `client/src/components/tableCodeRules.ts` mirrors.
-pub const ROOM_CODE_CHARS: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+/// The 32 characters a table code is drawn from and validated against: no
+/// `0`/`O`, no `1`/`I`, because a code is read out loud off a stream. The one
+/// spelling; `client/src/game/tableCodeRules.ts` mirrors it and
+/// `serverMirrors.test.ts` pins the mirror to this line.
+pub const ROOM_CODE_CHARS: &str = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /// How many characters a table code has.
 pub const ROOM_CODE_LEN: usize = 6;
@@ -21,7 +22,7 @@ pub const ROOM_CODE_LEN: usize = 6;
 /// and panicking is the correct outcome — the job's `catch_unwind` turns it
 /// into a refused message rather than a dead process.
 fn os_fill(buf: &mut [u8]) {
-    OsRng
+    SysRng
         .try_fill_bytes(buf)
         .expect("the operating system's random source failed");
 }
@@ -74,13 +75,9 @@ pub fn rand_index(n: usize) -> usize {
 /// A 6-character code no live table holds. `taken` is asked about every draw.
 pub fn generate_code(taken: impl Fn(&str) -> bool) -> RoomCode {
     loop {
-        // Spelled out here as well as in ROOM_CODE_CHARS / ROOM_CODE_LEN:
-        // client/src/test/serverSource.ts reads the alphabet and the length
-        // off this body, and `the_generator_draws_the_whole_alphabet` holds
-        // the two spellings together.
-        const CHARS: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        let code: String = (0..6)
-            .map(|_| char::from(CHARS[rand_index(CHARS.len())]))
+        let chars = ROOM_CODE_CHARS.as_bytes();
+        let code: String = (0..ROOM_CODE_LEN)
+            .map(|_| char::from(chars[rand_index(chars.len())]))
             .collect();
         if !taken(&code) {
             return RoomCode::from_trusted(code);
@@ -120,17 +117,21 @@ mod tests {
         for _ in 0..200 {
             let code = generate_code(|_| false);
             assert_eq!(code.len(), ROOM_CODE_LEN);
-            assert!(code.bytes().all(|b| ROOM_CODE_CHARS.contains(&b)), "{code}");
+            assert!(
+                code.bytes()
+                    .all(|b| ROOM_CODE_CHARS.as_bytes().contains(&b)),
+                "{code}"
+            );
         }
     }
 
     // The alphabet is the one the client validates against and the one every
-    // printed code has used since the Go server. Changing it is a protocol
+    // printed code has ever used. Changing it is a protocol
     // change, not a tidy-up.
     #[test]
     fn the_alphabet_is_the_go_one() {
-        assert_eq!(ROOM_CODE_CHARS, b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789");
-        let unique: HashSet<_> = ROOM_CODE_CHARS.iter().collect();
+        assert_eq!(ROOM_CODE_CHARS, "ABCDEFGHJKLMNPQRSTUVWXYZ23456789");
+        let unique: HashSet<_> = ROOM_CODE_CHARS.bytes().collect();
         assert_eq!(unique.len(), 32);
     }
 
@@ -144,7 +145,7 @@ mod tests {
             assert_eq!(code.len(), ROOM_CODE_LEN);
             seen.extend(code.bytes());
         }
-        let want: HashSet<u8> = ROOM_CODE_CHARS.iter().copied().collect();
+        let want: HashSet<u8> = ROOM_CODE_CHARS.bytes().collect();
         assert_eq!(seen, want);
     }
 

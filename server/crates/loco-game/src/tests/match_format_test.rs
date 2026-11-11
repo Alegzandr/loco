@@ -1,6 +1,3 @@
-//! Ported from `server/game/match_format_test.go`. `playRound` and
-//! `matchRoom` live in `support.rs` as `play_round` and `match_room`.
-//!
 //! The match format, since rounds won started deciding it.
 //!
 //! Two rules live here and they are separate: who wins a match that has run its
@@ -18,13 +15,13 @@ use crate::room::MatchFormat;
 fn determine_match_winner_rounds_won_beats_score() {
     let mut r = match_room("MW1", MatchFormat::Bo3, &["alice", "bob"]);
     r.round_number = 3;
-    r.rounds_won = vec![2, 1];
-    r.scores = vec![10, 500];
-    r.lost_hand_total = vec![0, 0];
+    set_rounds_won(&mut r, &[2, 1]);
+    set_scores(&mut r, &[10, 500]);
+    set_lost_hand_totals(&mut r, &[0, 0]);
 
     let got = r
         .determine_match_winner()
-        .map(|i| r.players[i].nickname.clone());
+        .map(|i| r.seats[i].nickname.clone());
     assert_eq!(
         got.as_deref(),
         Some("alice"),
@@ -36,13 +33,13 @@ fn determine_match_winner_rounds_won_beats_score() {
 fn determine_match_winner_score_breaks_rounds_tie() {
     let mut r = match_room("MW2", MatchFormat::Bo3, &["alice", "bob"]);
     r.round_number = 3;
-    r.rounds_won = vec![1, 1];
-    r.scores = vec![40, 90];
-    r.lost_hand_total = vec![0, 0];
+    set_rounds_won(&mut r, &[1, 1]);
+    set_scores(&mut r, &[40, 90]);
+    set_lost_hand_totals(&mut r, &[0, 0]);
 
     let got = r
         .determine_match_winner()
-        .map(|i| r.players[i].nickname.clone());
+        .map(|i| r.seats[i].nickname.clone());
     assert_eq!(
         got.as_deref(),
         Some("bob"),
@@ -54,13 +51,13 @@ fn determine_match_winner_score_breaks_rounds_tie() {
 fn determine_match_winner_lost_hand_breaks_score_tie() {
     let mut r = match_room("MW3", MatchFormat::Bo3, &["alice", "bob"]);
     r.round_number = 3;
-    r.rounds_won = vec![1, 1];
-    r.scores = vec![60, 60];
-    r.lost_hand_total = vec![12, 40];
+    set_rounds_won(&mut r, &[1, 1]);
+    set_scores(&mut r, &[60, 60]);
+    set_lost_hand_totals(&mut r, &[12, 40]);
 
     let got = r
         .determine_match_winner()
-        .map(|i| r.players[i].nickname.clone());
+        .map(|i| r.seats[i].nickname.clone());
     assert_eq!(
         got.as_deref(),
         Some("alice"),
@@ -72,13 +69,13 @@ fn determine_match_winner_lost_hand_breaks_score_tie() {
 fn determine_match_winner_sudden_death_when_nothing_separates() {
     let mut r = match_room("MW4", MatchFormat::Bo3, &["alice", "bob"]);
     r.round_number = 3;
-    r.rounds_won = vec![1, 1];
-    r.scores = vec![60, 60];
-    r.lost_hand_total = vec![20, 20];
+    set_rounds_won(&mut r, &[1, 1]);
+    set_scores(&mut r, &[60, 60]);
+    set_lost_hand_totals(&mut r, &[20, 20]);
 
     let got = r
         .determine_match_winner()
-        .map(|i| r.players[i].nickname.clone());
+        .map(|i| r.seats[i].nickname.clone());
     assert_eq!(got, None, "winner = {got:?}, want None (sudden death)");
 }
 
@@ -163,7 +160,7 @@ fn room_match_runs_on_while_the_lead_is_catchable() {
         "match over at 3-1 in a BO7 (round {})",
         r.round_number
     );
-    assert_eq!(r.rounds_won, vec![3, 1], "RoundsWon, want [3 1]");
+    assert_eq!(rounds_won(&r), vec![3, 1], "RoundsWon, want [3 1]");
 }
 
 // Past two seats the majority is the wrong number — six players sharing a BO7
@@ -200,9 +197,9 @@ fn room_sudden_death_deals_another_round() {
     // Now the level case, built directly: identical rounds, points and leftovers.
     let mut r2 = match_room("SUD2", MatchFormat::Bo3, &["alice", "bob"]);
     r2.round_number = 3;
-    r2.rounds_won = vec![1, 1];
-    r2.scores = vec![30, 30];
-    r2.lost_hand_total = vec![30, 30];
+    set_rounds_won(&mut r2, &[1, 1]);
+    set_scores(&mut r2, &[30, 30]);
+    set_lost_hand_totals(&mut r2, &[30, 30]);
     assert!(
         r2.decisive_leader().is_none(),
         "decisiveLeader = {:?} on a level table, want -1",
@@ -210,7 +207,7 @@ fn room_sudden_death_deals_another_round() {
     );
     let got = r2
         .determine_match_winner()
-        .map(|i| r2.players[i].nickname.clone());
+        .map(|i| r2.seats[i].nickname.clone());
     assert_eq!(got, None, "winner = {got:?}, want None");
     r2.begin_next_round(NOW)
         .unwrap_or_else(|e| panic!("BeginNextRound: {e}"));
@@ -234,18 +231,12 @@ fn room_forfeit_during_an_uncatchable_lead() {
     play_round(&mut r, 0, &[wild(Kind::WildDrawFour)]);
     play_round(&mut r, 0, &[wild(Kind::WildDrawFour)]);
     play_round(&mut r, 0, &[wild(Kind::WildDrawFour)]);
-    let scores = r.scores.clone();
-    let rounds_won = r.rounds_won.clone();
+    let before = r.seats().to_vec();
 
     r.forfeit_to(1, NOW)
         .unwrap_or_else(|e| panic!("ForfeitTo: {e}"));
     assert_eq!(r.match_winner, "bob", "MatchWinner, want bob");
-    assert!(
-        r.scores == scores && r.rounds_won == rounds_won,
-        "forfeit moved the scoreboard: scores={:?} roundsWon={:?}, want {scores:?}/{rounds_won:?}",
-        r.scores,
-        r.rounds_won
-    );
+    assert_eq!(r.seats(), before, "forfeit moved the scoreboard");
 }
 
 // The next round's opener is still the seat with the fewest points, on purpose:
@@ -253,8 +244,8 @@ fn room_forfeit_during_an_uncatchable_lead() {
 #[test]
 fn room_biggest_loser_stays_on_points() {
     let mut r = match_room("BL", MatchFormat::Bo7, &["alice", "bob", "carol"]);
-    r.scores = vec![80, 5, 40];
-    r.rounds_won = vec![0, 3, 0];
+    set_scores(&mut r, &[80, 5, 40]);
+    set_rounds_won(&mut r, &[0, 3, 0]);
     let got = r.biggest_loser();
     assert_eq!(
         got, 1,

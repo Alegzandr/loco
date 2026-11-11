@@ -1,4 +1,4 @@
-//! Ported from Go: `server/game/audit_fixes_test.go`.
+//! Fixes from the audit: each test pins a bug that once shipped.
 
 use super::support::*;
 use crate::card::{Card, Color};
@@ -55,25 +55,22 @@ fn room_remove_lobby_player_rebases_the_scores() {
         must_join(&mut r, n);
     }
     r.status = Status::Finished;
-    r.scores = vec![10, 20, 30];
-    r.rounds_won = vec![1, 0, 2];
-    r.lost_hand_total = vec![5, 6, 7];
-    r.retired = vec![false, true, false];
-    r.round_history = vec![vec![1, 2, 3], vec![4, 5, 6]];
+    set_scores(&mut r, &[10, 20, 30]);
+    set_rounds_won(&mut r, &[1, 0, 2]);
+    set_lost_hand_totals(&mut r, &[5, 6, 7]);
+    r.seats[1].retired = true;
+    for (seat, points) in [[1, 4], [2, 5], [3, 6]].into_iter().enumerate() {
+        r.seats[seat].round_points = points.to_vec();
+    }
 
     r.remove_lobby_player(1).unwrap();
 
-    assert_eq!(r.scores, vec![10, 30], "Scores");
-    assert_eq!(r.rounds_won, vec![1, 2], "RoundsWon");
-    assert_eq!(r.lost_hand_total, vec![5, 7], "LostHandTotal");
-    assert_eq!(r.round_history[0], vec![1, 3], "RoundHistory[0]");
-    assert_eq!(r.round_history[1], vec![4, 6], "RoundHistory[1]");
-    assert_eq!(
-        r.retired,
-        vec![false, false],
-        "Retired = {:?}, want [false false]",
-        r.retired
-    );
+    assert_eq!(scores(&r), vec![10, 30], "Scores");
+    assert_eq!(rounds_won(&r), vec![1, 2], "RoundsWon");
+    assert_eq!(lost_hand_totals(&r), vec![5, 7], "LostHandTotal");
+    assert_eq!(r.round_history()[0], vec![1, 3], "RoundHistory[0]");
+    assert_eq!(r.round_history()[1], vec![4, 6], "RoundHistory[1]");
+    assert_eq!(retired_flags(&r), vec![false, false], "Retired");
 }
 
 // A one-card interject off a one-card hand was declared before the message,

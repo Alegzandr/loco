@@ -2,7 +2,7 @@
  * The graphics ladder, and the two things about it that fail silently.
  *
  * A tier is a set of numbers the renderer reads (`scene/quality.ts`) and a
- * preference that resolves to one (`hooks/graphicsPref.ts`). Neither errors
+ * preference that resolves to one (`state/graphicsPref.ts`). Neither errors
  * when it stops being a ladder: a `medium` that renders larger than `high`
  * is merely a strange setting, and an `auto` that lands every phone on the
  * full render is merely a long loading gate on a phone. And the finishing
@@ -25,7 +25,7 @@ import {
   resetGraphicsPref,
   resolveGraphics,
   setGraphicsPref,
-} from '../hooks/graphicsPref'
+} from '../state/graphicsPref'
 
 const read = (p: string) => readFileSync(join(process.cwd(), 'src', p), 'utf8')
 
