@@ -486,10 +486,21 @@ impl HubCore {
     /// construction path does all of its own writing before this — a task
     /// reading fields somebody is still writing is the race the split between
     /// building and starting exists to make impossible.
-    pub fn open_table(&mut self, mut table: crate::table::Table) -> &TableHandle {
+    pub fn open_table(&mut self, table: crate::table::Table) -> &TableHandle {
+        self.open_table_with(table, None)
+    }
+
+    /// `open_table`, with the job the table's task runs before anything else:
+    /// work that has to happen on the table (it arms deadlines) and that no
+    /// full box may refuse.
+    pub fn open_table_with(
+        &mut self,
+        mut table: crate::table::Table,
+        first: Option<crate::actor::TableJob>,
+    ) -> &TableHandle {
         table.timings = Arc::new(self.hub.config().timings.clone());
         let code = table.code.clone();
-        let handle = TableHandle::start(table, self.hub.clone());
+        let handle = TableHandle::start(table, self.hub.clone(), first);
         self.hub.metrics().rooms.fetch_add(1, Ordering::Relaxed);
         self.tables.insert(code.clone(), handle);
         &self.tables[&code]
@@ -502,10 +513,13 @@ impl HubCore {
         t
     }
 
-    /// Forgets a table and stops its task. The map entry goes first, so nothing
-    /// new can be routed to it; the task finishes the job it is in, if any, and
-    /// is gone. Jobs left in its box are abandoned on purpose: they are all
-    /// addressed to a room that no longer exists.
+    /// Forgets a table and stops its task, in one step on the loop and without
+    /// waiting for it. The map entry goes first, so nothing new can be routed to
+    /// it. A job is synchronous and is never cut in half, so the one the task
+    /// may be inside finishes; after it, the task runs nothing — no job still
+    /// in its box, no deadline, not even one that fell due in the same batch
+    /// (`actor::run` checks the stop before each). Waiting here instead would
+    /// block every other table behind one.
     pub fn delete_room(&mut self, code: &str) {
         let Some(mut t) = self.tables.remove(code) else {
             return;

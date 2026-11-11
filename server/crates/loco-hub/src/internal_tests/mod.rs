@@ -9,6 +9,7 @@ mod bottiming_internal;
 mod catch_afk_internal;
 mod converter;
 mod gameplay_internal;
+mod lifecycle;
 mod match_history_internal;
 mod suspect;
 mod table_internal;

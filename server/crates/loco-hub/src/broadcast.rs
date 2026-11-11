@@ -42,15 +42,35 @@ impl Table {
     }
 
     /// Every path that grows a hand goes through here: the player gets the
-    /// cards, everyone else the count.
+    /// cards, everyone else the count. A penalty that drew nothing announces
+    /// nothing.
     pub fn send_hand_growth(&self, seat: usize, new_cards: &[Card]) {
         if new_cards.is_empty() {
             return;
         }
+        self.announce_cards_drawn(seat, new_cards, true);
+    }
+
+    /// The one builder of `card_drawn`, so the cards themselves can only ever
+    /// reach the seat that drew them. A draw is announced even when the piles
+    /// gave nothing (the seat has still drawn, and keeps the turn), which is
+    /// why it calls this directly rather than `send_hand_growth`.
+    /// `with_deadline` is false for a bot's own draw, whose announcement has
+    /// never carried the turn clock.
+    pub(crate) fn announce_cards_drawn(
+        &self,
+        seat: usize,
+        new_cards: &[Card],
+        with_deadline: bool,
+    ) {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        let dl = self.turn_deadline_ms();
+        let dl = if with_deadline {
+            self.turn_deadline_ms()
+        } else {
+            0
+        };
         let base = CardDrawnMsg {
             player_index: Some(seat as i32),
             turn: state.current_turn as i32,

@@ -213,11 +213,22 @@ Four rules hold the split together, and each of them closes a way it could come 
   construction path — `create_room`, a matchmade pairing, `play_bot`, a snapshot restore — does all
   of its own writing in between. Here the type system enforces it as well: once `open_table` has the
   `Table`, nobody else holds it.
-- **A table stops existing and stops running at the same moment.** `HubCore::delete_room` removes the
-  map entry first, so nothing new can be routed to it, signals the task to stop, and awaits it on a
-  spawned task so the hub's loop never waits on a table. The task finishes the job it is in, if any.
-  Jobs left in the box are abandoned on purpose — they are all addressed to a room that no longer
-  exists.
+- **Deleting a table removes it and stops it in one step on the loop.** `HubCore::delete_room`
+  removes the map entry first, so nothing new can be routed to it, signals the task to stop, and
+  awaits it on a spawned task so the hub's loop never waits on a table. "At the same moment" cannot
+  be literal without blocking the loop: a job is synchronous, so the one the task may be inside when
+  the deletion lands finishes — it is never cut in half. **After it the task runs nothing.** The
+  `select!` is biased towards the stop, so no job left in the box runs (they are all addressed to a
+  room that no longer exists), and `actor::run` checks the stop before each deadline of a batch that
+  fell due together, so not even the rest of that batch runs.
+  `internal_tests/lifecycle.rs::a_deleted_table_runs_nothing_after_the_job_it_was_in` holds the task
+  inside one deadline, deletes the table, and fails if the second deadline due with it, or a job
+  queued behind it, still speaks.
+- **A job that must be a table's first is handed to the task, never posted.**
+  `HubCore::open_table_with(table, Some(job))` gives the job to `TableHandle::start`, which runs it
+  before the task reads its box: there is no box to refuse it and no answer to ignore. The solo deal
+  is the one user (`open_solo_table`); it used to be posted with its answer discarded.
+  `tests/funnels.rs::no_post_result_is_thrown_away` fails on a `let _ =` in front of a post.
 - **A panic is caught on the table too** (`actor::run_job`, `catch_unwind` around each job, with
   `panic = "unwind"` in the release profile), and it matters more there, not less. A panic on the
   old shared loop took the process; a panic that killed a table's task would take only that table,
@@ -1246,9 +1257,11 @@ strangers will not, and the player who is still at the table did nothing wrong.
   disconnect people actually have (a wifi hiccup, a tab reload, both back in two or three seconds)
   and ends the rest quickly.
 - Either expiry calls `Table::forfeit_match`, which is `Room::forfeit_to` plus the broadcast:
-  `match_end { forfeit: true, player_index: <the seat that left> }`. The turn clock and the gate are
-  cleared there; a per-match deadline still armed (a turn timeout, a bot move) finds the match over
-  when it fires and does nothing, because every fire checks the status first.
+  `match_end { forfeit: true, player_index: <the seat that left> }`. **It disarms every deadline the
+  match armed** — the turn clock, the gate, the reveal, every bot move and reaction — and keeps the
+  two that belong to the table: `room_cleanup`, and the `reconnect_expiry` of a seat still away,
+  which settles that seat after the match. (Every fire still checks the status first, as belt and
+  braces.) `internal_tests/lifecycle.rs::a_forfeit_disarms_what_the_match_armed`.
 - **The scoreboard is untouched.** A forfeit is not a win on points, and dealing the abandoned round
   out to the survivor would write a row into the score table for a round nobody played to the end.
   What the player gets instead is a game-over screen that says what happened.
@@ -1641,11 +1654,14 @@ map. `maploading.rs`.
 
 ## Hand synchronisation
 **Every path that grows a hand sends the affected player the actual cards (`card_drawn.cards`) and
-everyone else only the count (`drawn_count`).** `Table::send_hand_growth` is that split for every
-path but the voluntary draw: `auto_draw_on_timeout` (both the plain and the penalty branch),
-`handle_catch_uno`, `handle_bot_catch` and `penalize_failed_catch`. `handle_draw_card` builds the same
-two messages inline, because it carries the re-armed turn deadline it has just set; a bot's draw is
-one `card_drawn` with the count only, since a bot has no socket to send cards to. Hands rearranged
+everyone else only the count (`drawn_count`).** `Table::send_hand_growth` is that split:
+`auto_draw_on_timeout` (both the plain and the penalty branch), `handle_catch_uno`,
+`handle_bot_catch` and `penalize_failed_catch` call it, and it announces nothing when the piles gave
+nothing. Under it, **`Table::announce_cards_drawn` is the one builder of `card_drawn`**, and the
+two draws that announce even an empty draw call it directly: `handle_draw_card` (with the turn
+deadline it has just re-armed) and a bot's own draw (without one, as it always was; a bot has no
+socket, so everybody gets the count). `tests/funnels.rs::card_drawn_is_built_in_one_place` fails
+on a second builder. Hands rearranged
 wholesale (Swap / GlobalSwitch) instead get a personalised `game_state` per recipient
 (`broadcast_personalized_game_state`).
 
@@ -1929,12 +1945,14 @@ bot count.
 - **What still crosses a box, and what it does when the box is full:**
   - hub → table, critical (`post_critical`, retried once after 1s, then `WARN`): `disconnect` — a drop
     leaves a seat held by a socket that no longer exists; `restore_arm` — a drop leaves a restored
-    match with no clock, no bot and no cleanup.
+    match with no clock, no bot and no cleanup; `drain_notice` — a drop leaves a table's players
+    sitting through the drain told nothing, against "every table is told once"
+    (`internal_tests/lifecycle.rs::a_drain_notice_reaches_a_table_whose_box_was_full`).
   - table → hub (`post_to_router`, every one retried once after `ROUTER_RETRY`, 1s): deleting a room
     (`delete_room`, `delete_abandoned`), requeueing a survivor, enqueueing after a released seat
     (`enqueue`, `open_solo`), the wrong-code charge (`failed_join`), the live list.
-  - hub → table, best-effort (`post_from_timer`, dropped with an `INFO`): the latency fan-out, the
-    drain notice, sweeping a client out of a table it left for another. Each is a message a table did
+  - hub → table, best-effort (`post_from_timer`, dropped with an `INFO`): the latency fan-out and
+    sweeping a client out of a table it left for another. Each is a message a table did
     not get to send rather than a fault.
   - a player's message (`post_to_table`): a full box answers that player `server busy, please retry`
     and counts `messages_dropped_busy`. A full box names one table, not the server.
@@ -2008,7 +2026,11 @@ is no different: a write that waits inside a handler is a table that has stopped
   very next call and a queue holding the caller's slice handed the writer whatever the following line
   overwrote it with.
 - **`close` flushes, is idempotent, and gives up.** A shutdown runs on a signal and a second signal is
-  the escape hatch operators are told to use, so closing twice must not panic. The flush is bounded by
+  the escape hatch operators are told to use, so closing twice must not panic. **The escape hatch
+  closes the sink too** (`abandon_drain` in `main.rs`, on a blocking thread, then
+  `process::exit(1)`): exiting straight away lost the queued lines saying why the process went down,
+  its own included. `the_second_signal_flushes_the_log_before_exiting` holds the writer and fails
+  if the queued lines are not out when it returns. The flush is bounded by
   `LOG_CLOSE_GRACE` (2s) and drains at most the queue's capacity rather than waiting for silence,
   because a task that has not noticed the shutdown yet is still logging.
 - **A fatal start logs and returns rather than exiting.** A failed listen writes `FATAL listen failed`

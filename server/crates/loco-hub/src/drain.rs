@@ -19,6 +19,10 @@ use std::sync::atomic::Ordering;
 /// in `i18n/serverErrors.ts`; keep the two in step.
 pub const DRAIN_REFUSAL: &str = "server updating, try again in a moment";
 
+/// How long a drain notice that found its table's box full waits before its
+/// one retry.
+const DRAIN_NOTICE_RETRY: std::time::Duration = std::time::Duration::from_secs(1);
+
 impl Hub {
     /// Puts the hub into draining mode. Safe from any task, and safe more than
     /// once. It goes through the loop, because the work it starts touches the
@@ -65,10 +69,12 @@ impl HubCore {
         // Every table is told once — every table, not only the ones playing:
         // a waiting room, a game-over screen and a versus reveal are the three
         // places a drain is actually felt. Asked of each table, because who is
-        // sitting at one is that table's to say.
+        // sitting at one is that table's to say. A critical post: a table whose
+        // box is full at this instant is retried once rather than left out, or
+        // its players would sit through the drain told nothing.
         for t in self.tables.values() {
-            t.post_from_timer("drain_notice", |table, _| {
-                table.broadcast_all(msg::server_updating());
+            t.post_critical(&self.hub, "drain_notice", DRAIN_NOTICE_RETRY, |table, _| {
+                table.broadcast_all(msg::server_updating())
             });
         }
 

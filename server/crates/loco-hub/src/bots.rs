@@ -14,7 +14,7 @@ use crate::table::Table;
 use loco_game::{
     BotAction, BotActionKind, BotInterruptAction, GameState, Kind, Millis, Room, Status,
 };
-use loco_protocol::{CardDrawnMsg, InterruptSuccessMsg, PlayerJoinedMsg, SeatMsg, ServerMsg};
+use loco_protocol::{InterruptSuccessMsg, PlayerJoinedMsg, SeatMsg, ServerMsg};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -545,15 +545,8 @@ impl Table {
             return false;
         }
         let state = self.room.state.as_ref().expect("drawn");
-        self.broadcast_all(ServerMsg::CardDrawn(CardDrawnMsg {
-            player_index: Some(seat as i32),
-            drawn_count: (state.hands[seat].cards.len() - prior) as i32,
-            turn: state.current_turn as i32,
-            pending_draw: Some(state.pending_draw as i32),
-            has_drawn: Some(state.has_drawn),
-            interrupt_open: Some(state.interrupt_open),
-            ..Default::default()
-        }));
+        // A bot's seat has no socket, so the funnel sends everybody the count.
+        self.announce_cards_drawn(seat, &state.hands[seat].cards[prior..], false);
         // bot_think, not can_play: the bot plays the drawn card only when it
         // would choose to.
         if loco_game::bot_think(state, seat, &mut rand::rng()).kind != BotActionKind::Draw {
