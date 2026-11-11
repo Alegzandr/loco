@@ -123,7 +123,7 @@ impl Table {
             round_number: self.room.round_number as i32,
             round_winner: self.room.winner.clone(),
             scoreboard: scoreboard.clone(),
-            round_history: self.room.round_history.clone(),
+            round_history: self.room.round_history(),
             ..Default::default()
         }));
 

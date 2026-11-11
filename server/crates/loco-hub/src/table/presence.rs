@@ -39,7 +39,7 @@ impl HubCore {
 impl Table {
     fn nickname_of(&self, seat: usize) -> String {
         self.room
-            .players
+            .seats()
             .get(seat)
             .map(|p| p.nickname.clone())
             .unwrap_or_default()
@@ -141,10 +141,16 @@ impl Table {
     /// it. Returns whether a human remains.
     pub(crate) fn reindex_lobby_disconnect(&mut self, cx: &TableCtx, c: &Arc<Client>) -> bool {
         let leaving = c.player_id();
-        if let Err(e) = self.room.remove_lobby_player(leaving) {
-            tracing::warn!(player = leaving, "RemoveLobbyPlayer failed err={e}");
-        }
-        let has_human = self.drop_client(c, leaving);
+        let has_human = match self.remove_client_seat(c, leaving) {
+            Ok(has_human) => has_human,
+            Err(e) => {
+                // The room kept the seat, so the chair stays with it; the
+                // socket is out of it all the same.
+                tracing::warn!(player = leaving, "seat removal failed err={e}");
+                self.sweep(c);
+                self.connected() > 0
+            }
+        };
         self.keep_host_human(cx);
         has_human
     }
@@ -170,11 +176,8 @@ impl Table {
         let status = self.room.status;
         let mut removed = false;
         if status != Status::Playing {
-            match self.room.remove_lobby_player(seat) {
-                Ok(_) => {
-                    self.drop_seat(seat);
-                    removed = true;
-                }
+            match self.remove_seat(seat) {
+                Ok(_) => removed = true,
                 Err(e) => {
                     tracing::warn!(player = seat, "expiry remove failed err={e}")
                 }
@@ -191,9 +194,9 @@ impl Table {
             left.player_index = Some(seat as i32);
         } else {
             left.match_history = self.match_history_dto();
-            if !self.room.scores.is_empty() {
+            if self.room.has_match_record() {
                 left.scoreboard = self.build_scoreboard();
-                left.round_history = self.room.round_history.clone();
+                left.round_history = self.room.round_history();
             }
         }
         self.broadcast_all(ServerMsg::PlayerLeft(left));

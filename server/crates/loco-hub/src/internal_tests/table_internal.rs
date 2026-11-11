@@ -155,9 +155,13 @@ async fn seat_cancels_the_pending_cleanup() {
 // set and the session tokens in one move. Shifting one without the others is
 // the class of bug the table type exists to close.
 #[tokio::test]
-async fn drop_seat_shifts_everything_together() {
+async fn remove_seat_shifts_everything_together() {
     let hub = Hub::start(HubConfig::default());
-    let mut tbl = Table::new("AAAAAA", new_room("AAAAAA"));
+    let mut room = new_room("AAAAAA");
+    for n in ["a", "Bot1", "c"] {
+        room.join(n).unwrap();
+    }
+    let mut tbl = Table::new("AAAAAA", room);
     let (a, _ra) = Client::detached(&hub);
     let (c, _rc) = Client::detached(&hub);
     tbl.seat(&a, 0);
@@ -169,9 +173,10 @@ async fn drop_seat_shifts_everything_together() {
 
     // Seat 0 leaves: the bot becomes seat 0 and c becomes seat 1.
     assert!(
-        tbl.drop_seat(0),
-        "drop_seat reported nobody left, but c is still seated"
+        tbl.remove_seat(0).unwrap(),
+        "remove_seat reported nobody left, but c is still seated"
     );
+    assert_eq!(tbl.room.nickname(0), Some("Bot1"), "the room did not shift");
 
     assert!(
         tbl.seats.len() == 2 && tbl.client(0).is_none() && same(tbl.client(1), &c),

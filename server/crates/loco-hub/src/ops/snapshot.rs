@@ -306,7 +306,7 @@ impl HubCore {
             );
             return false;
         }
-        let players = room.players.len();
+        let players = room.seat_count();
         let mut t = Table::new(&code, room);
         // Every seat comes back held — every human one: the bots are the
         // server's — exactly as if its player had just dropped.

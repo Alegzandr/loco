@@ -6,7 +6,9 @@ use super::support::*;
 use crate::card::{Card, Color, Kind};
 use crate::error::{ErrorKind, GameError};
 use crate::hand::Hand;
-use crate::room::{CATCH_WINDOW_MS, FAILED_CATCH_PENALTY, INITIAL_HAND_SIZE, MatchFormat, Status};
+use crate::room::{
+    CATCH_WINDOW_MS, FAILED_CATCH_PENALTY, INITIAL_HAND_SIZE, MatchFormat, RoomSeat, Status,
+};
 
 fn prepend(r: &mut crate::room::Room, seat: usize, card: Card) {
     st(r).hands[seat].cards.insert(0, card);
@@ -371,11 +373,11 @@ fn room_interrupt_play_empties_hand_ends_round() {
     );
     assert_eq!(r.winner, "carol", "round winner");
     assert_ne!(
-        r.scores[2], 0,
+        r.seats[2].score, 0,
         "carol should have scored points from other players' hands"
     );
     assert!(
-        r.scores[1] == 0 && r.scores[0] == 0,
+        r.seats[1].score == 0 && r.seats[0].score == 0,
         "non-winners must score 0 this round"
     );
 }
@@ -978,24 +980,20 @@ fn room_remove_lobby_player_reindexes_player_indices() {
     for n in ["alice", "bob", "carol"] {
         must_join(&mut r, n);
     }
-    // Verify initial indices.
-    for (i, p) in r.players.iter().enumerate() {
-        assert_eq!(p.index, i, "initial Players[{i}].Index");
-    }
 
     // Remove the middle player (bob, index 1).
     let was_host = r.remove_lobby_player(1).expect("RemoveLobbyPlayer");
     assert!(!was_host, "removing index 1 should not report wasHost");
-    assert_eq!(r.players.len(), 2, "Players after remove");
+    assert_eq!(r.seats.len(), 2, "Players after remove");
     assert!(
-        r.players[0].nickname == "alice" && r.players[0].index == 0,
-        "Players[0] = {:?}, want {{alice, 0}}",
-        r.players[0]
+        r.seats[0].nickname == "alice",
+        "Players[0] = {:?}, want alice",
+        r.seats[0]
     );
     assert!(
-        r.players[1].nickname == "carol" && r.players[1].index == 1,
-        "Players[1] = {:?}, want {{carol, 1}} after re-index",
-        r.players[1]
+        r.seats[1].nickname == "carol",
+        "Players[1] = {:?}, want carol after re-index",
+        r.seats[1]
     );
 }
 
@@ -1007,9 +1005,9 @@ fn room_remove_lobby_player_host_flag() {
     let was_host = r.remove_lobby_player(0).expect("RemoveLobbyPlayer");
     assert!(was_host, "removing index 0 should report wasHost=true");
     assert!(
-        r.players[0].nickname == "bob" && r.players[0].index == 0,
-        "after host removal, new host = {:?}, want {{bob, 0}}",
-        r.players[0]
+        r.seats[0].nickname == "bob",
+        "after host removal, new host = {:?}, want bob",
+        r.seats[0]
     );
 }
 
@@ -1277,7 +1275,7 @@ fn room_reset_for_rematch() {
     let mut r = finish_match(&["alice", "bob"]);
     r.format = MatchFormat::Bo3;
     r.max_players = 4;
-    let prev_players = r.players.clone();
+    let prev_players = r.seats.clone();
 
     r.reset_for_rematch().expect("ResetForRematch");
 
@@ -1295,20 +1293,21 @@ fn room_reset_for_rematch() {
         r.winner
     );
     assert_eq!(r.round_number, 0, "Start sets it to 1");
+    // Roster and lobby config survive — the whole point is "same room, same
+    // people" — and every seat's match record is cleared.
+    assert_eq!(r.seats.len(), prev_players.len());
+    for (i, p) in r.seats.iter().enumerate() {
+        assert_eq!(
+            *p,
+            RoomSeat::new(prev_players[i].nickname.clone()),
+            "seat {i}: changed identity or kept a match tally"
+        );
+    }
     assert!(
-        r.scores.is_empty() && r.rounds_won.is_empty() && r.lost_hand_total.is_empty(),
-        "cumulative match tallies must be cleared"
-    );
-    assert!(
-        r.round_history.is_empty(),
+        r.round_history().is_empty(),
         "RoundHistory must be cleared, the new match starts at round 1"
     );
-    // Roster and lobby config survive — the whole point is "same room, same people".
-    assert_eq!(r.players.len(), prev_players.len());
-    for (i, p) in r.players.iter().enumerate() {
-        assert_eq!(*p, prev_players[i], "player {i} changed identity");
-        assert_eq!(p.index, i, "player {i} Index");
-    }
+    assert!(!r.has_match_record(), "a reset room still reports a match");
     assert_eq!(r.format, MatchFormat::Bo3, "preserved");
     assert_eq!(r.max_players, 4, "preserved");
 }
@@ -1320,7 +1319,7 @@ fn room_reset_for_rematch_then_start_again() {
     r.start(NOW).expect("Start after rematch reset");
     assert_eq!(r.status, Status::Playing);
     assert_eq!(r.round_number, 1);
-    for i in 0..r.players.len() {
+    for i in 0..r.seats.len() {
         assert_eq!(
             st_ref(&r).hands[i].cards.len(),
             INITIAL_HAND_SIZE,
@@ -1328,9 +1327,9 @@ fn room_reset_for_rematch_then_start_again() {
         );
     }
     assert!(
-        r.scores[0] == 0 && r.scores[1] == 0,
+        r.seats[0].score == 0 && r.seats[1].score == 0,
         "scores not reset: {:?}",
-        r.scores
+        scores(&r)
     );
 }
 
@@ -1358,7 +1357,7 @@ fn room_reset_for_rematch_allows_roster_change_before_start() {
     r.reset_for_rematch().expect("ResetForRematch");
     r.remove_lobby_player(1).expect("RemoveLobbyPlayer");
     r.start(NOW).expect("Start");
-    assert_eq!(r.scores.len(), 2, "sized to the new roster");
+    assert_eq!(scores(&r), vec![0, 0], "sized to the new roster");
 }
 
 // --- Failed catch penalty -------------------------------------------------

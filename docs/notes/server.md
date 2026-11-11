@@ -26,10 +26,21 @@ readable as *the loop*.
 ## A table is one object (`table/mod.rs`)
 `HubCore::tables` is a `HashMap<RoomCode, TableHandle>`: one entry is one table's whole existence,
 so `delete_room` is one `remove`, a reset is `Table::reset_for_next_match`, a removal
-`Table::drop_seat`. Everything kept about a seat is one `table::Seat` (`occupant`, `token`, `afk`,
-`wants_rematch`) in one `Vec<Seat>`: a removal is `Vec::remove` and a host transfer `Vec::swap`, so
-nothing keyed by seat can be left behind on the old index. The recap (`match_history`) is the one
-per-seat thing outside `seats`, and `drop_seat` / `swap_seats` re-base it in the same call.
+`Table::remove_seat`. Everything the hub keeps about a seat is one `table::Seat` (`occupant`,
+`token`, `afk`, `wants_rematch`) in one `Vec<Seat>`: a removal is `Vec::remove` and a host transfer
+`Vec::swap`, so nothing keyed by seat can be left behind on the old index.
+
+**One seat, three columns.** A chair is the room's `RoomSeat` (its game: nickname, score, rounds,
+round points, retirement), the table's `Seat` (its people) and its column in every `MatchRecord` of
+`match_history` (the recap), all indexed alike. **`Table::remove_seat` and `Table::swap_seats` are
+the only code that removes or exchanges a seat**, and each moves all three or none: the room's
+`remove_lobby_player` / `swap_lobby_players` go first and decide (a lobby, or a finished room for a
+removal), and a refusal returns before anything else moves. `remove_client_seat` is `remove_seat`
+for a departure known by its socket, at the chair the pointer is found in. The domain's two
+operations stay `pub` (another crate calls them) and the recap's re-basers are private to
+`table/mod.rs`; `tests/funnels.rs` (`seats_are_removed_and_swapped_in_one_place`) fails on a call
+anywhere else. `a_refused_seat_move_moves_nothing` (`internal_tests/match_history_internal.rs`)
+holds the "none".
 
 **Who is in a chair is an `Occupant`**: `Human(client)`, `Held { since }`, `Gone`, `Bot`, `Vacant`.
 A seat cannot be held and seated at once, and the roster's `connected` is "neither held nor gone" by
@@ -592,7 +603,7 @@ one screen that was already careful.
 `Table::handle_transfer_host`. The host is seat 0 and nothing else, so this is a swap of two seats,
 not a flag: every `player_id() != 0` check and the roster badge follow on their own.
 
-- **`Room::swap_lobby_players` + `Table::swap_seats`**, seat for seat, and because a `Seat` carries
+- **`Table::swap_seats`**, all three columns of both seats, and because a `Seat` carries
   its token, **the token travels with the player** — left behind it would hand a reloading player the
   host's seat. `transfer_host_the_token_follows_the_player`.
 - **A swap, not a move to the front**: exactly two seats move.
@@ -637,7 +648,7 @@ deals; whether people want another match is not one of those, so the ask is the 
   the quorum decides when, never who.
 - **The reopened table is hosted by somebody who asked** (`promote_rematch_host`, off
   `rematch_askers` read *before* the prune and reset): the earliest-seated asker, moved with
-  `swap_lobby_players` + `swap_seats` so tokens travel. `keep_host_human` follows. Nothing moves when
+  `Table::swap_seats` so tokens travel. `keep_host_human` follows. Nothing moves when
   the host asked.
 - **`rematch_offered` carries the whole state** (`broadcast_rematch_offers`: `rematch_offers` plus
   `rematch_needed`), never an increment: a departure re-bases seats. The list is nullable because
@@ -695,7 +706,7 @@ must not be answered `not in a room`. `disconnect_at_table` holds the seat for t
 accepts the token reclaim at any table that is not a lobby. The reclaim sends `player_reconnected`
 with **no `state`** (a finished room has none; a snapshot built from nothing would put the client back
 at an empty board), then the whole `rematch_offered` state. When the hold expires the seat is removed
-for real (`remove_lobby_player` + `drop_seat`): a phantom would be dealt a hand next match.
+for real (`Table::remove_seat`): a phantom would be dealt a hand next match.
 
 **Two holds at one finished table move together** because a hold is the seat's own
 `Occupant::Held { since }`, so it moves when the seat moves. The expiry, armed with a seat number,
@@ -734,8 +745,8 @@ roster says it is alone, and `handle_rematch` would refuse anyway.
   bot there is a table nobody can start. A reload removes a lobby seat (not held), the bot shifts into
   0, and the player rejoins behind it — so the promotion is called from `reindex_lobby_disconnect`
   (leave, kick, dropped socket) **and** `join_at_table` (the reload has nobody to promote at the moment
-  the seat goes), plus `open_rematched_lobby`. The move is `remove_lobby_player` + `drop_seat` +
-  `join` + `add_bot_seat`: no new way for seats to move. Lobby only; it terminates because each pass
+  the seat goes), plus `open_rematched_lobby`. The move is `Table::remove_seat` + `join` +
+  `add_bot_seat`: no new way for seats to move. Lobby only; it terminates because each pass
   puts one more bot behind the first human. `lobby_reload_bot_does_not_keep_the_host_seat`,
   `lobby_host_disconnect_bot_never_inherits_the_seat` (`tests/hub.rs`).
 - AI: `loco_game::bot_think(state, seat, rng) -> BotAction`, armed as `DeadlineKey::BotMove(seat)` at

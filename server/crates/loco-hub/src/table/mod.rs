@@ -14,6 +14,13 @@
 //! [`Occupant`], so a seat cannot be at once held and seated, or a bot with a
 //! socket.
 //!
+//! **A chair is three columns, moved by two operations.** The domain's
+//! `RoomSeat` (the seat's game), this table's [`Seat`] (its people) and the
+//! seat's column in [`Table::match_history`] are indexed alike, and
+//! [`Table::remove_seat`] and [`Table::swap_seats`] are the only code that
+//! removes or exchanges a seat: each moves all three or none
+//! (`tests/funnels.rs` holds every other file to that).
+//!
 //! The modules under this one are the table's task and one module per kind of
 //! message it handles; every one of them runs on the table's own task.
 
@@ -37,6 +44,7 @@ use crate::net::client::Client;
 use crate::net::wire::{LatencyEntry, msg};
 use crate::table::actor::{DeadlineKey, Deadlines, Phase};
 use crate::table::room::{Room, Status};
+use loco_game::GameError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -108,11 +116,12 @@ pub struct Table {
     pub code: RoomCode,
     pub room: Room,
     /// Indexed by seat number. Never written directly: [`Table::seat`],
-    /// [`Table::hold`], [`Table::drop_seat`] and [`Table::swap_seats`] are the
-    /// ways in, because a seat also lives in its client (`Client::seat`).
+    /// [`Table::hold`], [`Table::remove_seat`] and [`Table::swap_seats`] are
+    /// the ways in, because a seat also lives in its client (`Client::seat`)
+    /// and in the room (`Room::seats`).
     pub seats: Vec<Seat>,
-    /// Every match this table has finished, oldest first. Survives
-    /// `reset_for_next_match`; cleared only with the table.
+    /// Every match this table has finished, oldest first, each indexed by
+    /// seat. Survives `reset_for_next_match`; cleared only with the table.
     pub match_history: Vec<MatchRecord>,
     /// Wall clock, because it travels in the snapshot.
     pub match_started_at: Option<SystemTime>,
@@ -349,25 +358,28 @@ impl Table {
         has_human
     }
 
-    /// Removes a seat entirely. Everything about the seats above it moves down
-    /// with them because it is them; the recap is re-based too. The room's own
-    /// roster is the caller's half.
-    pub fn drop_seat(&mut self, id: usize) -> bool {
-        if id < self.seats.len() {
-            self.seats.remove(id);
+    /// Removes a seat from the table: the room's record of it, its chair here
+    /// and its column in the recap go together, and every seat above it moves
+    /// down one with everything it is. The room decides whether a seat may be
+    /// removed now (a lobby or a finished match); a refusal leaves all three
+    /// untouched. Returns whether a human is still seated.
+    pub fn remove_seat(&mut self, seat: usize) -> Result<bool, GameError> {
+        self.room.remove_lobby_player(seat)?;
+        if seat < self.seats.len() {
+            self.seats.remove(seat);
         }
-        drop_seat_from_history(&mut self.match_history, id);
-        self.reseat()
+        drop_seat_from_history(&mut self.match_history, seat);
+        Ok(self.reseat())
     }
 
-    /// `drop_seat` for a departure identified by socket: the pointer is the one
-    /// of the pair that cannot be stale.
-    pub fn drop_client(&mut self, c: &Arc<Client>, id: usize) -> bool {
+    /// `remove_seat` for a departure identified by socket: the pointer is the
+    /// one of the pair that cannot be stale.
+    pub fn remove_client_seat(&mut self, c: &Arc<Client>, id: usize) -> Result<bool, GameError> {
         let at = self
             .clients()
             .find(|(_, m)| Arc::ptr_eq(m, c))
             .map_or(id, |(i, _)| i);
-        self.drop_seat(at)
+        self.remove_seat(at)
     }
 
     /// The seat whose hold began at `at`, preferring `hint`. An expiry is armed
@@ -380,16 +392,20 @@ impl Table {
         (0..self.seats.len()).find(|&s| self.held_since(s) == Some(at))
     }
 
-    /// Exchanges two seats and everything about them: the token travels with
-    /// the player, not with the index.
-    pub fn swap_seats(&mut self, a: usize, b: usize) {
+    /// Exchanges two seats and everything about them: the room's records, the
+    /// chairs here (the token travels with the player, not with the index) and
+    /// their columns in the recap. The room decides whether seats may move now
+    /// (a lobby); a refusal leaves all three untouched.
+    pub fn swap_seats(&mut self, a: usize, b: usize) -> Result<(), GameError> {
+        self.room.swap_lobby_players(a, b)?;
         if a == b {
-            return;
+            return Ok(());
         }
         self.ensure(a.max(b));
         self.seats.swap(a, b);
         swap_seats_in_history(&mut self.match_history, a, b);
         self.reseat();
+        Ok(())
     }
 
     /// Clears everything that belonged to the match that just ended. Who is at
@@ -422,20 +438,18 @@ impl Table {
     /// at it, no bot behind it, and no hold still running. It is what tells a
     /// lone survivor apart from a quitter.
     pub fn abandoned_by(&self, seat: usize) -> bool {
-        (0..self.room.players.len())
-            .filter(|&i| i != seat)
-            .all(|i| {
-                matches!(
-                    self.occupant(i),
-                    None | Some(Occupant::Gone | Occupant::Vacant)
-                )
-            })
+        (0..self.room.seat_count()).filter(|&i| i != seat).all(|i| {
+            matches!(
+                self.occupant(i),
+                None | Some(Occupant::Gone | Occupant::Vacant)
+            )
+        })
     }
 
     /// The seats that can still act in the match: a bot, or a human who is
     /// here or inside their reconnect window, and not retired.
     pub fn playable_seats(&self) -> usize {
-        (0..self.room.players.len())
+        (0..self.room.seat_count())
             .filter(|&seat| match self.occupant(seat) {
                 Some(Occupant::Bot) => true,
                 Some(Occupant::Human(_) | Occupant::Held { .. }) => !self.room.is_retired(seat),
@@ -446,18 +460,15 @@ impl Table {
 
     /// The seat held for a disconnected player of that nickname, if any.
     pub fn find_held_seat(&self, nickname: &str) -> Option<usize> {
-        self.held_seats().into_iter().find(|&s| {
-            self.room
-                .players
-                .get(s)
-                .is_some_and(|p| p.nickname == nickname)
-        })
+        self.held_seats()
+            .into_iter()
+            .find(|&s| self.room.nickname(s) == Some(nickname))
     }
 
     /// The seat a forfeit is awarded to: somebody still here, else somebody
     /// held, else anybody not retired.
     pub fn remaining_seat(&self, away_seat: usize) -> Option<usize> {
-        let n = self.room.players.len();
+        let n = self.room.seat_count();
         let here = (0..n).find(|&s| s != away_seat && self.client(s).is_some());
         here.or_else(|| {
             (0..n).find(|&s| s != away_seat && self.is_held(s) && !self.room.is_retired(s))
@@ -465,22 +476,18 @@ impl Table {
         .or_else(|| (0..n).find(|&s| s != away_seat && !self.room.is_retired(s)))
     }
 
-    /// Appends the match that has just ended. The room's arrays are copied:
-    /// a reset nils them, and a record holding them would be the next match.
+    /// Appends the match that has just ended. The seats' tallies are copied:
+    /// a reset clears them, and a record reading them would be the next match.
     pub fn record_finished_match(&mut self, now: SystemTime) {
         let room = &self.room;
-        let n = room.players.len();
         let rec = MatchRecord {
-            rounds_won: (0..n)
-                .map(|i| i64::from(room.rounds_won.get(i).copied().unwrap_or(0)))
-                .collect(),
-            scores: (0..n)
-                .map(|i| i64::from(room.scores.get(i).copied().unwrap_or(0)))
-                .collect(),
-            winner: room
-                .players
+            rounds_won: room
+                .seats()
                 .iter()
-                .position(|p| p.nickname == room.match_winner),
+                .map(|s| i64::from(s.rounds_won))
+                .collect(),
+            scores: room.seats().iter().map(|s| i64::from(s.score)).collect(),
+            winner: room.seat_of(&room.match_winner),
             duration_ms: match_duration_ms(self.match_started_at, now),
         };
         self.match_history.push(rec);
@@ -536,7 +543,7 @@ impl Table {
             return;
         }
         let mut measured = false;
-        let entries: Vec<LatencyEntry> = (0..self.room.players.len())
+        let entries: Vec<LatencyEntry> = (0..self.room.seat_count())
             .map(|i| {
                 let mut e = LatencyEntry {
                     player_index: i as i32,
@@ -577,8 +584,8 @@ pub fn match_duration_ms(started_at: Option<SystemTime>, now: SystemTime) -> i64
 }
 
 /// Removes one seat from every recorded match, so the recap still lines up
-/// with a roster that shrank.
-pub fn drop_seat_from_history(history: &mut [MatchRecord], removed: usize) {
+/// with a roster that shrank. [`Table::remove_seat`]'s third column.
+fn drop_seat_from_history(history: &mut [MatchRecord], removed: usize) {
     for h in history {
         if removed < h.rounds_won.len() {
             h.rounds_won.remove(removed);
@@ -595,8 +602,8 @@ pub fn drop_seat_from_history(history: &mut [MatchRecord], removed: usize) {
 }
 
 /// Exchanges two seats in every recorded match, so a host transfer moves what
-/// a player won along with the player.
-pub fn swap_seats_in_history(history: &mut [MatchRecord], a: usize, b: usize) {
+/// a player won along with the player. [`Table::swap_seats`]'s third column.
+fn swap_seats_in_history(history: &mut [MatchRecord], a: usize, b: usize) {
     for h in history {
         if a < h.rounds_won.len() && b < h.rounds_won.len() {
             h.rounds_won.swap(a, b);

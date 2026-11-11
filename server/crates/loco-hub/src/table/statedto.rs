@@ -39,7 +39,7 @@ pub fn catch_seats(state: &GameState) -> Vec<CatchSeatDTO> {
 impl Table {
     pub fn player_list(&self) -> Vec<PlayerDTO> {
         let room = &self.room;
-        room.players
+        room.seats()
             .iter()
             .enumerate()
             .map(|(i, p)| {
@@ -50,7 +50,7 @@ impl Table {
                     .map_or(0, |h| h.len() as i32);
                 let away = self.is_held(i);
                 PlayerDTO {
-                    index: p.index as i32,
+                    index: i as i32,
                     nickname: p.nickname.clone(),
                     hand_size,
                     connected: !away && !self.has_left(i),
@@ -62,14 +62,14 @@ impl Table {
 
     pub fn build_scoreboard(&self) -> Vec<ScoreboardEntryDTO> {
         let room = &self.room;
-        room.players
+        room.seats()
             .iter()
             .enumerate()
-            .map(|(i, p)| ScoreboardEntryDTO {
+            .map(|(i, s)| ScoreboardEntryDTO {
                 player_index: i as i32,
-                nickname: p.nickname.clone(),
-                score: room.scores.get(i).copied().unwrap_or(0),
-                rounds_won: room.rounds_won.get(i).copied().unwrap_or(0) as i32,
+                nickname: s.nickname.clone(),
+                score: s.score,
+                rounds_won: s.rounds_won as i32,
             })
             .collect()
     }
@@ -92,7 +92,7 @@ impl Table {
             match_history: self.match_history_dto(),
             ..Default::default()
         };
-        if !room.scores.is_empty() {
+        if room.has_match_record() {
             shared.scoreboard = self.build_scoreboard();
         }
         if let Some(state) = room.state.as_ref()
@@ -220,7 +220,7 @@ impl Table {
             time_of_day,
             weather,
             scoreboard: shared.scoreboard.clone(),
-            round_history: room.round_history.clone(),
+            round_history: room.round_history(),
             match_history: shared.match_history.clone(),
             turn_deadline: self.turn_deadline_ms(),
             interrupt_open: state.interrupt_open,

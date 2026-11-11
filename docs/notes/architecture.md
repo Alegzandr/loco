@@ -57,9 +57,9 @@ loco-game     the rules: pure, deterministic, no clock, no I/O, builds for wasm
   **typed** deadline in the table's state (an enum, never a string). Every message into a table is
   a job with a name; overflow is dropped and counted, never waited on.
 - **The hub's `Table` is the seats' people, the domain's `Room` is the seats' game, and there is
-  one seat list.** The hub's per-chair bookkeeping (occupant, token, AFK, rematch ask) and the
-  domain's per-chair record are kept as one list of seats, or as two lists moved by one operation
-  that cannot be called on one alone.
+  one seat list.** The hub's per-chair bookkeeping (occupant, token, AFK, rematch ask), the
+  domain's per-chair record (`RoomSeat`) and the recap's column are moved by one operation each
+  (`Table::remove_seat`, `Table::swap_seats`), and nothing else can move one of them alone.
 - **Persistence is a snapshot of the domain's own types**, versioned, written on `SIGTERM`, read
   once at boot and deleted. Its shape is ours: integers for instants, `Option` for absences,
   `snake_case` names.
@@ -164,7 +164,7 @@ avoid.
 | Deadlines | typed | `DeadlineKey` an enum | **done** |
 | Store reactivity | per field | one `$state.raw` cell per top-level key (`state/gameStore.svelte.ts`); `live()` narrows computed values only | **done** |
 | Client layout | data / view logic / components | `src/state/`, `src/game/`, `src/components/` | **done** |
-| One seat list | one list, or two moved together | `Room.players` + five parallel vectors in `Room`, `Table.seats`, `Table.match_history`, re-based by hand at each call site | **next** |
+| One seat list | one list, or two moved together | `Room`'s `Vec<RoomSeat>` (round points included), `Table.seats` and the recap's columns, moved only by `Table::remove_seat` / `Table::swap_seats`, pinned by `tests/funnels.rs` | **done** |
 | Table jobs | named commands | boxed closures with a label | acceptable; revisit with sharding |
 
 The wire still writes a departed winner as `winner_index: -1` (`MatchRecordDTO`); a signed seat
@@ -172,19 +172,15 @@ exists only there.
 
 ## 4. The road
 
-Done: the persistence shape, the hub's grouping, typed deadlines, the per-field store and the
-`state/` + `game/` layout (the **done** rows of §3). A comment says what the code does and why,
-never what an earlier implementation did.
+Done: the persistence shape, the hub's grouping, typed deadlines, the per-field store, the
+`state/` + `game/` layout and the one seat list (the **done** rows of §3). A comment says what the
+code does and why, never what an earlier implementation did. A seat's cosmetic, when there is one,
+is a field of `RoomSeat`.
 
 Next, in order:
 
-1. **One seat list.** Fold `Room`'s parallel vectors (`scores`, `rounds_won`, `lost_hand_total`,
-   `retired`, `round_history`) into one per-seat record like `GameState.seats`, then make the hub's
-   seat operations (`drop_seat`, `swap_seats`) the only callers of the domain's
-   (`remove_lobby_player`, `swap_lobby_players`), so nothing can move one list without the other.
-   That list is also where a seat's cosmetic will live, which is the second reason it comes first.
-2. **The table code carries a region**, before invitation links are spread widely: a link printed
+1. **The table code carries a region**, before invitation links are spread widely: a link printed
    today has to keep routing once there is a second region. It is a change to `RoomCode`
    (`loco-hub/src/ids.rs`) and to `tableCodeRules.ts`, and nothing else.
-3. **Named table jobs** if and when tables move across processes: a closure cannot be sent, an enum
+2. **Named table jobs** if and when tables move across processes: a closure cannot be sent, an enum
    can.

@@ -249,7 +249,7 @@ impl Table {
             c.refuse(e);
             return;
         }
-        self.seat_client(cx, c, self.room.players.len() - 1);
+        self.seat_client(cx, c, self.room.seat_count() - 1);
         // A table whose last human dropped keeps its bots, the first of them
         // in the host's seat; this arrival takes it back.
         self.keep_host_human(cx);
@@ -320,7 +320,7 @@ impl Table {
             .matches_started
             .fetch_add(1, Ordering::Relaxed);
         tracing::info!(
-            players = self.room.players.len(),
+            players = self.room.seat_count(),
             format = match_format_string(self.room.format).as_str(),
             matchmade = self.is_matchmade(),
             solo = self.solo,
@@ -423,12 +423,12 @@ impl Table {
             c.refuse(crate::table::refusal::Refusal::KickLobbyOnly);
             return;
         }
-        let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.players.len()) else {
+        let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.seat_count()) else {
             c.refuse(crate::table::refusal::Refusal::InvalidPlayerIndex);
             return;
         };
         let seat = seat as usize;
-        let nickname = self.room.players[seat].nickname.clone();
+        let nickname = self.room.seats()[seat].nickname.clone();
         let Some(target) = self.client(seat).cloned() else {
             // No socket at that slot: in a lobby that is a bot.
             self.remove_unmanned_seat(cx, seat);
@@ -457,7 +457,7 @@ impl Table {
             c.refuse(crate::table::refusal::Refusal::TransferLobbyOnly);
             return;
         }
-        let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.players.len()) else {
+        let Some(seat) = target.filter(|&s| s > 0 && (s as usize) < self.room.seat_count()) else {
             c.refuse(crate::table::refusal::Refusal::InvalidPlayerIndex);
             return;
         };
@@ -466,12 +466,11 @@ impl Table {
             c.refuse(crate::table::refusal::Refusal::BotCannotHost);
             return;
         }
-        let nickname = self.room.players[seat].nickname.clone();
-        if let Err(e) = self.room.swap_lobby_players(0, seat) {
+        let nickname = self.room.seats()[seat].nickname.clone();
+        if let Err(e) = self.swap_seats(0, seat) {
             c.refuse(e);
             return;
         }
-        self.swap_seats(0, seat);
         // Per recipient: the two seats that moved read their own player_id.
         let pl = self.player_list();
         for (i, m) in self.clients() {
@@ -489,15 +488,15 @@ impl Table {
 
     /// Drops a seat with no socket behind it and re-bases everything above it.
     pub(crate) fn remove_unmanned_seat(&mut self, cx: &TableCtx, seat: usize) {
-        let nickname = self.room.players[seat].nickname.clone();
-        if let Err(e) = self.room.remove_lobby_player(seat) {
-            tracing::warn!(player = seat, "RemoveLobbyPlayer failed err={e}");
+        let nickname = self.room.seats()[seat].nickname.clone();
+        let bot = self.is_bot(seat);
+        if let Err(e) = self.remove_seat(seat) {
+            tracing::warn!(player = seat, "seat removal failed err={e}");
             return;
         }
-        if self.is_bot(seat) {
+        if bot {
             cx.hub.metrics().bots_active.fetch_sub(1, Ordering::Relaxed);
         }
-        self.drop_seat(seat);
         self.broadcast_all(ServerMsg::PlayerLeft(PlayerLeftMsg {
             nickname,
             players: self.player_list(),

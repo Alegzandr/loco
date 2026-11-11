@@ -20,6 +20,14 @@ the map of entry points.
   every command to that). A command returns only what the room cannot say afterwards
   (`remove_lobby_player`'s "was the host", a `CatchCharge`, a lockout's end); the table reads
   everything else off the room. There is no second, functional entry point to keep in step.
+- **One record per seat** (`Room::seats() -> &[RoomSeat]`): the nickname and everything the match
+  keeps about the chair (`score`, `rounds_won`, `lost_hand_total`, `retired`, `round_points`). A
+  seat's number is its place in the list and is stored nowhere, so `remove_lobby_player` is one
+  `Vec::remove` and `swap_lobby_players` one `Vec::swap`, and no column can keep its old index while
+  the others move. `seat_mut` writes a record and never adds, removes or moves one. A record is
+  zeroed, not dropped, by `start` and `reset_for_rematch` (`RoomSeat::clear_match`), so "has a match
+  begun" is `Room::has_match_record()` (`round_number > 0` with somebody seated), never the length
+  of a column.
 - **The room's randomness cannot be missing.** `Room::new(code, [u8; 32])`, the hub drawing the
   bytes from the OS; `Room::from_u64_seed` is for tests. The `ChaCha12Rng` is the room's and nothing
   outside can reach it. `Room` is not serde: the drain snapshot is `SavedRoom` (plain serde, snake
@@ -75,9 +83,9 @@ The spec is `docs/rules.md` §14; this is where each lives and why.
 ## Scoring and the match
 
 - `card_value` (`card.rs`) per `docs/rules.md` §10.
-- **Single-finisher round.** `Room::end_round(winner)` writes `Room.winner`, adds one to
-  `rounds_won[winner]` and scores the sum of the opponents' hands; the others score 0 and their hand
-  value adds to `lost_hand_total` (tiebreak only). It does **not** deal the next round: the table
+- **Single-finisher round.** `Room::end_round(winner)` writes `Room.winner`, adds one to the
+  winner's `rounds_won` and scores it the sum of the opponents' hands; the others score 0 and their
+  hand value adds to their `lost_hand_total` (tiebreak only). It does **not** deal the next round: the table
   calls `Room::begin_next_round` after broadcasting `card_played` and `round_end`, or the winning
   `card_played` reads the new round's discard.
 - **Opener**: round 1 random (the room's source), then `Room::biggest_loser` (lowest cumulative
@@ -95,7 +103,7 @@ left in a full hand is 90 points, enough to outweigh three rounds won.
 - **Tiebreakers**: most rounds won → highest score → lowest lost-hand total → sudden-death extra
   round (`Room::determine_match_winner` returning `None`).
 - **The match stops as soon as the lead cannot be caught** (`Room::decisive_leader`): seat `i` is
-  decisive when `rounds_won[i] > rounds_won[j] + remaining` for every other `j`, with `remaining =
+  decisive when `rounds_won(i) > rounds_won(j) + remaining` for every other `j`, with `remaining =
   max(0, format - round_number)`. One expression covers both endings: the same test stops a BO7 at
   4–0 and ends a BO1 on its only round. "Strictly ahead of everyone", not "reached the majority",
   because six players sharing a BO7 may never reach 4.
@@ -113,13 +121,15 @@ One `MatchRecord` per finished match — each seat's rounds won and points, the 
 `null` in the snapshot, -1 as `winner_index` on the wire) and the duration — on the hub's `Table`
 (`server/crates/loco-hub/src/table/mod.rs`), because it must outlive the room's reset.
 
-- `Room::reset_for_rematch` clears `scores` / `rounds_won`; `Table::reset_for_next_match` clears
+- `Room::reset_for_rematch` zeroes every seat's record; `Table::reset_for_next_match` clears
   everything about the match that ended **except** this, the one field about the matches before it.
 - `Table::record_finished_match` is called once per match from both endings: the last round
-  (`handle_round_or_match_end`) and a forfeit (`forfeit_match`). It **copies** the room's vectors.
-- **Indexed by seat, so it moves with the seats**: `Table::drop_seat` removes the column and re-bases
-  the winner (`drop_seat_from_history`: a departed winner becomes `None`, never the player who slid
-  into the index); `Table::swap_seats` exchanges both (`swap_seats_in_history`).
+  (`handle_round_or_match_end`) and a forfeit (`forfeit_match`). It **copies** the seats' tallies.
+- **Indexed by seat, so it moves with the seats**: it is the third column of a chair, beside the
+  room's `RoomSeat` and the table's `Seat`. `Table::remove_seat` removes the column and re-bases the
+  winner (a departed winner becomes `None`, never the player who slid into the index);
+  `Table::swap_seats` exchanges both. Those two are the only code that moves a seat
+  (`server.md`, "One seat, three columns").
 - It rides `match_end`, every personalised `game_state` (a reconnect keeps the evening) and the drain
   snapshot (`RoomSnapshot.match_history`). **And the `player_left` that re-bases the roster**, on all
   three paths that shrink it (`release_seat`, `Table::disconnect_at_table` reached from
@@ -173,10 +183,9 @@ One `MatchRecord` per finished match — each seat's rounds won and points, the 
 - **A batch is never longer than the hand it comes from**: `Table::parse_cards` (`loco-hub`,
   `table/gameplay.rs`) refuses one before decoding a card of it, so a 4 KB message of a hundred DTOs
   costs nothing at the rate limit.
-- **Removing a seat re-bases everything the scoreboard is drawn from** (`Room::remove_lobby_player`:
-  `scores`, `rounds_won`, `lost_hand_total`, `retired`, every row of `round_history`): a finished room
-  keeps its scores for the game-over screen. The `player_left` carries the re-based `scoreboard` and
-  `round_history`.
+- **Removing a seat re-bases everything the scoreboard is drawn from**, because all of it is the
+  seat's own record (`RoomSeat`, its `round_points` included): a finished room keeps its scores for
+  the game-over screen. The `player_left` carries the re-based `scoreboard` and `round_history`.
 - **A one-card interject off a one-card hand logs one declaration**: `declare_for_finish` runs for the
   batch finish alone, so the replayed event log never announces the call twice.
 
@@ -515,10 +524,15 @@ that delays a reaction is not measuring it.
   uses. It is the one unbounded field in a payload built once per recipient, and nothing reads it
   during play.
 
-## Per-round history (`Room.round_history`)
+## Per-round history (`RoomSeat.round_points`, `Room::round_history()`)
 
-`round_history[k][seat]` = points scored in round k+1, appended by `end_round` (only the finisher
-scores, so one non-zero column per row); cleared by `start` and `reset_for_rematch`. Exported in every
+Each seat keeps what it scored in every finished round, oldest first: `end_round` appends one entry
+to **every** seat at once (the finisher's points, 0 for the rest), and `start` and
+`reset_for_rematch` clear them, so every seat holds one entry per finished round (the proptests hold
+the walk to that, and to `score` being their sum). It lives on the seat rather than as a round ×
+seat table because a seat leaves or changes place with its whole record: a second structure indexed
+by seat would be re-based by hand on every removal. `Room::round_history()` reads it back by round,
+`[k][seat]` = points scored in round k+1, which is the wire's shape: exported in every
 `GameStateDTO` and in `round_end`, the message the round summary is drawn from. Server-owned because
 cumulative scores cannot be split back into rounds, and a client-side accumulator diverges after a
 reconnect.
@@ -529,7 +543,7 @@ reconnect.
 domain does when the round carries on. `src/tests/retire_test.rs`.
 
 - **The seat stays and stops playing**: hands, scores, rounds won and the turn order are indexed by
-  it. `Room.retired` is match-level; `SeatState.retired` is each round's copy (`deal_round` deals a
+  it. `RoomSeat.retired` is match-level; `SeatState.retired` is each round's copy (`deal_round` deals a
   retired seat an empty hand).
 - **The hand goes back into the deck, shuffled** — hidden cards, so their position tells nobody
   anything, and the deck does not shrink with every departure.
@@ -547,12 +561,12 @@ domain does when the round carries on. `src/tests/retire_test.rs`.
 - **`rematch` is an ask every seat makes**, and two asks deal the next match; the quorum, the
   broadcast and the shapes the deal can take are in `server.md` ("A rematch by agreement").
 - `Room::reset_for_rematch()` requires `Status::Finished` (`GameError::RematchUnavailable`); clears
-  `state`, `winner`, `round_ended`, `match_over`, `match_winner`, `round_number`, the map, and empties
-  `scores` / `rounds_won` / `lost_hand_total` / `retired` / `round_history` (so `start` sizes them to
-  the roster then present). Keeps `players`, `format`, `max_players`.
+  `state`, `winner`, `round_ended`, `match_over`, `match_winner`, `round_number`, the map, and
+  zeroes every seat's record (`score`, `rounds_won`, `lost_hand_total`, `retired`, `round_points`).
+  Keeps the seats and their nicknames, `format`, `max_players`.
 - `Table::open_rematched_lobby` (`server/crates/loco-hub/src/table/rematch.rs`) first calls
   `prune_absent_players` (every non-bot seat with no socket, high → low, through
-  `Room::remove_lobby_player` and `Table::drop_seat`); `promote_rematch_host` may move two more; then
+  `Table::remove_seat`); `promote_rematch_host` may swap two more (`Table::swap_seats`); then
   `Table::reset_for_next_match`. **Seats can shift, so `rematch_started { room_code, player_id,
   players, match_format, max_players }` is per recipient.**
 - **A finished room's roster is mutable like a lobby's**: `Room::remove_lobby_player` accepts
@@ -574,10 +588,10 @@ domain does when the round carries on. `src/tests/retire_test.rs`.
   `Room::set_max_players`), each answered by a broadcast `lobby_config_changed`. `room_created` /
   `room_joined` include both. Defaults BO1, 7 seats (`DEFAULT_MAX_PLAYERS`); `SERVER_MIN_PLAYERS` (2)
   ≤ n ≤ `SERVER_MAX_PLAYERS` (7), never below the current count.
-- **A lobby disconnect re-indexes everything**: `Room::remove_lobby_player` re-indexes
-  `Player.index`; `Table::drop_client` re-bases the members, each client's seat, the bot set and the
-  tokens in one move. The first remaining player is seat 0, the host. A lobby left with no humans
-  schedules its cleanup immediately.
+- **A lobby disconnect re-indexes everything**: `Table::remove_client_seat` finds the socket's chair
+  and removes the seat from the room, the table and the recap in one move, which re-bases every
+  record, each client's seat, the bot set and the tokens above it. The first remaining player is
+  seat 0, the host. A lobby left with no humans schedules its cleanup immediately.
 
 ## Room codes
 

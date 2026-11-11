@@ -29,7 +29,7 @@ impl Table {
             c.refuse(crate::table::refusal::Refusal::Hostless);
             return;
         }
-        if self.is_matchmade() && (self.room.players.len() < 2 || self.connected() < 2) {
+        if self.is_matchmade() && (self.room.seat_count() < 2 || self.connected() < 2) {
             c.refuse(crate::table::refusal::Refusal::OpponentLeft);
             return;
         }
@@ -84,7 +84,7 @@ impl Table {
         self.keep_host_human(cx);
         self.reset_for_next_match();
         tracing::info!(
-            players = self.room.players.len(),
+            players = self.room.seat_count(),
             format = match_format_string(self.room.format).as_str(),
             "rematch opened"
         );
@@ -111,7 +111,7 @@ impl Table {
 
     /// Hands seat 0 to the first asker unless the host is one of them.
     fn promote_rematch_host(&mut self, askers: &[Arc<Client>]) {
-        if self.room.players.is_empty() {
+        if self.room.seats().is_empty() {
             return;
         }
         if let Some(host) = self.client(0)
@@ -122,15 +122,14 @@ impl Table {
         }
         for c in askers {
             let seat = c.player_id();
-            if seat == 0 || seat >= self.room.players.len() || self.is_bot(seat) {
+            if seat == 0 || seat >= self.room.seat_count() || self.is_bot(seat) {
                 continue;
             }
-            let nickname = self.room.players[seat].nickname.clone();
-            if let Err(e) = self.room.swap_lobby_players(0, seat) {
+            let nickname = self.room.seats()[seat].nickname.clone();
+            if let Err(e) = self.swap_seats(0, seat) {
                 tracing::warn!(seat, "rematch host promotion failed err={e}");
                 return;
             }
-            self.swap_seats(0, seat);
             tracing::info!(seat, nickname = %nickname, "rematch host promoted");
             return;
         }
@@ -180,11 +179,10 @@ impl Table {
             if self.client(id).is_some() || self.is_bot(id) {
                 continue;
             }
-            if let Err(e) = self.room.remove_lobby_player(id) {
+            if let Err(e) = self.remove_seat(id) {
                 tracing::warn!(player = id, "prune failed err={e}");
                 continue;
             }
-            self.drop_seat(id);
             tracing::info!(player = id, "pruned absent player");
         }
     }
