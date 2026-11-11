@@ -939,6 +939,25 @@ export const SCENES: Scene[] = [
     deadlineIn: 24,
   },
   {
+    // A 1v1 on a phone upright: the one opponent sits on the cloth's far edge,
+    // the felt is nearly a circle, and the frame looks far down under the hand.
+    id: 'game-map-velvet-1v1',
+    title: 'Map · Velvet · 1v1',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      mapId: 'velvet',
+      mapTime: 'dusk',
+      mapWeather: 'snow',
+      players: [player(0, 'Nova', 3), player(1, 'Bot1', 5)],
+      myHand: HAND_7.slice(0, 3),
+      currentTurn: 1,
+      discard: card('green', 'draw_two'),
+      activeColor: 'green',
+    },
+    deadlineIn: 24,
+  },
+  {
     id: 'game-map-velvet-fog',
     title: 'Map · Velvet · aube, brume',
     screen: 'game',

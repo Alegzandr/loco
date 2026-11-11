@@ -1056,10 +1056,16 @@ Each builder's header names its three grounds.
   under a second of build and draw on a laptop; a skyline is what costs, which is why a far band
   draws fewer of its panes (`SkylineOptions.windows`) and none of its floors' glass (`ribbons`). **And
   it is built exactly once**, which took four separate guarantees:
-  - **`viewportSize()` reads the window synchronously.** Solved from 0 × 0, the preload built a
-    whole room round a felt with no size, which the real size then threw away — every match paid
-    for its room twice, the second after the gate opened. `<SceneBackdrop />` refuses a felt with no
-    size for the same reason.
+  - **The felt is solved for the box the board fills, and the window only stands in for it**
+    (`GameView`'s `frame`: the measured `.container`, else `viewportSize()`, which reads the window
+    synchronously). Solved from 0 × 0, the preload built a whole room round a felt with no size,
+    which the real size then threw away — every match paid for its room twice, the second after the
+    gate opened. `<SceneBackdrop />` refuses a felt with no size for the same reason. **Solved from
+    the window, it put the table in the wrong place on every iPhone** (2026-11-11): the page is
+    `100dvh` and Safari's `innerHeight` is a toolbar off it, the backdrop stretches its frame to its
+    element, so the rendered table sat ~50px above the CSS felt, the inlay ran across the rail, and
+    `tableFits` agreed because it compared the window's felt with itself. The gate renders at that
+    same box (`mapPreload`'s `frame`), never at `innerWidth × innerHeight`.
   - **`safeAreaInsets()` reads them synchronously too**: the felt is solved from the viewport *and*
     the insets, and an inset filled in by an effect was a second render on every notched phone.
   - **A frame within four per cent of the size asked for is stretched, not re-rendered**

@@ -1482,6 +1482,10 @@ stated at the top of `styles/tokens.css`:
   render of the same room, felt, tier and look in flight within that 4% joins it**
   (`prepareScene`). Each missing one cost a second full render at the moment the gate lifted — the
   freeze the gate exists to hide. `sceneLoadingGate.test.ts`, `sceneCache.test.ts`.
+- **The felt the room is rendered under is solved for the box the board fills, never for the
+  window** (`GameView`'s `frame`, the gate's render size too): on iOS Safari `100dvh` and
+  `innerHeight` differ by the toolbar, and the rendered table sat a toolbar above the CSS felt.
+  The window is only the stand-in until the box is measured.
 - **The loading bar moves because the render yields to a paint between its phases** (`RENDER_STEPS`,
   `scene/nextPaint.ts`). A `setTimeout(0)` is not a paint. **Anything new and heavy inside the render
   goes between two reports, never inside one.** `sceneProgress.test.ts`.

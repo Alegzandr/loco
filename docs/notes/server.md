@@ -1439,9 +1439,13 @@ would make it wait out the hold first for a rematch `handle_rematch` refuses any
   - The seat that just played is excluded (taking the lead back from itself). **The seat holding the
     turn is not**: in a two-player game the bot is always the next player, so excluding it would
     leave the mechanic one-way in the most common setup.
-  - `interrupt_delay` + `interrupt_jitter_max` = **0.7–1.5s**, and `interrupt_prob` = **0.40**, below
+  - `interrupt_delay` + `interrupt_jitter_max` = **1.5–2.5s**, and `interrupt_prob` = **0.40**, below
     `catch_prob`. An interrupt window has no deadline, so these are set by fairness rather than by a
-    timeout: a human has to see the card land, recognise the match and click. A bot that always took
+    timeout: a human has to see the card land, recognise the match and click. It was 0.7–1.5s, and
+    on a phone the bot's copy came down before the card it answered had finished its flight: players
+    read it as a bot that played its doubles the instant they existed (2026-11-11). The floor is
+    pinned by `config.rs: a_bot_slam_waits_for_a_human_to_read_the_pile`, and the range stays inside
+    `finish_delay`'s so a slam that takes the round is held no longer than one that does not. A bot that always took
     the window it could see would answer every play anybody made.
   - Stale check: `last_play_at` must equal the value it was armed with, or the bot is answering a
     board that no longer exists.

@@ -310,6 +310,7 @@ function mapPreload(
   scene: () => SceneSpec | null,
   enabled: () => boolean,
   anchor: () => FeltAnchor,
+  frame: () => { width: number; height: number },
 ): { readonly current: MapPreloadState } {
   let state = $state<MapPreloadState>({ progress: 0, done: false })
   // Keyed on the scene's key, not the object, so an update with an equal-but-new
@@ -369,10 +370,13 @@ function mapPreload(
     timer = window.setTimeout(settle, MAP_PRELOAD_TIMEOUT_MS)
 
     state = { progress: 0, done: false }
-    // The window, read now: the two backdrops measure their own element, which
-    // can be a scrollbar or a browser bar off this, and a request within
-    // `sizeCloseEnough` of this one joins this render instead of starting its own.
-    const size = renderSizeFor(window.innerWidth, window.innerHeight)
+    // The board's own box, read now, and the felt solved for that same box: the
+    // backdrop stretches its frame to the element and lays the board on it, so
+    // a render solved for the window put the table a browser bar away from the
+    // felt (iOS Safari: `100dvh` and `innerHeight` disagree by the toolbar). A
+    // backdrop request within `sizeCloseEnough` of this one joins this render.
+    const box = untrack(frame)
+    const size = renderSizeFor(box.width, box.height)
     // Read once, untracked: a felt that moves mid-render (a seat arriving) is
     // the backdrop's to re-render, not a reason to restart the gate.
     const felt = untrack(anchor)
@@ -411,8 +415,9 @@ export function mapGate(
   gateOpen: () => boolean,
   onSend: (msg: ClientMsg) => void,
   anchor: () => FeltAnchor,
+  frame: () => { width: number; height: number },
 ): { readonly current: MapPreloadState } {
-  const preload = mapPreload(scene, gateOpen, anchor)
+  const preload = mapPreload(scene, gateOpen, anchor, frame)
   let sentReady = false
 
   $effect(() => {

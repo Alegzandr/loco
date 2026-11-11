@@ -84,6 +84,14 @@ const VIEWPORTS = {
     hasTouch: true,
     insets: { top: 59, right: 0, bottom: 34, left: 0 },
   },
+  // An iPhone upright in Safari, both bars showing: the page is ~700px tall,
+  // and this is the frame players actually send screenshots of.
+  safari: {
+    viewport: { width: 390, height: 700 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  },
   // A phone on its side (iPhone 13 Pro, Safari's bar still showing, so the
   // page is 340px tall). The board turns into its landscape composition here
   // — seats down the left, the action stack up the right, the hand along the

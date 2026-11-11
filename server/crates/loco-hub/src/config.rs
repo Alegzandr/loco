@@ -116,8 +116,12 @@ impl Default for BotTimings {
             catch_delay: Duration::from_millis(3200),
             catch_jitter_max: Duration::from_millis(1200),
             catch_prob: 0.8,
-            interrupt_delay: Duration::from_millis(700),
-            interrupt_jitter_max: Duration::from_millis(800),
+            // A slam answers a card the human has to see land, read and
+            // match before they can reach for their own copy: 0.7s was before
+            // the flight had finished on a phone, and read as a bot that
+            // played its doubles the instant they existed.
+            interrupt_delay: Duration::from_millis(1500),
+            interrupt_jitter_max: Duration::from_millis(1000),
             interrupt_prob: 0.40,
             finish_delay: Duration::from_millis(1800),
             finish_jitter_max: Duration::from_millis(800),
@@ -252,6 +256,20 @@ mod tests {
             "an empty list is the same-host rule"
         );
         assert!(!c.debug_mode);
+    }
+
+    /// A bot's slam is a reaction somebody at the table is meant to be able
+    /// to beat: never sooner than a human sees the card land, reads it and
+    /// presses. At 0.7s the bot answered a card still in flight on a phone.
+    #[test]
+    fn a_bot_slam_waits_for_a_human_to_read_the_pile() {
+        let b = BotTimings::default();
+        assert!(
+            b.interrupt_delay >= Duration::from_millis(1500),
+            "a bot's interject at {:?} is faster than a player can read the pile",
+            b.interrupt_delay
+        );
+        assert!(b.interrupt_delay + b.interrupt_jitter_max <= b.finish_delay + b.finish_jitter_max);
     }
 
     #[test]
