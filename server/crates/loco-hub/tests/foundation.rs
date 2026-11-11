@@ -305,7 +305,7 @@ async fn a_rearmed_deadline_replaces_the_old_one() {
     let fired: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::default();
     let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
     let now = tokio::time::Instant::now();
-    let key = DeadlineKey::seat("turn", 0);
+    let key = DeadlineKey::BotMove(0);
     let f = fired.clone();
     t.deadlines
         .arm(key, now + Duration::from_secs(30), move |_, _| {
@@ -318,7 +318,7 @@ async fn a_rearmed_deadline_replaces_the_old_one() {
         });
     let f = fired.clone();
     t.deadlines.arm(
-        DeadlineKey::table("cleanup"),
+        DeadlineKey::RoomCleanup,
         now + Duration::from_secs(20),
         move |_, _| f.lock().unwrap().push("cleanup"),
     );
@@ -346,13 +346,13 @@ async fn a_deadline_can_rearm_from_its_own_job() {
         move |t, _| {
             if count.fetch_add(1, Ordering::SeqCst) < 2 {
                 let at = tokio::time::Instant::now() + Duration::from_secs(1);
-                t.deadlines.arm(DeadlineKey::table("tick"), at, tick(count));
+                t.deadlines.arm(DeadlineKey::TurnTimeout, at, tick(count));
             }
         }
     }
     let mut t = Table::new("AAAAAA", new_room("AAAAAA"));
     t.deadlines.arm(
-        DeadlineKey::table("tick"),
+        DeadlineKey::TurnTimeout,
         tokio::time::Instant::now() + Duration::from_secs(1),
         tick(count.clone()),
     );

@@ -14,8 +14,6 @@ use loco_protocol::{ClientMsg, MatchLoadingMsg, MatchReadyMsg, ServerMsg};
 use std::collections::BTreeSet;
 use tokio::time::Instant;
 
-const MAP_LOAD: DeadlineKey = DeadlineKey::table("map_load_timeout");
-
 /// The messages the gate (and the not-playing gate) refuse.
 pub fn is_gameplay_msg(m: &ClientMsg) -> bool {
     matches!(
@@ -49,9 +47,11 @@ impl Table {
         let timeout = self.timings.map_load_timeout;
         // Opening the gate disarms this, and a new gate re-arms it: a fire is
         // always this gate's.
-        self.deadlines.arm(MAP_LOAD, started_at + timeout, |t, cx| {
-            t.handle_map_load_timeout(cx)
-        });
+        self.deadlines.arm(
+            DeadlineKey::MapLoadTimeout,
+            started_at + timeout,
+            |t, cx| t.handle_map_load_timeout(cx),
+        );
         self.maybe_open_table(cx);
     }
 
@@ -103,7 +103,7 @@ impl Table {
         let Some(st) = self.loading.take() else {
             return;
         };
-        self.deadlines.disarm(MAP_LOAD);
+        self.deadlines.disarm(DeadlineKey::MapLoadTimeout);
         if self.room.status != Status::Playing {
             return;
         }

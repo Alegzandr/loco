@@ -385,21 +385,54 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
 
 /// What a deadline is for. Arming a key replaces what was armed under it, which
 /// is how a turn timer re-armed for a new turn cannot fire for the old one.
+///
+/// A variant without a field is one deadline for the whole table; one carrying
+/// a seat is one per seat; a reconnect hold carries a sequence number from
+/// [`Table::reconnect_key`], so no hold ever replaces another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct DeadlineKey {
-    pub kind: &'static str,
-    /// A seat, or -1 for a deadline about the table as a whole.
-    pub seat: i32,
+pub enum DeadlineKey {
+    /// The turn clock's auto-action.
+    TurnTimeout,
+    /// The map-loading gate giving up on the seats still loading.
+    MapLoadTimeout,
+    /// An empty table's deletion. Seating anybody disarms it (`Table::seat`),
+    /// so a cleanup that fires is never a stale one.
+    RoomCleanup,
+    /// A matchmade pair's deal after the versus reveal.
+    MatchmakingReveal,
+    /// The same deal, armed a second time in case the first is dropped.
+    MatchmakingRevealBackstop,
+    /// A bot's move on its turn, by the bot's seat.
+    BotMove(usize),
+    /// A bot's LOCO! declaration, by the bot's seat.
+    BotUno(usize),
+    /// A bot's Contre-LOCO!, by the seat it is aimed at.
+    BotCatch(usize),
+    /// A bot slamming a matching card onto the pile.
+    BotInterrupt,
+    /// A bot's slam that was held to its instant.
+    BotInterruptHeld,
+    /// A dropped seat's hold running out, by a sequence unique to the table.
+    /// A hold outlives the match it began in (a forfeit leaves it to settle
+    /// the seat).
+    ReconnectExpiry(u64),
 }
 
 impl DeadlineKey {
-    pub const fn table(kind: &'static str) -> Self {
-        DeadlineKey { kind, seat: -1 }
-    }
-    pub const fn seat(kind: &'static str, seat: usize) -> Self {
-        DeadlineKey {
-            kind,
-            seat: seat as i32,
+    /// The deadline's name in the logs and as its job's label.
+    pub const fn name(&self) -> &'static str {
+        match self {
+            DeadlineKey::TurnTimeout => "turn_timeout",
+            DeadlineKey::MapLoadTimeout => "map_load_timeout",
+            DeadlineKey::RoomCleanup => "room_cleanup",
+            DeadlineKey::MatchmakingReveal => "matchmaking_start",
+            DeadlineKey::MatchmakingRevealBackstop => "matchmaking_start_backstop",
+            DeadlineKey::BotMove(_) => "bot_move",
+            DeadlineKey::BotUno(_) => "bot_uno",
+            DeadlineKey::BotCatch(_) => "bot_catch",
+            DeadlineKey::BotInterrupt => "bot_interrupt",
+            DeadlineKey::BotInterruptHeld => "bot_interrupt_held",
+            DeadlineKey::ReconnectExpiry(_) => "reconnect_expiry",
         }
     }
 }
@@ -491,7 +524,7 @@ impl Deadlines {
         due.into_iter()
             .filter_map(|(k, _, _)| {
                 self.slots.remove(&k).map(|a| TableJob {
-                    what: Cow::Borrowed(k.kind),
+                    what: Cow::Borrowed(k.name()),
                     client: None,
                     run: a.run,
                 })

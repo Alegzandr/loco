@@ -25,9 +25,6 @@ pub const MATCHMAKING_FORMAT: MatchFormat = MatchFormat::Bo1;
 /// What a match needs to keep being a match: below it a departure ends it.
 pub const WALK_OUT_FLOOR: usize = 2;
 
-const REVEAL: DeadlineKey = DeadlineKey::table("matchmaking_start");
-const REVEAL_BACKSTOP: DeadlineKey = DeadlineKey::table("matchmaking_start_backstop");
-
 /// One player waiting for an opponent.
 #[derive(Clone, Debug)]
 pub struct QueuedPlayer {
@@ -230,10 +227,13 @@ impl Table {
         // A rematch re-arms both keys, so neither fire can belong to an
         // earlier pairing; the status check is what makes the second a no-op.
         self.deadlines
-            .arm(REVEAL, first, |t, cx| t.handle_matchmaking_start(cx));
-        self.deadlines.arm(REVEAL_BACKSTOP, backstop, |t, cx| {
-            t.handle_matchmaking_start(cx)
-        });
+            .arm(DeadlineKey::MatchmakingReveal, first, |t, cx| {
+                t.handle_matchmaking_start(cx)
+            });
+        self.deadlines
+            .arm(DeadlineKey::MatchmakingRevealBackstop, backstop, |t, cx| {
+                t.handle_matchmaking_start(cx)
+            });
     }
 
     fn handle_matchmaking_start(&mut self, cx: &TableCtx) {
@@ -452,8 +452,10 @@ impl Table {
         // table rather than the match stays — the cleanup, and the holds of
         // seats still away, which settle those seats after the match.
         self.deadlines.retain(|k| {
-            k.kind == crate::router::rooms::CLEANUP.kind
-                || k.kind == crate::table::presence::RECONNECT_EXPIRY
+            matches!(
+                k,
+                DeadlineKey::RoomCleanup | DeadlineKey::ReconnectExpiry(_)
+            )
         });
         cx.hub
             .metrics()

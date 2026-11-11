@@ -12,8 +12,6 @@ use loco_game::Status;
 use loco_protocol::{ErrorMsg, ServerMsg};
 use tokio::time::Instant;
 
-const TURN: DeadlineKey = DeadlineKey::table("turn_timeout");
-
 impl Table {
     /// Arms the clock for whoever's turn it now is. A bot keeps its own time
     /// and the client draws no bar for it; the gate keeps the clock off
@@ -28,7 +26,7 @@ impl Table {
         let turn = state.current_turn;
         if self.is_bot(turn) {
             self.turn_started_at = None;
-            self.deadlines.disarm(TURN);
+            self.deadlines.disarm(DeadlineKey::TurnTimeout);
             return;
         }
         let now = Instant::now();
@@ -37,7 +35,9 @@ impl Table {
         // is shown: the grace is the server's patience and never on the wire.
         let at = now + self.timings.turn_timeout + self.timings.turn_timeout_grace;
         self.deadlines
-            .arm(TURN, at, move |t, cx| t.handle_turn_timeout(cx, turn));
+            .arm(DeadlineKey::TurnTimeout, at, move |t, cx| {
+                t.handle_turn_timeout(cx, turn)
+            });
     }
 
     /// The deadline the client is shown, in unix ms, or 0 when no human turn
@@ -54,7 +54,7 @@ impl Table {
         }
     }
 
-    /// Every turn re-arms the one `TURN` key, so a fire is always the latest
+    /// Every turn re-arms the one `DeadlineKey::TurnTimeout` key, so a fire is always the latest
     /// turn's; what can still have moved under it without a re-arm is the
     /// match ending or a fixture rewriting the turn.
     fn still_the_same_turn(&self, seat: usize) -> bool {

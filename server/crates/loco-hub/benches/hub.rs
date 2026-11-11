@@ -59,7 +59,7 @@ fn benches(c: &mut Criterion) {
         let now = tokio::time::Instant::now();
         b.iter(|| {
             table.deadlines.arm(
-                DeadlineKey::seat("turn", 1),
+                DeadlineKey::BotMove(1),
                 now + Duration::from_secs(30),
                 |_, _| {},
             );

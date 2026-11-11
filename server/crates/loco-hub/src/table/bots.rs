@@ -192,7 +192,7 @@ impl Table {
     fn post_bot_move_after(&mut self, bm: BotMove, wait: Duration) {
         let at = tokio::time::Instant::now() + wait;
         self.deadlines
-            .arm(DeadlineKey::seat("bot_move", bm.seat), at, move |t, cx| {
+            .arm(DeadlineKey::BotMove(bm.seat), at, move |t, cx| {
                 t.execute_bot_move(cx, bm)
             });
     }
@@ -213,7 +213,7 @@ impl Table {
     fn schedule_bot_uno_announce(&mut self, seat: usize, last_card_time: Millis) {
         let at = clock::instant_of(bot_uno_at(&self.timings.bots, seat, last_card_time));
         self.deadlines
-            .arm(DeadlineKey::seat("bot_uno", seat), at, move |t, _cx| {
+            .arm(DeadlineKey::BotUno(seat), at, move |t, _cx| {
                 t.handle_uno_announce(seat, last_card_time)
             });
     }
@@ -276,7 +276,7 @@ impl Table {
             return; // past the deadline: a call nobody could win
         }
         self.deadlines.arm(
-            DeadlineKey::seat("bot_catch", target),
+            DeadlineKey::BotCatch(target),
             clock::instant_of(fire_at),
             move |t, cx| t.handle_bot_catch(cx, target, window_at),
         );
@@ -298,7 +298,7 @@ impl Table {
         let at = tokio::time::Instant::now() + b.interrupt_delay + jitter;
         let last_play_at = state.last_play_at;
         self.deadlines
-            .arm(DeadlineKey::table("bot_interrupt"), at, move |t, cx| {
+            .arm(DeadlineKey::BotInterrupt, at, move |t, cx| {
                 t.handle_bot_interrupt(cx, last_play_at, None)
             });
     }
@@ -349,7 +349,7 @@ impl Table {
             let due = bot_finish_due(&self.timings.bots, state, seat, since);
             if clock::now_ms() < due {
                 self.deadlines.arm(
-                    DeadlineKey::table("bot_interrupt_held"),
+                    DeadlineKey::BotInterruptHeld,
                     clock::instant_of(due),
                     move |t, cx| t.handle_bot_interrupt(cx, last_play_at, Some(seat)),
                 );

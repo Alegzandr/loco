@@ -112,13 +112,12 @@ async fn a_deleted_table_runs_nothing_after_the_job_it_was_in() {
             core.tables[CODE]
                 .post(TableJob::new("arm", move |t: &mut Table, _| {
                     let now = Instant::now();
+                    t.deadlines.arm(DeadlineKey::TurnTimeout, now, move |_, _| {
+                        let _ = entered_tx.send(());
+                        let _ = gate.recv();
+                    });
                     t.deadlines
-                        .arm(DeadlineKey::table("first"), now, move |_, _| {
-                            let _ = entered_tx.send(());
-                            let _ = gate.recv();
-                        });
-                    t.deadlines
-                        .arm(DeadlineKey::table("second"), now, |t: &mut Table, _| {
+                        .arm(DeadlineKey::RoomCleanup, now, |t: &mut Table, _| {
                             t.broadcast_all(crate::net::wire::msg::server_updating());
                         });
                 }))
@@ -161,17 +160,16 @@ async fn a_forfeit_disarms_what_the_match_armed() {
     let cx = TableCtx::detached(&hub, CODE);
 
     t.schedule_turn_timer(&cx);
-    let turn = DeadlineKey::table("turn_timeout");
+    let turn = DeadlineKey::TurnTimeout;
     assert!(
         t.deadlines.when(turn).is_some(),
         "the turn clock never armed"
     );
-    let bot = DeadlineKey::seat("bot_move", 1);
+    let bot = DeadlineKey::BotMove(1);
     let far = Instant::now() + Duration::from_secs(60);
     t.deadlines.arm(bot, far, |_, _| {});
-    t.deadlines
-        .arm(crate::router::rooms::CLEANUP, far, |_, _| {});
-    let hold = t.unique_key(crate::table::presence::RECONNECT_EXPIRY);
+    t.deadlines.arm(DeadlineKey::RoomCleanup, far, |_, _| {});
+    let hold = t.reconnect_key();
     t.deadlines.arm(hold, far, |_, _| {});
 
     t.forfeit_match(&cx, 1);
@@ -185,7 +183,7 @@ async fn a_forfeit_disarms_what_the_match_armed() {
         "a bot move survived the forfeit"
     );
     assert!(
-        t.deadlines.when(crate::router::rooms::CLEANUP).is_some(),
+        t.deadlines.when(DeadlineKey::RoomCleanup).is_some(),
         "the cleanup was disarmed"
     );
     assert!(

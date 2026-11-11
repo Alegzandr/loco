@@ -35,7 +35,7 @@ pub mod turntimer;
 use crate::ids::{RoomCode, SessionToken};
 use crate::net::client::Client;
 use crate::net::wire::{LatencyEntry, msg};
-use crate::table::actor::{Deadlines, Phase};
+use crate::table::actor::{DeadlineKey, Deadlines, Phase};
 use crate::table::room::{Room, Status};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeSet;
@@ -141,9 +141,9 @@ pub struct Table {
 
     /// Every deadline this table has armed. See `actor.rs`.
     pub deadlines: Deadlines,
-    /// Mints keys for the deadlines that must not replace each other (one
-    /// per reconnect hold, whose seat number can be re-based under it).
-    pub(crate) next_key: i32,
+    /// Mints the keys of the reconnect holds, which must not replace each
+    /// other (a hold's seat number can be re-based under it).
+    pub(crate) next_key: u64,
 }
 
 /// The gate between `game_started` and the first legal move.
@@ -327,7 +327,7 @@ impl Table {
         self.seats[id].occupant = Occupant::Human(c.clone());
         c.sit_at(&self.code, id);
         // Somebody is here: the empty-room cleanup stops counting.
-        self.deadlines.disarm(crate::router::rooms::CLEANUP);
+        self.deadlines.disarm(DeadlineKey::RoomCleanup);
     }
 
     /// Empties a seat without removing it: the player has the reconnect window
@@ -423,13 +423,10 @@ impl Table {
         self.loading.is_some()
     }
 
-    /// A key for a deadline that must never replace another of its kind.
-    pub fn unique_key(&mut self, kind: &'static str) -> crate::table::actor::DeadlineKey {
+    /// A key for a reconnect hold, never equal to another hold's.
+    pub fn reconnect_key(&mut self) -> DeadlineKey {
         self.next_key = self.next_key.wrapping_add(1);
-        crate::table::actor::DeadlineKey {
-            kind,
-            seat: self.next_key,
-        }
+        DeadlineKey::ReconnectExpiry(self.next_key)
     }
 
     /// Whether every seat other than this one is an absent human: no socket
