@@ -1,60 +1,40 @@
 # Development compose — no host toolchain required.
-# Changes to Go or TypeScript source are picked up automatically.
+# Changes to Rust or TypeScript source are picked up automatically.
 #
 # Usage:
 #   docker compose -f docker-compose.dev.yml up --build
 #
 # Endpoints:
 #   Frontend (Vite):  http://localhost:5173
-#   Backend  (Go):    http://localhost:8080
+#   Backend  (Rust):  http://localhost:8080
 #   WebSocket:        ws://localhost:8080/ws  (browser connects directly — no Vite proxy)
 
 services:
     server:
-        image: golang:1.26.5-alpine
+        image: rust:1.97-bookworm
         working_dir: /app
         volumes:
             - ./server:/app
-            # Cache Go module downloads across rebuilds.
-            - go-mod-cache:/root/go/pkg/mod
+            # The crate registry and the build outside the bind mount: a
+            # second start neither downloads the graph nor rebuilds it, and the
+            # host's own server/target (if any) is not overwritten by Linux
+            # artefacts.
+            - cargo-registry:/usr/local/cargo/registry
+            - cargo-target:/app/target
         environment:
             - PORT=8080
-            - GOFLAGS=-mod=mod
             - LOCO_E2E=1
         ports:
             - "8080:8080"
-        command: go run .
+        # `cargo watch` rebuilds and restarts on every save; the first build
+        # takes a few minutes, which is what the healthcheck's retries wait for.
+        command: sh -c "cargo install --locked cargo-watch && cargo watch -x 'run -p loco-server'"
         restart: unless-stopped
         healthcheck:
-            test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+            test: ["CMD", "/app/target/debug/loco-server", "healthcheck"]
             interval: 10s
             timeout: 5s
-            retries: 5
-
-    # The Rust server (server-rs/), prepared and not switched on. To try it,
-    # comment the `server` service above out and this one in: same port, same
-    # name, so the client below and its LOCO_SERVER_ORIGIN do not change.
-    # `cargo watch` rebuilds on every save; the first build takes a few minutes.
-    #
-    # server:
-    #     image: rust:1.97-bookworm
-    #     working_dir: /app
-    #     volumes:
-    #         - ./server-rs:/app
-    #         - cargo-registry:/usr/local/cargo/registry
-    #         - cargo-target:/app/target
-    #     environment:
-    #         - PORT=8080
-    #         - LOCO_E2E=1
-    #     ports:
-    #         - "8080:8080"
-    #     command: sh -c "cargo install --locked cargo-watch && cargo watch -x 'run -p loco-server'"
-    #     restart: unless-stopped
-    #     healthcheck:
-    #         test: ["CMD", "/app/target/debug/loco-server", "healthcheck"]
-    #         interval: 10s
-    #         timeout: 5s
-    #         retries: 30
+            retries: 60
 
     client:
         # Vite 8 and SvelteKit 3 declare engines.node >= 22.12; the image is the current LTS.
@@ -73,7 +53,7 @@ services:
             - VITE_HMR_CLIENT_PORT=5173
             # Where Vite forwards /live.json and /live-thumb/, which nginx
             # proxies in production. Inside this container localhost is this
-            # container, so the service name is what reaches the Go server.
+            # container, so the service name is what reaches the server.
             - LOCO_SERVER_ORIGIN=http://server:8080
             # Watch by polling: /app is a bind mount, and a bind mount from a
             # Windows or macOS host delivers no inotify events, so hot reload
@@ -93,8 +73,6 @@ services:
         restart: unless-stopped
 
 volumes:
-    go-mod-cache:
+    cargo-registry:
+    cargo-target:
     client-node-modules:
-    # For the commented Rust server above.
-    # cargo-registry:
-    # cargo-target:

@@ -363,29 +363,44 @@ and both players reconnect with their original tokens and get their hands back
 card for card. There is deliberately **no Playwright coverage**: the E2E suite
 cannot restart the server underneath itself.
 
-### The Rust image, prepared
+### The server image, and who owns `/data`
 
-`server-rs/Dockerfile` is ready and **not wired into `build`** until the cutover
-(`docs/migration.md`, step 6). It is a static musl binary on `gcr.io/distroless/static:nonroot`:
-no shell, no package manager, no `wget`. Three things change with it, and all three have to move in
-the same change set as the switch:
+`server/Dockerfile` is a static musl binary on `gcr.io/distroless/static:nonroot`: no shell, no
+package manager, no `wget`. It replaced the Go image, and three things changed with it:
 
-- **The runtime uid is 65532** (distroless `nonroot`), not 10001. The deploy's `chown` of
-  `${DATA_DIR}/snapshots` must follow, or the container cannot write its snapshot and every match in
-  flight is lost on the next deploy.
+- **The runtime uid is 65532** (distroless `nonroot`), not the Go image's 10001. The `/data` bind
+  mount has to be writable by it, and a mount overrides whatever the image chowned.
 - **The healthcheck is the binary**: `["CMD", "/loco-server", "healthcheck"]` (a `GET /health` on
   loopback, exit 0 on a 200). `wget -qO- …/health` does not exist in the image.
 - **`/metrics` is Prometheus text** under the Go names, no longer JSON; `/health` stays JSON. The
-  E2E helpers that read `matchmaking_queue` move to the text format at the same time.
+  E2E helpers read either format.
 
-`read_only`, `cap_drop: ALL`, `no-new-privileges`, the tmpfs `/tmp` and the `/data` bind mount carry
-over unchanged. `docker-compose.dev.yml` carries a commented `server` service running it under
-`cargo watch`, and `make test-server-rs` / `lint-server-rs` / `bench-server-rs` run it in Docker.
+**Ownership is the deploy's job, and it is done in `rollout()`, between the two halves of the
+swap**: `docker compose stop server`, then `chown -R 65532:65532 ${DATA_DIR}/snapshots` and
+`chmod 700`, then `up -d --wait server`. The order is the point. The process being replaced writes
+its snapshot while it stops, as *its* user: a chown before the stop locks it out of a 0700
+directory, and a chown that is not recursive leaves the file it wrote unreadable to the next
+process. Either way the matches in flight are lost, and the deploy that replaced the Go image was
+exactly the one where they would have been. `.defaults` only creates the directory now.
+
+**No manual action is needed on the host** as long as the deploy job can chown under `DATA_DIR`,
+which it already did for 10001. If a host is ever brought up by hand instead, the one-time
+equivalent is:
+
+```sh
+sudo chown -R 65532:65532 /home/kisuke/data-loco/snapshots && sudo chmod 700 /home/kisuke/data-loco/snapshots
+```
+
+`read_only`, `cap_drop: ALL`, `no-new-privileges`, the tmpfs `/tmp` and the `/data` bind mount are
+unchanged. The shutdown listens for SIGTERM through `tokio::signal::unix` (and Ctrl-C), which is
+what `docker compose stop` sends PID 1; it has been exercised on Windows with Ctrl-Break, so the
+first deploy to loco-d is where the Linux path is seen for real: check the server's log for
+`shutdown signal received, draining` and, past the drain, `snapshot written`.
 
 ## Production readiness
 
-- The `server` service in `deploy/compose.yml` has a healthcheck (`GET /health`, 10 s interval, 5 s timeout, 3 retries, 5 s start period).
-- The `client` service waits for `server` to be `healthy` before starting (`condition: service_healthy`), preventing nginx from routing to a not-yet-listening Go server.
+- The `server` service in `deploy/compose.yml` has a healthcheck (`loco-server healthcheck`, a `GET /health` on loopback; 10 s interval, 5 s timeout, 3 retries, 5 s start period).
+- The `client` service waits for `server` to be `healthy` before starting (`condition: service_healthy`), preventing nginx from routing to a not-yet-listening server.
 - Compose-interpolation variables (`DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`, `STOP_GRACE_PERIOD`) and the server's own `LOCO_DRAIN_TIMEOUT` / `LOCO_SNAPSHOT_PATH` are written to `app.env` by `write_app_env` and loaded via `--env-file app.env`, so a manual `docker compose up` on the server works without CI shell exports.
 - Dev hosts (`*-d.<domain>`) serve `robots.txt` with `Disallow: /`; production hosts allow indexing.
 - nginx WebSocket timeouts: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
