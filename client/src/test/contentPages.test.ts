@@ -6,7 +6,7 @@
  *
  * So nothing here checks that the page "looks right". Each test pins the page to
  * the source it is a second view of: the rules to `t.rules`, which the in-game
- * modal maps, and the scoring to `server/game/card.go`, which is the only
+ * modal maps, and the scoring to `server/crates/loco-game/src/card.rs`, which is the only
  * authority on points anywhere in the repo.
  *
  * That the *rendered* page carries every rule is asserted in

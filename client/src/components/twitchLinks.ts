@@ -26,7 +26,7 @@ const HOST = 'www.twitch.tv'
 
 /**
  * The alphabet of a Twitch login, mirroring the server's screen the way
- * `nicknameRules.ts` mirrors `game/nickname.go`.
+ * `nicknameRules.ts` mirrors `loco-game/src/nickname.rs`.
  *
  * Like that mirror it decides nothing: the server has already dropped a row
  * whose login falls outside this, and a mirror that went stricter than the

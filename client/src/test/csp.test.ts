@@ -308,14 +308,14 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
 })
 
 /**
- * The player's address is what every per-network ceiling in the Go server is
- * keyed on (hub/privacy.go: clientNet, admitConn, joinThrottled), and this proxy
+ * The player's address is what every per-network ceiling in the server is
+ * keyed on (loco-hub/src/privacy.rs: client_net; serve.rs: admit; the wrong-code budget in rooms.rs), and this proxy
  * is the only thing that decides what the server gets to believe about it.
  *
  * The hole this pins shut: `ws.` is grey-clouded on purpose, so Cloudflare is
  * not on that path and nothing there sets or strips CF-Connecting-IP. While the
  * shared proxy block forwarded `$http_cf_connecting_ip` from both hosts, a
- * client could write its own — and the Go server believed it, because the *peer*
+ * client could write its own — and the server believed it, because the *peer*
  * it checks against TrustedProxies is this container. One header per socket was
  * one network key per socket: MaxConnsPerNet stops bounding anything, and so
  * does the wrong-code budget that rations a sweep of the table-code space.
@@ -489,7 +489,7 @@ describe('the app stays inside the policy', () => {
 })
 
 // nginx proxies the socket and, since the live strip, two paths that answer
-// from the Go server's memory. It proxies nothing else, and that is a security
+// from the server's memory. It proxies nothing else, and that is a security
 // property rather than a configuration detail: /health and /metrics are
 // operator surfaces and must stay unreachable from the internet.
 describe('what nginx forwards to the server', () => {

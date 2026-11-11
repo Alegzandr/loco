@@ -59,7 +59,7 @@ describe('which address the socket dials', () => {
   })
 
   it('lets the dev port win, and leaves no direct endpoint behind it', () => {
-    // docker-compose.dev.yml points this at the Go server because Vite's own
+    // docker-compose.dev.yml points this at the server because Vite's own
     // WebSocket proxy is unreliable under Docker networking. There is no CDN in
     // front of a dev server to escape, so there is nothing to fall back from.
     const e = at(http, { VITE_WS_PORT: '8080', VITE_WS_ORIGIN: 'wss://ws.ohloco.com' })

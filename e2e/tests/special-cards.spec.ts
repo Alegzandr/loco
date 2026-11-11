@@ -19,7 +19,7 @@
  *
  * Prerequisites:
  *   - Server must be running with LOCO_E2E=1 (set in docker-compose.dev.yml and CI).
- *   - Go server on :8080, Vite dev server on :5173.
+ *   - Game server (loco-server, LOCO_E2E=1) on :8080, Vite dev server on :5173.
  */
 import { test, expect, Browser } from '@playwright/test'
 import {

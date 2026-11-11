@@ -141,7 +141,8 @@ backend_test:
     # which the compiler checks rather than a flag. Every crate, the domain and
     # the protocol included.
     - cd server && cargo test --workspace --locked
-    # The domain must keep building for the browser (docs/migration.md, step 2).
+    # The domain must keep building for the browser: it is pure, and a wasm32
+    # build is what proves no clock, I/O or OS randomness crept into it.
     - rustup target add wasm32-unknown-unknown && cargo build -p loco-game --target wasm32-unknown-unknown --locked
     # Built here, not in e2e_test: that job runs on the Playwright image, which
     # has no Rust. Static (musl) so it runs on that image's older glibc as-is,
@@ -426,8 +427,8 @@ e2e_test:
       # stops, as its own user, so a chown before the stop would lock it out of
       # the directory (0700), and a chown that was not recursive would leave
       # the file it wrote unreadable to the next process. Both cost exactly the
-      # matches the snapshot exists to keep, and the deploy that replaced the Go
-      # image (uid 10001) is the one where they would have. Stopping first
+      # matches the snapshot exists to keep, and the deploy that changed the
+      # server's uid (10001 to 65532) is the one where they would have. Stopping first
       # costs nothing: `up -d` recreating the container stops it the same way,
       # SIGTERM and stop_grace_period, before it starts the new one.
       #
@@ -436,13 +437,13 @@ e2e_test:
       # list.
       #
       # Each environment has its own directory under ${DATA_DIR}/snapshots
-      # (deploy/compose.yml says why). The Go server wrote straight into
+      # (deploy/compose.yml says why). The server before the split wrote straight into
       # ${DATA_DIR}/snapshots, so the first deploy of an environment after the
       # split finds the file its old server just wrote at the top level and
       # moves it into that environment's own directory before the new server
       # starts. Only the environment's own directory is handed to 65532: the
       # top level stays the old owner's until the other environment has moved
-      # too, so a Go server still running there can still write its snapshot.
+      # too, so an old server still running there can still write its snapshot.
       rollout() {
         local snaps="${DATA_DIR}/snapshots/${DEPLOY_ENV}"
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml stop server

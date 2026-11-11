@@ -23,10 +23,10 @@
 import { DECK_SIZE } from './deck'
 import type { Lang } from '../seo/meta'
 
-/** Cards dealt to each seat (`initialHandSize`, server/game/room.go). */
+/** Cards dealt to each seat (`INITIAL_HAND_SIZE`, server/crates/loco-game/src/room.rs). */
 export const HAND_SIZE = 8
 
-/** The lowest and highest number in the deck (server/game/deck.go). No zero. */
+/** The lowest and highest number in the deck (server/crates/loco-game/src/deck.rs). No zero. */
 export const NUMBER_LOW = 1
 export const NUMBER_HIGH = 9
 
