@@ -133,8 +133,8 @@ export function serverCodeAlphabet(): { chars: string; length: number } | undefi
 
 /** The deck builder's body. */
 export function serverDeckBody(): string | undefined {
-  // Go's `NewDeck()` is `Deck::new()` in loco-game.
-  return serverFn(readServer('game', 'deck'), 'NewDeck', 'new')
+  // Go's `NewDeck()` is `Deck::standard()` in loco-game.
+  return serverFn(readServer('game', 'deck'), 'NewDeck', 'standard')
 }
 
 /** The number cards' range, off the deck builder's loop. */
@@ -178,7 +178,7 @@ export function serverNumberScoresFace(): boolean {
  * The values of one string enum of the maps module, in the order its list
  * names them: Go's `var MapIDs = []MapID{MapNeon, ...}` + `MapNeon MapID =
  * "neon"`, Rust's `const MAP_IDS: [MapId; 6] = [MapId::Neon, ...]` + the
- * `string_enum!` line `Neon = "neon",`.
+ * `as_str` match arm `MapId::Neon => "neon",`.
  */
 export function serverMapList(src: string, listName: string, typeName: string): string[] | undefined {
   if (SERVER_SOURCE === 'go') {
@@ -199,10 +199,10 @@ export function serverMapList(src: string, listName: string, typeName: string): 
     .map((v) => rustWire(src, v))
 }
 
-/** `MapId::Neon` -> `"neon"`, off the `string_enum!` block that spells it. */
+/** `MapId::Neon` -> `"neon"`, off the `as_str` match arm that spells it. */
 function rustWire(src: string, path: string): string {
   const variant = path.trim().replace(/^\w+::/, '')
-  return src.match(new RegExp(`\\b${variant} = "([a-z_]+)"`))?.[1] ?? `<${variant} has no value>`
+  return src.match(new RegExp(`\\b${variant}\\s*(?:=>|=)\\s*"([a-z_]+)"`))?.[1] ?? `<${variant} has no value>`
 }
 
 /** Every map's allowed weathers, id -> weathers. */

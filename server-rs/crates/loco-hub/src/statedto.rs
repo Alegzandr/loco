@@ -30,7 +30,7 @@ pub fn catch_seats(state: &GameState) -> Vec<CatchSeatDTO> {
         .catchable_targets(clock::now_ms())
         .into_iter()
         .map(|seat| CatchSeatDTO {
-            player_index: seat,
+            player_index: seat as i32,
             ends_at: state.catch_window_end(seat).unwrap_or(0),
         })
         .collect()
@@ -47,10 +47,10 @@ impl Table {
                     .state
                     .as_ref()
                     .and_then(|s| s.hands.get(i))
-                    .map_or(0, |h| h.size() as i32);
+                    .map_or(0, |h| h.len() as i32);
                 let away = self.is_held(i);
                 PlayerDTO {
-                    index: p.index,
+                    index: p.index as i32,
                     nickname: p.nickname.clone(),
                     hand_size,
                     connected: !away && !self.has_left(i),
@@ -69,7 +69,7 @@ impl Table {
                 player_index: i as i32,
                 nickname: p.nickname.clone(),
                 score: room.scores.get(i).copied().unwrap_or(0),
-                rounds_won: room.rounds_won.get(i).copied().unwrap_or(0),
+                rounds_won: room.rounds_won.get(i).copied().unwrap_or(0) as i32,
             })
             .collect()
     }
@@ -99,8 +99,8 @@ impl Table {
             && room.status == Status::Playing
         {
             shared.catch_seats = catch_seats(state);
-            for (i, &declared) in state.last_card_declared.iter().enumerate() {
-                if declared && state.hands.get(i).is_some_and(|h| h.size() == 1) {
+            for (i, seat) in state.seats.iter().enumerate() {
+                if seat.declared && state.hands.get(i).is_some_and(|h| h.len() == 1) {
                     shared.declared.push(i as i32);
                 }
             }
@@ -130,7 +130,7 @@ impl Table {
             .iter()
             .map(|ev| GameEventDTO {
                 kind: ev.kind.as_str().to_owned(),
-                player_index: ev.player_index,
+                player_index: ev.player.map_or(-1, |p| p as i32),
                 card: ev.card.map(card_to_dto),
                 chosen_color: (ev.chosen_color != loco_game::Color::Red)
                     .then(|| color_name(ev.chosen_color)),
@@ -179,9 +179,9 @@ impl Table {
                     pending_draw: 0,
                     has_drawn: false,
                     event_log: Vec::new(),
-                    round_number: room.round_number,
+                    round_number: room.round_number as i32,
                     match_format: match_format_string(room.format),
-                    max_players: room.max_players,
+                    max_players: room.max_players as i32,
                     map_id,
                     time_of_day,
                     weather,
@@ -208,14 +208,14 @@ impl Table {
             players,
             discard: card_to_dto(*state.discard.last().expect("checked above")),
             active_color: color_name(state.active_color),
-            turn: state.current_turn,
+            turn: state.current_turn as i32,
             direction: state.direction,
-            pending_draw: state.pending_draw,
+            pending_draw: state.pending_draw as i32,
             has_drawn: state.has_drawn,
             event_log: Vec::new(),
-            round_number: room.round_number,
+            round_number: room.round_number as i32,
             match_format: match_format_string(room.format),
-            max_players: room.max_players,
+            max_players: room.max_players as i32,
             map_id,
             time_of_day,
             weather,
@@ -226,7 +226,7 @@ impl Table {
             interrupt_open: state.interrupt_open,
             catch_seats: shared.catch_seats.clone(),
             declared_seats: shared.declared.clone(),
-            catch_locked_until: room.catch_locked_at(seat as i32).unwrap_or(0),
+            catch_locked_until: room.catch_locked_at(seat).unwrap_or(0),
             streamer_mode: self.streamer_mode,
         }
     }

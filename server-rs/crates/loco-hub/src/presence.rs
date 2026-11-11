@@ -142,7 +142,7 @@ impl Table {
     /// it. Returns whether a human remains.
     pub(crate) fn reindex_lobby_disconnect(&mut self, cx: &TableCtx, c: &Arc<Client>) -> bool {
         let leaving = c.player_id();
-        if let Err(e) = self.room.remove_lobby_player(leaving as i32) {
+        if let Err(e) = self.room.remove_lobby_player(leaving) {
             tracing::warn!(player = leaving, "RemoveLobbyPlayer failed err={e}");
         }
         let has_human = self.drop_client(c, leaving);
@@ -171,7 +171,7 @@ impl Table {
         let status = self.room.status;
         let mut removed = false;
         if status != Status::Playing {
-            match self.room.remove_lobby_player(seat as i32) {
+            match self.room.remove_lobby_player(seat) {
                 Ok(_) => {
                     self.drop_seat(seat);
                     removed = true;
@@ -220,9 +220,7 @@ impl Table {
     /// leave_room's answer, given to the same departure arrived at by a hold
     /// running out: retired above the walk-out floor, a forfeit at or below.
     pub(crate) fn settle_expired_seat(&mut self, cx: &TableCtx, seat: usize) {
-        if self.room.status != Status::Playing
-            || self.is_matchmade()
-            || self.room.is_retired(seat as i32)
+        if self.room.status != Status::Playing || self.is_matchmade() || self.room.is_retired(seat)
         {
             return;
         }
@@ -254,11 +252,11 @@ impl Table {
         // A reclaim at a finished table gets no board: the match is over.
         let state = (self.room.status == Status::Playing).then(|| self.player_game_state(seat));
         c.send(ServerMsg::PlayerReconnected(PlayerReconnectedMsg {
-            room_code: self.code.clone(),
+            room_code: self.code.to_string(),
             player_id: Some(seat as i32),
             state,
             players: self.player_list(),
-            session_token: tok,
+            session_token: tok.into_string(),
             ..Default::default()
         }));
         self.broadcast(

@@ -92,12 +92,12 @@ async fn map_id_rides_the_game_state() {
     // the three ids.
     let hour = state["time_of_day"].as_str().unwrap_or_default();
     assert!(
-        TimeOfDay::parse(hour).is_some(),
+        hour.parse::<TimeOfDay>().is_ok(),
         "game_started carries time_of_day={hour:?}, want a valid hour"
     );
     let sky = state["weather"].as_str().unwrap_or_default();
     assert!(
-        Weather::parse(sky).is_some(),
+        sky.parse::<Weather>().is_ok(),
         "game_started carries weather={sky:?}, want a valid sky"
     );
     complete_map_load(&mut [&mut conn]).await;

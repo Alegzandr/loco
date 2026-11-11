@@ -12,8 +12,10 @@
 
 use crate::Hub;
 use crate::hub::{Control, HubCore};
-use crate::room::{Room, Status};
+use crate::ids::{RoomCode, SessionToken};
+use crate::room::Status;
 use crate::table::{MatchRecord, Occupant, Table};
+use loco_game::SavedRoom;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -47,10 +49,11 @@ pub struct SnapshotFile {
 
 /// One match plus the hub-side bookkeeping that makes it playable. JSON names
 /// are Go's; map keys are seats written as strings, as `encoding/json` did.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomSnapshot {
     /// The domain's room, in Go's JSON: a Go snapshot deserialises into it.
-    pub room: Room,
+    /// It carries no RNG; the restore draws a fresh seed.
+    pub room: SavedRoom,
     /// What lets the returning client prove it owns the seat, with the token
     /// it has had since it joined.
     #[serde(
@@ -58,7 +61,7 @@ pub struct RoomSnapshot {
         skip_serializing_if = "BTreeMap::is_empty",
         deserialize_with = "null_as_default"
     )]
-    pub session_tokens: BTreeMap<usize, String>,
+    pub session_tokens: BTreeMap<usize, SessionToken>,
     #[serde(
         default,
         skip_serializing_if = "Vec::is_empty",
@@ -102,6 +105,21 @@ where
 }
 
 impl RoomSnapshot {
+    /// A snapshot of `room` and nothing else: no tokens, no bots, no history.
+    pub fn new(room: SavedRoom) -> RoomSnapshot {
+        RoomSnapshot {
+            room,
+            session_tokens: BTreeMap::new(),
+            bot_slots: Vec::new(),
+            matchmade: false,
+            solo: false,
+            streamer_mode: false,
+            afk_timeouts: BTreeMap::new(),
+            match_history: Vec::new(),
+            match_started_at: None,
+        }
+    }
+
     /// What a table hands the snapshot, or `None` when it has nothing in flight
     /// worth carrying across a restart.
     pub fn of(t: &Table) -> Option<RoomSnapshot> {
@@ -109,7 +127,7 @@ impl RoomSnapshot {
             return None;
         }
         Some(RoomSnapshot {
-            room: t.room.clone(),
+            room: SavedRoom::from(&t.room),
             session_tokens: t
                 .seats
                 .iter()
@@ -251,16 +269,17 @@ impl HubCore {
     /// yet, by construction, so every seat enters its reconnect window exactly
     /// as if its player had just dropped.
     pub(crate) fn restore_room(&mut self, rs: RoomSnapshot) -> bool {
-        let mut room = rs.room;
-        let code = room.code.clone();
-        if code.is_empty() || room.state.is_none() || room.status != Status::Playing {
+        let saved = rs.room;
+        if saved.code.is_empty() || saved.state.is_none() || saved.status != Status::Playing {
             return false;
         }
-        // The RNG never travels: a restored room has none until it is given one.
-        crate::room::reseed(&mut room);
+        // The RNG never travels: the restored room is seeded from the OS, as
+        // every new one is.
+        let room = crate::room::restore_room(saved);
+        let code = RoomCode::from_trusted(room.code.clone());
         if self.tables.contains_key(&code) {
             tracing::warn!(
-                code,
+                code = %code,
                 "snapshot room code collides with a live room, dropped"
             );
             return false;
@@ -316,7 +335,7 @@ impl HubCore {
             },
         );
         tracing::info!(
-            code,
+            code = %code,
             players,
             bots,
             matchmade = rs.matchmade,

@@ -373,7 +373,7 @@ enum Event {
 pub struct HubCore {
     pub hub: Hub,
     /// Every live table, keyed by its code.
-    pub tables: HashMap<String, TableHandle>,
+    pub tables: HashMap<crate::ids::RoomCode, TableHandle>,
     /// Every registered socket, keyed by `Client::key`.
     pub clients: HashMap<u64, Arc<Client>>,
     /// The 1v1 queue, oldest wait first. Its length is a metric and nothing
@@ -525,7 +525,7 @@ impl HubCore {
 
     /// The table a client is sitting at, if any.
     pub fn table_of(&self, c: &Client) -> Option<&TableHandle> {
-        self.tables.get(&c.room_code()?)
+        self.tables.get(&*c.room_code()?)
     }
 
     /// Every table's latency fan-out, asked of each table: who sits where is

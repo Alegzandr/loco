@@ -63,7 +63,7 @@ pub fn bot_uno_at(b: &BotTimings, seat: usize, window_at: Millis) -> Millis {
 
 /// Whether `action` would take the round for `seat`.
 pub fn bot_finishes(state: &GameState, seat: usize, action: &BotAction) -> bool {
-    let size = state.hands[seat].size();
+    let size = state.hands[seat].len();
     match action.kind {
         BotActionKind::Play if action.cards.len() > 1 => action.cards.len() == size,
         BotActionKind::Play | BotActionKind::Counter => size == 1,
@@ -79,9 +79,9 @@ pub fn bot_finish_due(b: &BotTimings, state: &GameState, seat: usize, since: Mil
         since,
         b.finish_delay + moment_jitter(seat, since, SALT_FINISH, b.finish_jitter_max),
     );
-    if state.hands[seat].size() == 1
-        && !state.last_card_declared[seat]
-        && let Some(window_at) = state.last_card_at[seat]
+    if state.hands[seat].len() == 1
+        && !state.seats[seat].declared
+        && let Some(window_at) = state.seats[seat].last_card_at
     {
         due = due.max(bot_uno_at(b, seat, window_at));
     }
@@ -205,8 +205,8 @@ impl Table {
         let Some(turn) = self.room.state.as_ref().map(|s| s.current_turn) else {
             return;
         };
-        if turn >= 0 && self.is_bot(turn as usize) {
-            self.schedule_bot_move(turn as usize);
+        if self.is_bot(turn) {
+            self.schedule_bot_move(turn);
         }
     }
 
@@ -225,14 +225,10 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        if seat >= state.hands.len() || state.last_card_at[seat] != Some(last_card_time) {
+        if seat >= state.hands.len() || state.seats[seat].last_card_at != Some(last_card_time) {
             return; // pruned, or a different one-card moment
         }
-        if self
-            .room
-            .declare_last_card(seat as i32, clock::now_ms())
-            .is_err()
-        {
+        if self.room.declare_last_card(seat, clock::now_ms()).is_err() {
             return; // caught, or no longer on one card
         }
         self.broadcast_all(ServerMsg::UnoDeclared(SeatMsg {
@@ -246,17 +242,10 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        if seat >= state.hands.len()
-            || state.hands[seat].size() != 1
-            || state.last_card_declared[seat]
-        {
+        if seat >= state.hands.len() || state.hands[seat].len() != 1 || state.seats[seat].declared {
             return;
         }
-        if self
-            .room
-            .declare_last_card(seat as i32, clock::now_ms())
-            .is_err()
-        {
+        if self.room.declare_last_card(seat, clock::now_ms()).is_err() {
             return;
         }
         self.broadcast_all(ServerMsg::UnoDeclared(SeatMsg {
@@ -272,7 +261,7 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        let Some(window_at) = state.last_card_at[target] else {
+        let Some(window_at) = state.seats[target].last_card_at else {
             return;
         };
         let (delay, attempt) = bot_catch_attempt(&self.timings.bots, target, window_at);
@@ -280,7 +269,7 @@ impl Table {
             return;
         }
         let fire_at = add(window_at, delay);
-        let Some(end) = state.catch_window_end(target as i32) else {
+        let Some(end) = state.catch_window_end(target) else {
             return;
         };
         if fire_at >= end {
@@ -301,7 +290,7 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        if state.last_play_by < 0 {
+        if state.last_play_by.is_none() {
             return;
         }
         let b = &self.timings.bots;
@@ -333,10 +322,10 @@ impl Table {
             if !self.is_bot(seat) {
                 return;
             }
-            let Some(action) = loco_game::bot_interrupt(state, seat as i32) else {
+            let Some(action) = loco_game::bot_interrupt(state, seat) else {
                 return;
             };
-            if state.hands[seat].size() != 1 {
+            if state.hands[seat].len() != 1 {
                 return;
             }
             self.bot_interject(cx, seat, action);
@@ -348,14 +337,14 @@ impl Table {
         let candidates: Vec<(usize, BotInterruptAction)> = self
             .bot_seats()
             .into_iter()
-            .filter(|&b| b as i32 != state.last_play_by)
-            .filter_map(|b| loco_game::bot_interrupt(state, b as i32).map(|a| (b, a)))
+            .filter(|&b| Some(b) != state.last_play_by)
+            .filter_map(|b| loco_game::bot_interrupt(state, b).map(|a| (b, a)))
             .collect();
         if candidates.is_empty() {
             return;
         }
         let (seat, action) = candidates[random_below(candidates.len() as u64) as usize].clone();
-        if state.hands[seat].size() == 1 {
+        if state.hands[seat].len() == 1 {
             let since = last_play_at.unwrap_or_else(clock::now_ms);
             let due = bot_finish_due(&self.timings.bots, state, seat, since);
             if clock::now_ms() < due {
@@ -372,17 +361,17 @@ impl Table {
 
     fn bot_interject(&mut self, cx: &TableCtx, seat: usize, action: BotInterruptAction) {
         self.bot_declare_before_finish(seat);
-        if let Err(e) = self.room.interrupt_play_cards(
-            seat as i32,
+        if let Err(e) = self.room.interrupt_play(
+            seat,
             &action.cards,
             action.chosen_color,
-            action.chosen_player,
+            action.target,
             clock::now_ms(),
         ) {
             tracing::info!(player = seat, "bot interrupt refused err={e}");
             return;
         }
-        self.broadcast_interrupt(cx, seat, &action.cards, action.chosen_player);
+        self.broadcast_interrupt(cx, seat, &action.cards, action.target);
         self.maybe_schedule_bot_reactions(cx);
         self.handle_round_or_match_end(cx);
     }
@@ -394,14 +383,14 @@ impl Table {
         cx: &TableCtx,
         seat: usize,
         cards: &[loco_game::Card],
-        chosen_player: i32,
+        target: Option<loco_game::Seat>,
     ) {
         self.broadcast_all(ServerMsg::InterruptSuccess(InterruptSuccessMsg {
             player_index: Some(seat as i32),
             cards: card_dtos(cards),
             ..Default::default()
         }));
-        self.broadcast_card_played(cx, seat, chosen_player);
+        self.broadcast_card_played(cx, seat, target);
         if cards.len() == 1 && matches!(cards[0].kind, Kind::Swap | Kind::GlobalSwitch) {
             self.broadcast_personalized_game_state();
         }
@@ -416,12 +405,10 @@ impl Table {
             return;
         };
         if target >= state.hands.len()
-            || state.last_card_at[target] != Some(last_card_time)
-            || state.last_card_declared[target]
-            || state.hands[target].size() != 1
-            || state
-                .catch_window_end(target as i32)
-                .is_none_or(|end| now >= end)
+            || state.seats[target].last_card_at != Some(last_card_time)
+            || state.seats[target].declared
+            || state.hands[target].len() != 1
+            || state.catch_window_end(target).is_none_or(|end| now >= end)
         {
             return;
         }
@@ -435,11 +422,8 @@ impl Table {
         }
         let catcher = eligible[random_below(eligible.len() as u64) as usize];
         let prior = state.hands[target].cards.len();
-        if let Err(e) = self
-            .room
-            .catch_undeclared(catcher as i32, target as i32, now)
-        {
-            if e.is_missed_catch() {
+        if let Err(e) = self.room.catch_undeclared(catcher, target, now) {
+            if e.kind() == loco_game::ErrorKind::MissedCatch {
                 self.penalize_failed_catch(catcher, now);
             }
             return;
@@ -465,7 +449,7 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        if state.current_turn != bm.seat as i32 || self.is_loading() {
+        if state.current_turn != bm.seat || self.is_loading() {
             return;
         }
         if !self.is_bot(bm.seat) {
@@ -477,7 +461,7 @@ impl Table {
         {
             return; // a card landed while the finish was held; that play re-armed the seat
         }
-        let action = loco_game::bot_think(state, bm.seat as i32, &mut rand::rng());
+        let action = loco_game::bot_think(state, bm.seat, &mut rand::rng());
         if bot_finishes(state, bm.seat, &action) {
             let due = bot_finish_due(&self.timings.bots, state, bm.seat, bm.armed_at);
             let now = clock::now_ms();
@@ -510,21 +494,16 @@ impl Table {
         let now = clock::now_ms();
         let res = if action.cards.len() > 1 {
             self.room.play_cards(
-                seat as i32,
+                seat,
                 &action.cards,
                 action.chosen_color,
-                -1,
+                None,
                 action.declare_loco,
                 now,
             )
         } else {
-            self.room.play_card(
-                seat as i32,
-                action.card,
-                action.chosen_color,
-                action.chosen_player,
-                now,
-            )
+            self.room
+                .play_card(seat, action.card, action.chosen_color, action.target, now)
         };
         if let Err(e) = res {
             tracing::info!(player = seat, "bot play error: {e}");
@@ -532,7 +511,7 @@ impl Table {
             return;
         }
         self.announce_finishing_loco(seat, &action.cards);
-        self.broadcast_card_played(cx, seat, action.chosen_player);
+        self.broadcast_card_played(cx, seat, action.target);
         if matches!(action.card.kind, Kind::Swap | Kind::GlobalSwitch) {
             self.broadcast_personalized_game_state();
         }
@@ -542,17 +521,15 @@ impl Table {
 
     fn bot_counter(&mut self, cx: &TableCtx, seat: usize, action: BotAction) {
         self.bot_declare_before_finish(seat);
-        if let Err(e) = self.room.counter_draw(
-            seat as i32,
-            action.card,
-            action.chosen_color,
-            clock::now_ms(),
-        ) {
+        if let Err(e) =
+            self.room
+                .counter_draw(seat, action.card, action.chosen_color, clock::now_ms())
+        {
             tracing::info!(player = seat, "bot counter error: {e}");
             self.bot_recover(cx, seat);
             return;
         }
-        self.broadcast_card_played(cx, seat, -1);
+        self.broadcast_card_played(cx, seat, None);
         self.maybe_schedule_bot_reactions(cx);
         self.handle_round_or_match_end(cx);
     }
@@ -563,7 +540,7 @@ impl Table {
         let Some(prior) = self.room.state.as_ref().map(|s| s.hands[seat].cards.len()) else {
             return false;
         };
-        if let Err(e) = self.room.draw_card(seat as i32, clock::now_ms()) {
+        if let Err(e) = self.room.draw_card(seat, clock::now_ms()) {
             tracing::info!(player = seat, "bot draw error: {e}");
             return false;
         }
@@ -571,19 +548,19 @@ impl Table {
         self.broadcast_all(ServerMsg::CardDrawn(CardDrawnMsg {
             player_index: Some(seat as i32),
             drawn_count: (state.hands[seat].cards.len() - prior) as i32,
-            turn: state.current_turn,
-            pending_draw: Some(state.pending_draw),
+            turn: state.current_turn as i32,
+            pending_draw: Some(state.pending_draw as i32),
             has_drawn: Some(state.has_drawn),
             interrupt_open: Some(state.interrupt_open),
             ..Default::default()
         }));
         // bot_think, not can_play: the bot plays the drawn card only when it
         // would choose to.
-        if loco_game::bot_think(state, seat as i32, &mut rand::rng()).kind != BotActionKind::Draw {
+        if loco_game::bot_think(state, seat, &mut rand::rng()).kind != BotActionKind::Draw {
             self.schedule_bot_move(seat);
             return true;
         }
-        if self.room.pass_turn(seat as i32, clock::now_ms()).is_ok() {
+        if self.room.pass_turn(seat, clock::now_ms()).is_ok() {
             self.schedule_turn_timer(cx);
             self.broadcast_turn_changed();
         }
@@ -602,7 +579,7 @@ impl Table {
         let targets: Vec<(usize, Option<Millis>)> = state
             .catchable_targets(clock::now_ms())
             .into_iter()
-            .map(|s| (s as usize, state.last_card_at[s as usize]))
+            .map(|s| (s, state.seats[s].last_card_at))
             .collect();
         for (seat, at) in targets {
             if self.is_bot(seat)
@@ -622,7 +599,7 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        if state.current_turn != seat as i32 {
+        if state.current_turn != seat {
             return;
         }
         if !state.has_drawn {
@@ -633,12 +610,12 @@ impl Table {
                 .room
                 .state
                 .as_ref()
-                .is_none_or(|s| s.current_turn != seat as i32)
+                .is_none_or(|s| s.current_turn != seat)
             {
                 return;
             }
         }
-        if let Err(e) = self.room.pass_turn(seat as i32, clock::now_ms()) {
+        if let Err(e) = self.room.pass_turn(seat, clock::now_ms()) {
             tracing::info!(player = seat, "bot recover pass error err={e}");
             return;
         }

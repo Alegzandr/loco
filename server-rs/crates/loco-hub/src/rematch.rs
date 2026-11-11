@@ -92,11 +92,11 @@ impl Table {
         let pl = self.player_list();
         for (_, m) in self.clients() {
             m.send(ServerMsg::RematchStarted(RematchStartedMsg {
-                room_code: self.code.clone(),
+                room_code: self.code.to_string(),
                 player_id: Some(m.player_id() as i32),
                 players: pl.clone(),
                 match_format: Some(match_format_string(self.room.format)),
-                max_players: self.room.max_players,
+                max_players: self.room.max_players as i32,
                 ..Default::default()
             }));
         }
@@ -127,7 +127,7 @@ impl Table {
                 continue;
             }
             let nickname = self.room.players[seat].nickname.clone();
-            if let Err(e) = self.room.swap_lobby_players(0, seat as i32) {
+            if let Err(e) = self.room.swap_lobby_players(0, seat) {
                 tracing::warn!(seat, "rematch host promotion failed err={e}");
                 return;
             }
@@ -181,7 +181,7 @@ impl Table {
             if self.client(id).is_some() || self.is_bot(id) {
                 continue;
             }
-            if let Err(e) = self.room.remove_lobby_player(id as i32) {
+            if let Err(e) = self.room.remove_lobby_player(id) {
                 tracing::warn!(player = id, "prune failed err={e}");
                 continue;
             }

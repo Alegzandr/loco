@@ -7,7 +7,7 @@ use crate::client::Client;
 use crate::clock;
 use crate::convert::{card_dtos, dto_to_card};
 use crate::table::Table;
-use loco_game::{Card, Color, GameError, Kind, Millis};
+use loco_game::{Card, CatchCharge, Color, ErrorKind, GameError, Kind, Millis};
 use loco_protocol::{
     CardColor, CardDTO, CardDrawnMsg, CatchLockedMsg, CounterDrawMsg, GameStartedMsg, MatchEndMsg,
     RoundEndMsg, SeatMsg, ServerMsg,
@@ -60,7 +60,7 @@ impl Table {
             .state
             .as_ref()
             .and_then(|s| s.hands.get(seat))
-            .map_or(0, |h| h.size())
+            .map_or(0, |h| h.len())
     }
 
     pub(crate) fn handle_play_card(
@@ -69,7 +69,7 @@ impl Table {
         c: &Arc<Client>,
         msg: &loco_protocol::PlayCardMsg,
     ) {
-        let chosen_player = msg.chosen_player.unwrap_or(-1);
+        let target = msg.chosen_player.and_then(|n| usize::try_from(n).ok());
         let Some((cards, chosen_color)) =
             self.parse_cards(c, msg.card.as_ref(), &msg.play_cards, msg.chosen_color)
         else {
@@ -78,24 +78,18 @@ impl Table {
         let seat = c.player_id();
         let now = clock::now_ms();
         let res = if cards.len() > 1 {
-            self.room.play_cards(
-                seat as i32,
-                &cards,
-                chosen_color,
-                chosen_player,
-                msg.declare_loco,
-                now,
-            )
+            self.room
+                .play_cards(seat, &cards, chosen_color, target, msg.declare_loco, now)
         } else {
             self.room
-                .play_card(seat as i32, cards[0], chosen_color, chosen_player, now)
+                .play_card(seat, cards[0], chosen_color, target, now)
         };
         if let Err(e) = res {
             self.refuse_action(cx, c, &e);
             return;
         }
         self.announce_finishing_loco(seat, &cards);
-        let cp = if cards.len() > 1 { -1 } else { chosen_player };
+        let cp = if cards.len() > 1 { None } else { target };
         self.broadcast_card_played(cx, seat, cp);
         if cards.len() == 1 && matches!(cards[0].kind, Kind::Swap | Kind::GlobalSwitch) {
             self.broadcast_personalized_game_state();
@@ -126,7 +120,7 @@ impl Table {
         self.room.round_ended = false;
         let scoreboard = self.build_scoreboard();
         self.broadcast_all(ServerMsg::RoundEnd(RoundEndMsg {
-            round_number: self.room.round_number,
+            round_number: self.room.round_number as i32,
             round_winner: self.room.winner.clone(),
             scoreboard: scoreboard.clone(),
             round_history: self.room.round_history.clone(),
@@ -175,7 +169,7 @@ impl Table {
     pub(crate) fn handle_draw_card(&mut self, cx: &TableCtx, c: &Arc<Client>) {
         let seat = c.player_id();
         let prior = self.hand_size(seat);
-        if let Err(e) = self.room.draw_card(seat as i32, clock::now_ms()) {
+        if let Err(e) = self.room.draw_card(seat, clock::now_ms()) {
             self.refuse_action(cx, c, &e);
             return;
         }
@@ -186,8 +180,8 @@ impl Table {
         let new_cards = &state.hands[seat].cards[prior..];
         let base = CardDrawnMsg {
             player_index: Some(seat as i32),
-            turn: state.current_turn,
-            pending_draw: Some(state.pending_draw),
+            turn: state.current_turn as i32,
+            pending_draw: Some(state.pending_draw as i32),
             has_drawn: Some(state.has_drawn),
             turn_deadline: dl,
             interrupt_open: Some(state.interrupt_open),
@@ -208,7 +202,7 @@ impl Table {
     }
 
     pub(crate) fn handle_pass_turn(&mut self, cx: &TableCtx, c: &Arc<Client>) {
-        if let Err(e) = self.room.pass_turn(c.player_id() as i32, clock::now_ms()) {
+        if let Err(e) = self.room.pass_turn(c.player_id(), clock::now_ms()) {
             self.refuse_action(cx, c, &e);
             return;
         }
@@ -219,7 +213,7 @@ impl Table {
 
     pub(crate) fn handle_declare_uno(&mut self, c: &Arc<Client>) {
         let seat = c.player_id();
-        if let Err(e) = self.room.declare_last_card(seat as i32, clock::now_ms()) {
+        if let Err(e) = self.room.declare_last_card(seat, clock::now_ms()) {
             c.note_rejection(&e);
             c.refuse(e);
             return;
@@ -239,42 +233,36 @@ impl Table {
         let Some(state) = self.room.state.as_ref() else {
             return;
         };
-        let mut target_idx: i32 = -1;
-        if let Some(t) = target {
-            if t < 0 {
-                c.refuse(GameError::NoCatchWindow);
-                c.note_rejection(&GameError::NoCatchWindow);
-                return;
-            }
-            target_idx = t;
-        } else if let Some(&first) = state.catchable_targets(now).first() {
-            target_idx = first;
-        }
-        if target_idx >= state.hands.len() as i32 {
-            c.refuse(GameError::NoCatchWindow);
-            c.note_rejection(&GameError::NoCatchWindow);
-            return;
-        }
+        let target_idx: Option<usize> = match target {
+            Some(t) => match usize::try_from(t) {
+                Ok(t) if t < state.hands.len() => Some(t),
+                _ => {
+                    c.refuse(GameError::NoCatchWindow);
+                    c.note_rejection(&GameError::NoCatchWindow);
+                    return;
+                }
+            },
+            None => state.catchable_targets(now).first().copied(),
+        };
         let catcher = c.player_id();
-        if !self.room.catch_offered(catcher as i32, now) {
+        if !self.room.catch_offered(catcher, now) {
             c.refuse_silently();
             return;
         }
-        if self.room.catch_locked(catcher as i32, now) {
+        if self.room.catch_locked(catcher, now) {
             self.lock_catch(catcher, now);
             c.refuse_silently();
             return;
         }
-        if target_idx < 0 {
+        let Some(target) = target_idx else {
             if !self.penalize_failed_catch(catcher, now) {
                 c.refuse_silently();
             }
             return;
-        }
-        let target = target_idx as usize;
+        };
         let prior = self.hand_size(target);
-        if let Err(e) = self.room.catch_undeclared(catcher as i32, target_idx, now) {
-            if e.is_missed_catch() || matches!(e, GameError::NoCatchWindow) {
+        if let Err(e) = self.room.catch_undeclared(catcher, target, now) {
+            if e.kind() == ErrorKind::MissedCatch || matches!(e, GameError::NoCatchWindow) {
                 if !self.penalize_failed_catch(catcher, now) {
                     c.refuse_silently();
                 }
@@ -288,7 +276,7 @@ impl Table {
             return;
         }
         self.broadcast_all(ServerMsg::UnoCaught(SeatMsg {
-            player_index: Some(target_idx),
+            player_index: Some(target as i32),
             ..Default::default()
         }));
         let grown = self
@@ -303,36 +291,36 @@ impl Table {
     /// Charges a miss, once per offer, and arms the lockout. Returns whether a
     /// card was charged and shown to the table.
     pub(crate) fn penalize_failed_catch(&mut self, catcher: usize, now: Millis) -> bool {
-        if !self.room.catch_offered(catcher as i32, now) {
+        if !self.room.catch_offered(catcher, now) {
             return false;
         }
-        let (drawn, charged) = self.room.penalize_failed_catch(catcher as i32, now);
-        let shown = if !charged {
-            false
-        } else {
-            let msg = ServerMsg::CatchFailed(SeatMsg {
-                player_index: Some(catcher as i32),
-                ..Default::default()
-            });
-            if drawn.is_empty() {
-                // Charged and drew nothing: the table has nothing to see.
-                if let Some(c) = self.client(catcher) {
-                    c.send(msg);
+        let shown =
+            if let CatchCharge::Charged { drawn } = self.room.penalize_failed_catch(catcher, now) {
+                let msg = ServerMsg::CatchFailed(SeatMsg {
+                    player_index: Some(catcher as i32),
+                    ..Default::default()
+                });
+                if drawn.is_empty() {
+                    // Charged and drew nothing: the table has nothing to see.
+                    if let Some(c) = self.client(catcher) {
+                        c.send(msg);
+                    }
+                    false
+                } else {
+                    self.broadcast_all(msg);
+                    self.send_hand_growth(catcher, &drawn);
+                    true
                 }
-                false
             } else {
-                self.broadcast_all(msg);
-                self.send_hand_growth(catcher, &drawn);
-                true
-            }
-        };
+                false
+            };
         self.lock_catch(catcher, now);
         shown
     }
 
     /// Arms the lockout and tells the caller, and nobody else, until when.
     pub(crate) fn lock_catch(&mut self, catcher: usize, now: Millis) {
-        let Some(until) = self.room.lock_catch(catcher as i32, now) else {
+        let Some(until) = self.room.lock_catch(catcher, now) else {
             return;
         };
         if let Some(c) = self.client(catcher) {
@@ -355,14 +343,11 @@ impl Table {
         };
         let (card, chosen) = dto_to_card(dto, msg.chosen_color);
         let seat = c.player_id();
-        if let Err(e) = self
-            .room
-            .counter_draw(seat as i32, card, chosen, clock::now_ms())
-        {
+        if let Err(e) = self.room.counter_draw(seat, card, chosen, clock::now_ms()) {
             self.refuse_action(cx, c, &e);
             return;
         }
-        self.broadcast_card_played(cx, seat, -1);
+        self.broadcast_card_played(cx, seat, None);
         self.maybe_schedule_bot_reactions(cx);
         self.maybe_schedule_bot_interrupt(cx);
         self.handle_round_or_match_end(cx);
@@ -374,24 +359,21 @@ impl Table {
         c: &Arc<Client>,
         msg: &loco_protocol::InterruptPlayMsg,
     ) {
-        let chosen_player = msg.chosen_player.unwrap_or(-1);
+        let target = msg.chosen_player.and_then(|n| usize::try_from(n).ok());
         let Some((cards, chosen_color)) =
             self.parse_cards(c, msg.card.as_ref(), &msg.play_cards, msg.chosen_color)
         else {
             return;
         };
         let seat = c.player_id();
-        if let Err(e) = self.room.interrupt_play_cards(
-            seat as i32,
-            &cards,
-            chosen_color,
-            chosen_player,
-            clock::now_ms(),
-        ) {
+        if let Err(e) =
+            self.room
+                .interrupt_play(seat, &cards, chosen_color, target, clock::now_ms())
+        {
             self.refuse_action(cx, c, &e);
             return;
         }
-        self.broadcast_interrupt(cx, seat, &cards, chosen_player);
+        self.broadcast_interrupt(cx, seat, &cards, target);
         self.maybe_schedule_bot_reactions(cx);
         self.maybe_schedule_bot_interrupt(cx);
         self.handle_round_or_match_end(cx);

@@ -120,7 +120,7 @@ impl Table {
             return;
         };
         self.broadcast_all(ServerMsg::MatchReady(MatchReadyMsg {
-            turn: state.current_turn,
+            turn: state.current_turn as i32,
             turn_deadline: self.turn_deadline_ms(),
             interrupt_open: Some(state.interrupt_open),
             ..Default::default()

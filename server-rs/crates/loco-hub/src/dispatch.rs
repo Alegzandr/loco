@@ -126,7 +126,7 @@ pub fn post_to_table(core: &HubCore, c: &Arc<Client>, job: TableJob) -> bool {
             .metrics()
             .messages_dropped_busy
             .fetch_add(1, Ordering::Relaxed);
-        tracing::info!(r#type = %what, conn = %c.conn_id, code, "table box full, dropping message");
+        tracing::info!(r#type = %what, conn = %c.conn_id, code = %code, "table box full, dropping message");
         c.refuse(crate::refusal::Refusal::ServerBusy);
         return false;
     }

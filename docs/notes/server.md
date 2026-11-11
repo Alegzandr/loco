@@ -123,7 +123,8 @@ is kept differently, most of them because Go's shape was what Go made convenient
   onto the string the Go handler used — `unknown message type`, `unknown color: "x"`, `unknown kind:
   "x"`, `invalid match format …`, `unknown emote` — and anything else is `invalid message format`.
 - **A room is `loco_game::Room`**, made by `room::new_room` with 32 bytes from the OS. Its RNG never
-  travels: a restored room is reseeded before its table starts. A match record's winner is
+  travels: the snapshot holds a `loco_game::SavedRoom`, and `SavedRoom::restore` takes fresh OS
+  bytes, so a room with no source cannot exist (Go's `ensureRNG` filled one in lazily). A match record's winner is
   `Option<usize>`, still written as Go's `-1`, so `SnapshotSchemaVersion` stays 5 and a Go file loads.
 - **The listener is ours** (`loco-server/src/http.rs`): hyper's HTTP/1 builder with
   `header_read_timeout` at 10s, Go's `ReadHeaderTimeout`. Hyper runs that clock whenever a connection
@@ -133,12 +134,24 @@ is kept differently, most of them because Go's shape was what Go made convenient
   validates), and `tokens::generate_code` spells it out too; `serverSource.ts` reads both off the
   source, and tests hold the spellings together.
 
-**Considered and not done.** `loco-game`'s `Seat = i32` with `-1` for nobody, and its paired `&mut`
-methods + `Room::apply`: the hub converts at its edges (`usize` seats inside, `i32` on the wire and in
-the domain), and reshaping the domain's public API under its proptests and wasm build is its own
-change. A command enum for the table's mailbox (see above). Newtypes for the room code and the session
-token: both are opaque strings the hub only compares and forwards.
+- **Seats are `usize` end to end, and nobody is `None`.** `loco_game::Seat` is `usize`; Go's -1
+  (`LastPlayBy`, a Swap's `chosen_player`, an event with no player) is an `Option<Seat>`, and `i32`
+  appears only on the wire (`loco-protocol`) where the TypeScript reads it. The hub converts there and
+  nowhere else (`usize::try_from(n).ok()` on the way in).
+- **One domain API.** The table task owns its `Room` and calls its `&mut self` commands, which refuse
+  without touching anything; there is no functional twin to keep in step. A refusal's class is
+  `GameError::kind()` (`ErrorKind::StaleState` answers with a snapshot, `ErrorKind::is_honest()` keeps
+  a refusal off `suspected_cheats`), where Go asked `errors.Is` four ways.
+- **The table code and the session token are types** (`ids.rs`). A `RoomCode` is parsed once, at
+  `join_room`, by the rule `serverSource.ts` reads (`ROOM_CODE_CHARS` / `ROOM_CODE_LEN`), and is the
+  key of `Hub.tables`. A `SessionToken` compares in constant time in its own `PartialEq` (`subtle`),
+  refuses an empty value in `matches`, and has no `Display` and a `Debug` that prints nothing, so it
+  cannot reach a log line by accident. Both are serde-transparent: the wire and the snapshot are
+  unchanged.
 
+**Considered and not done.** A command enum for the table's mailbox (see above). A `Seat` newtype:
+every seat is a `Vec` index on both sides of the domain boundary, and the bug the Go sentinel caused is
+gone with `Option`.
 **Measured** (`make bench-server-rs`, criterion, release, on the same Windows box as Go's `go test
 ./hub/ -run '^$' -bench .`): see the table in "What the loop actually costs" below.
 

@@ -20,7 +20,7 @@ async fn catch_uno_silent_refusals_are_counted_as_refusals() {
     let mut tbl = Table::new("AAAAAA", room);
     let (caller, _rx_caller) = Client::detached(&hub);
     let (other, _rx_other) = Client::detached(&hub);
-    caller.sit_at("AAAAAA", 0);
+    caller.sit_at(&tbl.code, 0);
     tbl.set_members(vec![Some(caller.clone()), Some(other)]);
 
     let press = |tbl: &mut Table, label: &str, want_refused: bool| {
@@ -47,7 +47,7 @@ async fn catch_uno_silent_refusals_are_counted_as_refusals() {
     press(&mut tbl, "a press inside the lockout", true);
 
     // Lockout over, same offer, already paid for: charged nothing, said nothing.
-    tbl.room.state.as_mut().unwrap().catch_locked_until[0] = None;
+    tbl.room.state.as_mut().unwrap().seats[0].catch_locked_until = None;
     press(
         &mut tbl,
         "a second miss against an offer already paid for",

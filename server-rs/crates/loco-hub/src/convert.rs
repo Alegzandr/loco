@@ -91,16 +91,21 @@ pub fn dto_to_card(dto: &CardDTO, chosen: Option<CardColor>) -> (Card, Color) {
 }
 
 pub fn match_format_string(f: MatchFormat) -> WireFormat {
-    match f.0 {
-        3 => WireFormat::BO3,
-        5 => WireFormat::BO5,
-        7 => WireFormat::BO7,
-        _ => WireFormat::BO1,
+    match f {
+        MatchFormat::Bo1 => WireFormat::BO1,
+        MatchFormat::Bo3 => WireFormat::BO3,
+        MatchFormat::Bo5 => WireFormat::BO5,
+        MatchFormat::Bo7 => WireFormat::BO7,
     }
 }
 
 pub fn match_format_of(f: WireFormat) -> MatchFormat {
-    MatchFormat(i32::from(f.rounds()))
+    match f {
+        WireFormat::BO1 => MatchFormat::Bo1,
+        WireFormat::BO3 => MatchFormat::Bo3,
+        WireFormat::BO5 => MatchFormat::Bo5,
+        WireFormat::BO7 => MatchFormat::Bo7,
+    }
 }
 
 #[cfg(test)]
@@ -164,10 +169,10 @@ mod tests {
     #[test]
     fn formats_round_trip() {
         for f in [
-            MatchFormat::BO1,
-            MatchFormat::BO3,
-            MatchFormat::BO5,
-            MatchFormat::BO7,
+            MatchFormat::Bo1,
+            MatchFormat::Bo3,
+            MatchFormat::Bo5,
+            MatchFormat::Bo7,
         ] {
             assert_eq!(match_format_of(match_format_string(f)), f);
         }

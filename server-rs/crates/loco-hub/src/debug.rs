@@ -75,7 +75,7 @@ impl Table {
             }
         }
         if let Some(p) = d.pending_draw {
-            state.pending_draw = p;
+            state.pending_draw = u32::try_from(p).unwrap_or(0);
         }
         if let Some(dir) = d.direction {
             if dir != 1 && dir != -1 {
@@ -93,7 +93,7 @@ impl Table {
                 )));
                 return;
             }
-            state.current_turn = turn;
+            state.current_turn = turn as usize;
             state.has_drawn = false;
         }
         let pl = self.player_list();

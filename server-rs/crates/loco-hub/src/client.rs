@@ -2,6 +2,7 @@
 //! its latency probe and the seat it holds. Port of `server/hub/client.go`.
 
 use crate::hub::{Inbound, Shared};
+use crate::ids::RoomCode;
 use crate::wire::{Outgoing, decode_client, msg, now_ms};
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::{SinkExt, StreamExt};
@@ -84,7 +85,7 @@ impl RateLimiter {
 /// host's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeatRef {
-    pub code: String,
+    pub code: RoomCode,
     pub id: usize,
 }
 
@@ -183,7 +184,7 @@ impl Client {
     }
 
     /// The table this socket sits at, if any.
-    pub fn room_code(&self) -> Option<String> {
+    pub fn room_code(&self) -> Option<RoomCode> {
         self.seat().map(|s| s.code)
     }
 
@@ -196,9 +197,9 @@ impl Client {
     /// Binds this socket to a seat. Only `table.rs` calls it: a seat lives in
     /// two places, and routing every change through that file is what leaves
     /// no way to move one without the other.
-    pub fn sit_at(&self, code: &str, id: usize) {
+    pub fn sit_at(&self, code: &RoomCode, id: usize) {
         *self.seat.lock().unwrap_or_else(|e| e.into_inner()) = Some(SeatRef {
-            code: code.to_owned(),
+            code: code.clone(),
             id,
         });
     }
@@ -320,7 +321,7 @@ impl Client {
     /// tap). Counting those made `suspected_cheats` rise fastest at the
     /// busiest tables, which is exactly backwards.
     pub fn note_rejection(&self, err: &loco_game::GameError) {
-        if err.is_lost_race() {
+        if err.kind().is_honest() {
             return;
         }
         self.note_suspect(&err.to_string());

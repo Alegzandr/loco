@@ -88,7 +88,9 @@ fn match_formats_cover_the_domain() {
     let mut domain = BTreeSet::new();
     for n in 0..PROBE_CEILING {
         let mut room = Room::from_u64_seed("TEST12", 1);
-        if room.set_format(MatchFormat(n)).is_ok() {
+        if let Ok(f) = MatchFormat::try_from(i64::from(n))
+            && room.set_format(f).is_ok()
+        {
             domain.insert(format!("BO{n}"));
         }
     }
