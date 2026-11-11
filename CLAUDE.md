@@ -431,7 +431,7 @@ Everything below lives in `server/crates/loco-hub/src/` unless a crate is named.
   progress` either way. A `SessionToken` (`ids.rs`) compares in constant time in its own `PartialEq`
   (`subtle`), refuses an empty value, and has no `Display` and a `Debug` that prints nothing. **A
   reclaim spends its token and is issued a fresh one.**
-- **Room codes, session tokens and the room's own RNG all come from the OS (`OsRng`)**, no fallback
+- **Room codes, session tokens and the room's own RNG all come from the OS (`SysRng`)**, no fallback
   — **the deal is hidden state**. The room's `ChaCha12Rng` is seeded with 32 OS bytes
   (`room::new_room`, `SavedRoom::restore`), so a room without a source cannot exist, and
   `loco-game/src/tests/rng_test.rs` runs the clock-seed attack. **Every shuffle that decides a hand

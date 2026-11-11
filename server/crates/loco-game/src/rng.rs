@@ -6,10 +6,10 @@
 //! dependency bump can never change which cards a seeded room deals, so the
 //! `insta` snapshot of a scripted round stays a statement about the rules.
 
-use rand_core::RngCore;
+use rand_core::Rng;
 
 /// A uniform index in `0..n`, without modulo bias. `n` must be positive.
-pub(crate) fn below<R: RngCore + ?Sized>(rng: &mut R, n: usize) -> usize {
+pub(crate) fn below<R: Rng + ?Sized>(rng: &mut R, n: usize) -> usize {
     assert!(n > 0, "below(0) has no answer");
     let n = n as u64;
     // The largest multiple of n that fits: values at or above it are redrawn,
@@ -24,7 +24,7 @@ pub(crate) fn below<R: RngCore + ?Sized>(rng: &mut R, n: usize) -> usize {
 }
 
 /// Fisher–Yates, in place.
-pub(crate) fn shuffle<T, R: RngCore + ?Sized>(rng: &mut R, items: &mut [T]) {
+pub(crate) fn shuffle<T, R: Rng + ?Sized>(rng: &mut R, items: &mut [T]) {
     for i in (1..items.len()).rev() {
         let j = below(rng, i + 1);
         items.swap(i, j);
@@ -32,6 +32,6 @@ pub(crate) fn shuffle<T, R: RngCore + ?Sized>(rng: &mut R, items: &mut [T]) {
 }
 
 /// True with probability `percent / 100`.
-pub(crate) fn chance<R: RngCore + ?Sized>(rng: &mut R, percent: usize) -> bool {
+pub(crate) fn chance<R: Rng + ?Sized>(rng: &mut R, percent: usize) -> bool {
     below(rng, 100) < percent
 }

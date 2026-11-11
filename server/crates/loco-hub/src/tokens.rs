@@ -4,8 +4,8 @@
 //! `server/hub/tokens.go`.
 
 use crate::ids::{RoomCode, SessionToken};
-use rand::TryRngCore;
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 
 /// The 32 characters a table code is drawn from: no `0`/`O`, no `1`/`I`.
 /// Identical to Go's, which `client/src/components/tableCodeRules.ts` mirrors.
@@ -21,7 +21,7 @@ pub const ROOM_CODE_LEN: usize = 6;
 /// and panicking is the correct outcome — the job's `catch_unwind` turns it
 /// into a refused message rather than a dead process.
 fn os_fill(buf: &mut [u8]) {
-    OsRng
+    SysRng
         .try_fill_bytes(buf)
         .expect("the operating system's random source failed");
 }

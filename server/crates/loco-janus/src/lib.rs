@@ -160,10 +160,27 @@ impl std::fmt::Debug for Client {
     }
 }
 
+/// TLS on ring with the bundled Mozilla roots: no process-wide provider, no
+/// dependence on the image's certificate store (distroless carries one, but
+/// the binary does not need it), and no aws-lc-rs, whose C build the musl
+/// builder is not equipped for.
+fn tls_config() -> rustls::ClientConfig {
+    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    // Only fails on a provider with no cipher suite, which ring is not.
+    .expect("ring supports the default protocol versions")
+    .with_root_certificates(roots)
+    .with_no_client_auth()
+}
+
 impl Client {
     /// Builds the one client. Callers keep it for the life of the process.
     pub fn new(cfg: Config) -> Self {
         let http = reqwest::Client::builder()
+            .tls_backend_preconfigured(tls_config())
             .timeout(CLIENT_TIMEOUT)
             .connect_timeout(Duration::from_secs(5))
             .pool_max_idle_per_host(2)

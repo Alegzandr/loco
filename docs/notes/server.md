@@ -644,7 +644,7 @@ both places in the same change**.
   never leaked, and why the regression test (`tests/seat_rebind.rs`) goes through a Swap rather than
   through `debug_set_state`, or it proves nothing.
 - **The OS generator for room codes as well as session tokens, with no weaker fallback anywhere**
-  (`tokens.rs`, `OsRng`). A room code is not decoration: there is no login and no invite behind it,
+  (`tokens.rs`, `SysRng`). A room code is not decoration: there is no login and no invite behind it,
   so the six characters *are* the access control on a private lobby. A deterministic generator is a
   sequence, and an attacker creating rooms in a loop observes that sequence's output directly: the
   precise observation needed to infer its state and name the codes handed to everyone else meanwhile.

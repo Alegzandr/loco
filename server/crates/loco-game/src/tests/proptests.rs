@@ -119,7 +119,7 @@ fn step(
 /// progress fails here instead of passing vacuously.
 #[test]
 fn random_play_reaches_the_states_the_invariants_are_about() {
-    use rand_core::{RngCore, SeedableRng};
+    use rand_core::{Rng, SeedableRng};
     let mut rng = rand_chacha::ChaCha12Rng::seed_from_u64(7);
     let (mut rounds, mut matches, mut dry_draws, mut plays) = (0, 0, 0, 0);
     for seed in 0..40 {
