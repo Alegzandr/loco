@@ -124,20 +124,17 @@ interjects, and the seat sits catchable between them.
 
 ### 6.7 Simultaneous Interjects
 
-If multiple players could interject: **the first message the server dequeues wins.** Each table runs on its own task (`server/crates/loco-hub/src/actor.rs`), which serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
+If multiple players could interject: **the first message the server dequeues wins.** Each table runs on its own task (`server/crates/loco-hub/src/table/actor.rs`), which serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
 
 ### 6.8 One Card Per Interject
 
 An interject puts down **one** card. Holding a second copy is a second interject:
 a second press, into a window the rest of the table can win first.
 
-It used to batch — every identical copy in your hand went down on one press, and
-the effects stacked. It read as generous and it was the opposite. A player
-holding three Take 4 played one, took the lead back off themselves with the
-second, and the third left with it: one press, twelve cards on the next player,
-and the read this mechanic is made of never had to be made a second time. Worse,
-the Take 4 is the one card that stops to ask for a colour, so the batch was
-committed inside a prompt that never said how many cards it held.
+A batched interject would let a player holding three Take 4 put twelve cards on
+the next player in one press, without ever making the read this mechanic is made
+of a second time — and since the Take 4 stops to ask for a colour, the batch
+would be committed inside a prompt that never said how many cards it held.
 
 An interject is a **reaction**. A press that puts three cards down is three
 reactions charged to one, and each of the two it swallowed was a window somebody
@@ -357,10 +354,10 @@ card and the window it opened. The second, third and tenth press against the sam
 picture cost nothing, change nothing and are announced to nobody, and so does a
 press after your own play, because your play changed nothing about that seat.
 The near seat plays down to one, or its window runs out, or another seat comes
-within two, and the button is a fresh wager again. Charged per card played, a
-press before and a press after one's own play bought two cards a turn off one
-opponent sitting on two — faster than the voluntary draw, and every card of it
-was stocking a hand for a Swap to hand on.
+within two, and the button is a fresh wager again. Charged per card played
+instead, a press before and a press after one's own play would buy two cards a
+turn off one opponent sitting on two — faster than the voluntary draw, and every
+card of it stocking a hand for a Swap to hand on.
 **Rationale**: without a price, mashing the button at every seat holding one card
 is free and therefore always correct, which turns a reaction into a reflex nobody
 has to aim. One card is small enough that a genuine race stays worth entering and
@@ -388,7 +385,7 @@ been made. Two shapes, because they differ in who had the opportunity:
   before it sees the round end. An interject cannot reach this branch: it is one
   card (§6.8).
 **Rationale**: the announcement is the game's loudest moment and the table's only
-warning that somebody is one card away. Enforced by the catch alone it was a 5 s
-risk rather than an obligation, and the batch finish skipped even that — a hand
-nobody saw drop to one, taken in total silence. A game built to be watched
+warning that somebody is one card away. Enforced by the catch alone it would be a
+5 s risk rather than an obligation, and the batch finish would skip even that — a
+hand nobody saw drop to one, taken in total silence. A game built to be watched
 cannot have its ending arrive unannounced.

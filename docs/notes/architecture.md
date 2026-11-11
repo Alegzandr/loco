@@ -5,11 +5,6 @@ Rust, with no account and no database, what would it look like?** Then it measur
 that answer. Every other note explains a subsystem as it is; this one says where the whole is going,
 so a change can be judged by whether it moves towards the target or away from it.
 
-The game was ported twice (React → Svelte, Go → Rust) and grew a 3D room in between. Each port was
-done safely, behaviour first, shape second, and the shape is what lagged: the code is sound, but in
-several places it still looks like the language or framework it came from. Those places are the
-"zigzags" below. None is a bug. Each one costs every future change a little.
-
 ## 1. The forces
 
 What the design has to serve, in the order `CLAUDE.md` ranks them:
@@ -43,8 +38,7 @@ loco-game     the rules: pure, deterministic, no clock, no I/O, builds for wasm
   method taking `now: Millis`, validating before mutating, returning a `GameError` or the outcome.
   **One seat is one record**: everything the rules know about a chair (hand aside) lives in one
   struct indexed by seat, so removing or swapping a seat is one `Vec` operation and no parallel
-  vector can drift. Serialisation of the room is the domain's own shape, in its own types; it carries
-  no other language's conventions.
+  vector can drift. Serialisation of the room is the domain's own shape, in its own types.
 - **`loco-protocol` is the contract**, the single source both sides are generated from. The wire is
   JSON tagged unions today; nothing above it may depend on that, so a binary encoding is a change to
   this crate and the generator alone.
@@ -163,29 +157,24 @@ avoid.
 | --- | --- | --- | --- |
 | Domain purity | pure, wasm | pure, wasm in CI | **on target** |
 | Table ownership | one task, no lock | one task, no lock | **on target** |
-| Wire contract | one source, generated | `loco-protocol` → `protocolgen` | **on target** |
-| Persistence shape | ours | Go's: RFC 3339 strings, `PascalCase`, `-1` seats, nil-slice rules (`gojson.rs`, `gotime.rs`) | zigzag, **fixed in this pass** |
-| Go residue | none | ~600 comments saying what Go did; tests asking for constants by Go names | zigzag, **fixed in this pass** |
-| Hub layout | grouped by purpose | 37 flat modules | zigzag, **fixed in this pass** |
-| Deadlines | typed | `DeadlineKey { kind: &'static str, seat: i32 }` | zigzag, **fixed in this pass** |
-| Store reactivity | per field | one `$state.raw` replaced whole, narrowed per effect by `live()` | zigzag, **fixed in this pass** |
-| Client layout | data / view logic / components | `hooks/` (React's word) holding the data layer; pure modules mixed into `components/` | zigzag, **fixed in this pass** |
+| Wire contract | one source, generated | `loco-protocol` → `protocolgen`, golden frames in `tests/fixtures/` | **on target** |
+| Persistence shape | ours | plain serde, `snake_case`, integer `Millis`, `null` for absence (`MatchRecord.winner` included), `SNAPSHOT_SCHEMA_VERSION` 6 | **done** |
+| Comments and tests | say what the code does | no narration of a previous implementation; tests name server constants by their Rust names | **done** |
+| Hub layout | grouped by purpose | `net/`, `router/`, `table/`, `ops/` | **done** |
+| Deadlines | typed | `DeadlineKey` an enum | **done** |
+| Store reactivity | per field | one `$state.raw` cell per top-level key (`state/gameStore.svelte.ts`); `live()` narrows computed values only | **done** |
+| Client layout | data / view logic / components | `src/state/`, `src/game/`, `src/components/` | **done** |
 | One seat list | one list, or two moved together | `Room.players` + five parallel vectors in `Room`, `Table.seats`, `Table.match_history`, re-based by hand at each call site | **next** |
 | Table jobs | named commands | boxed closures with a label | acceptable; revisit with sharding |
 
+The wire still writes a departed winner as `winner_index: -1` (`MatchRecordDTO`); a signed seat
+exists only there.
+
 ## 4. The road
 
-Done in the pass that wrote this note (2026-11-11), each one behaviour-preserving and tested:
-
-1. **The persistence shape is ours.** The snapshot drops Go's JSON: instants are integers, seats are
-   `Option<usize>`, names are `snake_case`. `SNAPSHOT_SCHEMA_VERSION` moves to 6, so a v5 file is
-   dropped whole on the first deploy (a deploy loses the matches in flight exactly once).
-2. **The Go narration is gone** from the server and from the client's tests. A comment says what
-   the code does and why, never what a program that no longer exists used to do.
-3. **The hub is grouped** into `net/`, `router/`, `table/`, `ops/`.
-4. **Deadlines are an enum.**
-5. **The store is read per field** and `live()` is no longer a correctness device.
-6. **`src/hooks/` is `src/state/`, and the pure modules of `components/` are `src/game/`.**
+Done: the persistence shape, the hub's grouping, typed deadlines, the per-field store and the
+`state/` + `game/` layout (the **done** rows of §3). A comment says what the code does and why,
+never what an earlier implementation did.
 
 Next, in order:
 
@@ -196,6 +185,6 @@ Next, in order:
    That list is also where a seat's cosmetic will live, which is the second reason it comes first.
 2. **The table code carries a region**, before invitation links are spread widely: a link printed
    today has to keep routing once there is a second region. It is a change to `RoomCode`
-   (`ids.rs`) and to `tableCodeRules.ts`, and nothing else.
+   (`loco-hub/src/ids.rs`) and to `tableCodeRules.ts`, and nothing else.
 3. **Named table jobs** if and when tables move across processes: a closure cannot be sent, an enum
    can.
