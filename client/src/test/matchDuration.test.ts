@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from './render'
 import GameOver from '../components/GameOver.svelte'
-import { formatMatchDuration, lastMatchDurationMs } from '../components/matchDuration'
+import { formatMatchDuration, lastMatchDurationMs } from '../game/matchDuration'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
 import type { MatchRecordDTO, PlayerDTO } from '../types/protocol'

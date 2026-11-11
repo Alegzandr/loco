@@ -1,6 +1,6 @@
 ﻿import type { MapId, TimeOfDay, Weather } from '../components/cards/maps'
 import type { CardKind, Emote } from '../types/protocol'
-import type { GraphicsPref } from '../hooks/graphicsPref'
+import type { GraphicsPref } from '../state/graphicsPref'
 
 export interface RulesSection {
   heading: string
@@ -115,7 +115,7 @@ export interface Translations {
   // The home screen's sign of life. It counts people connected to this server,
   // never the matchmaking queue, and it says so plainly: a player reading it as
   // "how long until I am paired" would be reading a number that answers a
-  // different question. Only ever drawn from two up (components/playersOnline.ts).
+  // different question. Only ever drawn from two up (game/playersOnline.ts).
   playersOnline: (n: number) => string
   // The live strip, along the foot of the home screen. It says Twitch by name
   // because that is where the link goes and because no logo of theirs is drawn
@@ -123,7 +123,7 @@ export interface Translations {
   liveHead: string
   // What the strip is, for a screen reader meeting it as a landmark.
   liveAria: string
-  // A viewer count, already shortened by components/liveStreams.ts. The word
+  // A viewer count, already shortened by game/liveStreams.ts. The word
   // is here rather than in the strip because the figure alone is what fits.
   liveViewers: (n: string) => string
   // The channels the strip did not have room for.
@@ -195,7 +195,7 @@ export interface Translations {
   searchCreateTable: string     // offered only once the wait is long
   matchFoundKicker: string
   // Shown in the browser tab, alternating with the page title, and only while
-  // the player is on another tab. See hooks/tabAlert.svelte.ts.
+  // the player is on another tab. See state/tabAlert.svelte.ts.
   matchFoundTab: string
   matchFoundYou: string
   matchFoundStartingIn: string  // contains %n (seconds)

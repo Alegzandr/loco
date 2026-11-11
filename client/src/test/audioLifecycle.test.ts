@@ -158,7 +158,7 @@ describe('gameAudio wake-up', () => {
 
   async function mount() {
     const { audio } = await import('../audio/engine')
-    const { gameAudio } = await import('../hooks/appEffects.svelte')
+    const { gameAudio } = await import('../state/appEffects.svelte')
     const spy = vi.spyOn(audio, 'unlock')
     // `gameAudio()` is an effect and nothing else, so it needs a component to
     // live in — which is the whole job of `renderHook`.

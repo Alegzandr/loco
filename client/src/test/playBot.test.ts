@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import Lobby from '../components/Lobby.svelte'
 import GameOver from '../components/GameOver.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { en } from '../i18n/en'
-import { NICKNAME_KEY } from '../hooks/nicknameMemory'
+import { NICKNAME_KEY } from '../state/nicknameMemory'
 
 /**
  * A 1v1 against the server: the queue's experience with the wait taken out.

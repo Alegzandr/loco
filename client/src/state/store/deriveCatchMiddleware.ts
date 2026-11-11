@@ -1,4 +1,4 @@
-import { catchLiveUntil, isCatchLive, isCatchLocked } from '../../components/catchAvailability'
+import { catchLiveUntil, isCatchLive, isCatchLocked } from '../../game/catchAvailability'
 import { type StateCreator } from './createStore'
 import { deriveCatch } from './helpers'
 import { type GameStore } from './types'
@@ -27,7 +27,7 @@ import { type GameStore } from './types'
  * it the store keeps `catchLiveUntil`, the instant that answer changes by
  * itself. `GameView` arms one timer on it and calls `rereadCatchLive`, which
  * is a write naming `catchLive` and nothing else — enough to come back
- * through here (`components/catchAvailability.ts`).
+ * through here (`game/catchAvailability.ts`).
  */
 type Creator = StateCreator<GameStore>
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from './render'
 import GameOver from '../components/GameOver.svelte'
-import { buildMatchRecap, hasEveningToShow } from '../components/matchRecapModel'
+import { buildMatchRecap, hasEveningToShow } from '../game/matchRecapModel'
 import { en } from '../i18n/en'
 import type { MatchRecordDTO, PlayerDTO } from '../types/protocol'
 

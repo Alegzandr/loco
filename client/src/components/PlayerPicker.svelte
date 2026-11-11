@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PlayerDTO } from '../types/protocol'
-  import { escapeKey } from '../hooks/escapeKey.svelte'
+  import { escapeKey } from '../state/escapeKey.svelte'
   import { dialogFocus } from './dialogFocus'
 
   type Props = {

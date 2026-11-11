@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
-  import { buildScoreRows, pingTier } from './scoreTableModel'
+  import { buildScoreRows, pingTier } from '../game/scoreTableModel'
   import type { Translations } from '../i18n/en'
-  import { seatColor } from './playerColors'
-  import { escapeKey } from '../hooks/escapeKey.svelte'
+  import { seatColor } from '../game/playerColors'
+  import { escapeKey } from '../state/escapeKey.svelte'
 
   type Props = {
     players: PlayerDTO[]

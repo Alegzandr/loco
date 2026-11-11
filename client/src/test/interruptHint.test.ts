@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
+import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../game/interruptHelpers'
 import type { CardDTO } from '../types/protocol'
 
 const red5: CardDTO = { color: 'red', kind: 'number', value: 5 }

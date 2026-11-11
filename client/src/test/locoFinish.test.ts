@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from './renderHook'
-import { cardPlay } from '../hooks/gamePlay.svelte'
+import { cardPlay } from '../state/gamePlay.svelte'
 import { resolveServerError } from '../i18n/serverErrors'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'

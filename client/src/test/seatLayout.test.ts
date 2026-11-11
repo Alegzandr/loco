@@ -33,7 +33,7 @@ import {
 // The fullest table the server seats, us not counted: read off
 // `serverMaxPlayers` in the server's room module, so the loops below cover
 // exactly the tables that can exist and not ones the server refuses.
-const MAX_OPPONENTS = serverInt(readServer('game', 'room'), 'serverMaxPlayers') - 1
+const MAX_OPPONENTS = serverInt(readServer('game', 'room'), 'SERVER_MAX_PLAYERS') - 1
 
 const DESKTOP = { w: 1440, h: 900 }
 const DESIGN = { w: 1240, h: 790 }
@@ -110,7 +110,7 @@ const onEllipse = (felt: Rect, x: number, y: number) => {
 
 describe('seatLayout: a place on the rim', () => {
   it('is tested up to the fullest table the server seats', () => {
-    expect(MAX_OPPONENTS, `serverMaxPlayers not found in ${serverLabel('game', 'room')}`).toBe(6)
+    expect(MAX_OPPONENTS, `SERVER_MAX_PLAYERS not found in ${serverLabel('game', 'room')}`).toBe(6)
   })
 
   it('returns nothing for a table with no opponents', () => {

@@ -4,7 +4,7 @@ import {
   NICKNAME_MAX,
   readNickname,
   rememberNickname,
-} from '../hooks/nicknameMemory'
+} from '../state/nicknameMemory'
 
 describe('nicknameMemory', () => {
   beforeEach(() => {

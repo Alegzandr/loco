@@ -7,7 +7,7 @@ import {
   wsUrl,
   type WsEnv,
   type WsLocation,
-} from '../hooks/webSocketPolicy'
+} from '../state/webSocketPolicy'
 
 const CLIENT = path.resolve(__dirname, '../..')
 const ROOT = path.resolve(CLIENT, '..')

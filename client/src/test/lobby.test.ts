@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { render, screen, fireEvent } from './render'
 import Lobby from '../components/Lobby.svelte'
 import { en } from '../i18n/en'
-import { NICKNAME_KEY } from '../hooks/nicknameMemory'
+import { NICKNAME_KEY } from '../state/nicknameMemory'
 
 function renderLobby(
   onSend = vi.fn(),

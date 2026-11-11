@@ -11,7 +11,7 @@
      * menu costs nothing, and taking it from one mid-match costs that match.
      */
     seated: boolean
-    /** Take the game. See `takeOverTab` in hooks/tabLock.ts for what it inherits: nothing. */
+    /** Take the game. See `takeOverTab` in state/tabLock.ts for what it inherits: nothing. */
     onTake: () => void
   }
 

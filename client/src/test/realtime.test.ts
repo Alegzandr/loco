@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import { act } from './renderHook'
 import GameView from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
-import { reconnectDelay } from '../hooks/webSocketPolicy'
+import { gameStore } from '../state/gameStore'
+import { reconnectDelay } from '../state/webSocketPolicy'
 import type { CardDTO } from '../types/protocol'
 
 // LOCO is decided on windows measured in seconds, so anything that silently

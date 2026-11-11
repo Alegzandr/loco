@@ -8,10 +8,10 @@
  *
  * The half that decides lives here and is pure, which is what makes it a unit
  * test rather than a listening exercise. The half that subscribes and plays is
- * `gameAudio()` in `hooks/appEffects.svelte.ts` — outside any component's update
+ * `gameAudio()` in `state/appEffects.svelte.ts` — outside any component's update
  * cycle, so a sound never costs a frame.
  */
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO } from '../types/protocol'
 import type { SfxName } from './sfx'
 

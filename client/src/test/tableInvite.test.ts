@@ -6,8 +6,8 @@ import {
   peekTableInvite,
   takeTableInvite,
   tableInviteUrl,
-} from '../hooks/tableInvite'
-import { SESSION_KEY, writeSession } from '../hooks/sessionPersistence'
+} from '../state/tableInvite'
+import { SESSION_KEY, writeSession } from '../state/sessionPersistence'
 
 function visit(url: string) {
   window.history.replaceState(null, '', url)

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { InterruptFlash } from '../hooks/gameStore'
+  import type { InterruptFlash } from '../state/gameStore'
   import type { Translations } from '../i18n/en'
-  import { seatColor } from './playerColors'
+  import { seatColor } from '../game/playerColors'
 
   type Props = {
     flash: InterruptFlash | null

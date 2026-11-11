@@ -533,7 +533,7 @@ describe('the block that answers "what is different"', () => {
     // Same rule as the deck table: a number typed here is right on the day it is
     // written, and this is the copy nobody plays against, so it goes wrong
     // silently.
-    const size = serverInt(readServer('game', 'room'), 'initialHandSize')
+    const size = serverInt(readServer('game', 'room'), 'INITIAL_HAND_SIZE')
     expect(Number.isInteger(size), `initialHandSize not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(HAND_SIZE).toBe(size)
   })
@@ -573,15 +573,15 @@ describe('the block that answers "what is different"', () => {
 
 describe('the deck table', () => {
   it('describes the deck the server actually builds', () => {
-    // `NewDeck()` is the deck. Reading it here rather than trusting the table is
+    // `Deck::standard()` is the deck. Reading it here rather than trusting the table is
     // what makes this a check instead of a restatement of the fixture.
     const body = serverDeckBody()
     expect(body, `the deck builder not found in ${serverLabel('game', 'deck')}`).toBeTruthy()
 
-    // The loop is `for _, col := range [4 colours]`, values 1..9, and a fixed
-    // `for i := 0; i < 4` for the three wilds, so a kind's total is how many
+    // The loop is `for col in [4 colours]`, values 1..=9, and a fixed
+    // `for _ in 0..4` for the three wilds, so a kind's total is how many
     // times it is appended inside a loop body times that loop's span.
-    const appends = (goKind: string) => serverKindAppends(body!, goKind)
+    const appends = (kind: string) => serverKindAppends(body!, kind)
     const expected: Record<CardKind, number> = {
       number: appends('Number') * 4 * 9,
       skip: appends('Skip') * 4 * 2,
@@ -625,14 +625,14 @@ describe('the deck table', () => {
   it('scores exactly as the server does', () => {
     // The server's card module is the only authority on points in the repo; the
     // page is a second statement of it, free to drift. This is what stops it.
-    /** What the server's CardValue returns for a domain card-kind name. */
-    const goValue = (goKind: string): number => {
-      const v = serverCardValue(goKind)
-      expect(v, `CardValue has no case for ${goKind} in ${serverLabel('game', 'card')}`).toBeDefined()
+    /** What the server's `card_value` returns for a domain `Kind` variant. */
+    const serverValue = (kind: string): number => {
+      const v = serverCardValue(kind)
+      expect(v, `card_value has no case for ${kind} in ${serverLabel('game', 'card')}`).toBeDefined()
       return v!
     }
 
-    const goName: Record<Exclude<CardKind, 'number'>, string> = {
+    const domainKind: Record<Exclude<CardKind, 'number'>, string> = {
       reverse: 'Reverse',
       skip: 'Skip',
       draw_two: 'DrawTwo',
@@ -649,7 +649,7 @@ describe('the deck table', () => {
         expect(serverNumberScoresFace()).toBe(true)
         continue
       }
-      expect(entry.points, entry.kind).toBe(goValue(goName[entry.kind]))
+      expect(entry.points, entry.kind).toBe(serverValue(domainKind[entry.kind]))
     }
   })
 })

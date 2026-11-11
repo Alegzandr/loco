@@ -3,7 +3,7 @@
   import type { Translations } from '../i18n/en'
   import type { SceneSpec } from './cards/maps'
   import type { FeltAnchor } from './cards/layout'
-  import { seatColor } from './playerColors'
+  import { seatColor } from '../game/playerColors'
   import SceneBackdrop from './scene/SceneBackdrop.svelte'
 
   type Props = {

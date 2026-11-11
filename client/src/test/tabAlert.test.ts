@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, act } from './renderHook'
-import { tabAlert, TAB_ALERT_PERIOD_MS } from '../hooks/tabAlert.svelte'
+import { tabAlert, TAB_ALERT_PERIOD_MS } from '../state/tabAlert.svelte'
 
 /**
  * The whole point of these tests is the restraint, not the blinking: a title

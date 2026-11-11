@@ -39,7 +39,7 @@ import { lightRig, type LightRig } from './sky'
 import type { RenderSize } from './render'
 import type { FeltAnchor } from '../cards/layout'
 import type { Sprite } from './life'
-import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
+import { resolveGraphics, type GraphicsTier } from '../../state/graphicsPref'
 import { nextPaint } from './nextPaint'
 import { lookVersion } from './look'
 

@@ -5,19 +5,19 @@ import { render, screen } from './render'
 import Lobby from '../components/Lobby.svelte'
 import Searching from '../components/Searching.svelte'
 import { en } from '../i18n/en'
-import { gameStore } from '../hooks/gameStore'
-import { createServerMessageHandler } from '../hooks/serverMessages'
-import { PLAYERS_ONLINE_MIN, showPlayersOnline } from '../components/playersOnline'
+import { gameStore } from '../state/gameStore'
+import { createServerMessageHandler } from '../state/serverMessages'
+import { PLAYERS_ONLINE_MIN, showPlayersOnline } from '../game/playersOnline'
 import type { ServerMsg } from '../types/protocol'
 
 // App is mounted whole below, and these are the two things it reaches for on
 // the way up that a jsdom page cannot give it. Same seams, same reasons, as
 // appSubscription.test.ts.
-vi.mock('../hooks/webSocket.svelte', () => ({
+vi.mock('../state/webSocket.svelte', () => ({
   webSocket: () => ({ send: () => {}, wsStatus: 'open', forceClose: () => {} }),
 }))
-vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+vi.mock('../state/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/appEffects.svelte')>()),
   gameAudio: () => {},
 }))
 

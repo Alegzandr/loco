@@ -4,8 +4,8 @@
   import CardArt from './CardArt.svelte'
   import CardGlyph from './CardGlyph.svelte'
   import SuitMark from './SuitMark.svelte'
-  import { colorAssistPref } from '../../hooks/colorAssist'
-  import { watchPref } from '../../hooks/prefs.svelte'
+  import { colorAssistPref } from '../../state/colorAssist'
+  import { watchPref } from '../../state/prefs.svelte'
   import { i18n } from '../../i18n/i18n.svelte'
   import { pressToAct } from '../press'
 

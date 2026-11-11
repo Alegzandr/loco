@@ -79,7 +79,7 @@ export function gameAudio(): void {
       const sounds = soundsForTransition(before, next)
       for (const name of sounds) playSfx(name)
       // The phone answers the same list: one pulse per moment, the strongest
-      // cue's pattern. See hooks/haptics.ts.
+      // cue's pattern. See state/haptics.ts.
       vibrate(hapticsFor(sounds))
 
       // Make room for the moments. Two pieces of music competing for the same

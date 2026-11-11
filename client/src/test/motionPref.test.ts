@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { initMotion, setMotionPref, resetMotionPref } from '../hooks/motionPref'
+import { initMotion, setMotionPref, resetMotionPref } from '../state/motionPref'
 
 /**
  * The motion preference has two halves and they have to agree.

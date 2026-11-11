@@ -10,7 +10,7 @@ import { createBooleanPref } from './prefStore'
  */
 const pref = createBooleanPref('loco_streamer_mode')
 
-/** The store itself, for the Svelte side (`hooks/prefs.svelte.ts`). */
+/** The store itself, for the Svelte side (`state/prefs.svelte.ts`). */
 export const streamerModePref = pref
 
 export const isStreamerMode = pref.get

@@ -9,11 +9,11 @@
    * Tree-shaken from production builds: the only import site is guarded by
    * `import.meta.env.DEV` in boot.ts.
    */
-  import { gameStore } from '../hooks/gameStore'
-  import { game } from '../hooks/gameStore.svelte'
-  import { setStreamerMode } from '../hooks/streamerMode'
-  import { setColorAssist } from '../hooks/colorAssist'
-  import { setGraphicsPref } from '../hooks/graphicsPref'
+  import { gameStore } from '../state/gameStore'
+  import { game } from '../state/gameStore.svelte'
+  import { setStreamerMode } from '../state/streamerMode'
+  import { setColorAssist } from '../state/colorAssist'
+  import { setGraphicsPref } from '../state/graphicsPref'
   import { setForceFullRender } from '../components/scene/quality'
   import { applyLookPatch, type LookPatch } from '../components/scene/look'
   import Lobby from '../components/Lobby.svelte'

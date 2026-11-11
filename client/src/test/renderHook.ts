@@ -17,7 +17,7 @@ import Harness from './Harness.svelte'
  * asserting on the state a hook starts in must not read the frame before it.
  *
  * `initialProps` is the one input a test can move while the hook is mounted,
- * for the hooks that take a `Live<T>` and are meant to react to it. `setup`
+ * for the modules that take a `Live<T>` and are meant to react to it. `setup`
  * receives an accessor rather than a value, which is that same `Live<T>`: hand
  * it straight to the hook and `rerender` reaches all the way through.
  */

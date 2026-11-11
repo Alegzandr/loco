@@ -7,13 +7,13 @@
   import Preferences from './Preferences.svelte'
   import FullscreenButton from './FullscreenButton.svelte'
   import TableCode from './TableCode.svelte'
-  import { tableInviteUrl } from '../hooks/tableInvite'
+  import { tableInviteUrl } from '../state/tableInvite'
   import AudioSettings from './AudioSettings.svelte'
   import RosterRowMenu from './RosterRowMenu.svelte'
-  import { matchLengthLabel } from './matchLengthModel'
+  import { matchLengthLabel } from '../game/matchLengthModel'
   import ServerUpdating from './ServerUpdating.svelte'
-  import { game } from '../hooks/gameStore.svelte'
-  import { seatColor, seatInitial } from './playerColors'
+  import { game } from '../state/gameStore.svelte'
+  import { seatColor, seatInitial } from '../game/playerColors'
 
   type Props = {
     roomCode: string
@@ -153,7 +153,7 @@
   }
 
   // Read through a $derived rather than out of the snapshot inside the markup:
-  // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
+  // `game.current` is replaced whole on every message. See state/live.svelte.ts.
   const serverUpdating = $derived(game.current.serverUpdating)
 </script>
 

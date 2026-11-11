@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import GameView from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { en } from '../i18n/en'
 
 const seated = {

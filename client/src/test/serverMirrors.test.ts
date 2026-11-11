@@ -1,7 +1,7 @@
 /**
- * Two files in `src/components/` describe rules the server owns:
+ * Two files in `src/game/` describe rules the server owns:
  * `tableCodeRules.ts` mirrors the table code's alphabet and length,
- * `nicknameRules.ts` mirrors the shape half of `game.ValidateNickname`. Both
+ * `nicknameRules.ts` mirrors the shape half of `loco_game::validate_nickname`. Both
  * exist so the lobby can refuse something impossible without a round trip, and
  * both are documented as mirrors, which is worth exactly as much as whatever
  * checks they still match.
@@ -19,13 +19,13 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { TABLE_CODE_CHARS, TABLE_CODE_LENGTH, isTableCodeValid } from '../components/tableCodeRules'
-import { NICKNAME_MAX_CHARS, isNicknameShapeValid } from '../components/nicknameRules'
+import { TABLE_CODE_CHARS, TABLE_CODE_LENGTH, isTableCodeValid } from '../game/tableCodeRules'
+import { NICKNAME_MAX_CHARS, isNicknameShapeValid } from '../game/nicknameRules'
 import {
   CATCH_LATE_GRACE_MS,
   CATCH_LIVE_MAX_HAND,
   CATCH_NEAR_GRACE_MS,
-} from '../components/catchAvailability'
+} from '../game/catchAvailability'
 
 import {
   REPO,
@@ -74,8 +74,8 @@ describe('the nickname, against the server', () => {
   const nickname = readServer('game', 'nickname')
 
   it('is capped at the same number of characters', () => {
-    const max = serverInt(nickname, 'NicknameMaxRunes')
-    expect(Number.isInteger(max), `NicknameMaxRunes not found in ${serverLabel('game', 'nickname')}`).toBe(true)
+    const max = serverInt(nickname, 'NICKNAME_MAX_RUNES')
+    expect(Number.isInteger(max), `NICKNAME_MAX_RUNES not found in ${serverLabel('game', 'nickname')}`).toBe(true)
     expect(max).toBe(NICKNAME_MAX_CHARS)
   })
 
@@ -127,7 +127,7 @@ describe('the nickname, against the server', () => {
  * The third mirror, and the one that costs a card when it drifts.
  * `catchAvailability.ts` decides when the centre button is pressable, and the
  * server decides when a press against it is a wager it charges for
- * (`game.CatchOffered`). The two have to name the same instants: live where the
+ * (`Room::catch_offered`). The two have to name the same instants: live where the
  * server charges nothing is a button that does nothing when pressed, and dark
  * where the server still charges is the interface deciding the player may not
  * make a mistake it will bill them for either way.
@@ -139,8 +139,8 @@ describe('the catch offer, against the server', () => {
   const room = readServer('game', 'room')
 
   it('opens on the same hand size the server does', () => {
-    const near = serverInt(room, 'catchNearHand')
-    expect(Number.isInteger(near), `catchNearHand not found in ${serverLabel('game', 'room')}`).toBe(true)
+    const near = serverInt(room, 'CATCH_NEAR_HAND')
+    expect(Number.isInteger(near), `CATCH_NEAR_HAND not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(near).toBe(CATCH_LIVE_MAX_HAND)
   })
 
@@ -150,8 +150,8 @@ describe('the catch offer, against the server', () => {
   // the last late press still has to make. Equal would put a press made on the
   // final live frame outside the server's window by exactly one network hop.
   it('offers the late press inside the window the server still charges for', () => {
-    const ms = serverDurationMs(room, 'catchGrace')
-    expect(Number.isInteger(ms), `catchGrace not found in ${serverLabel('game', 'room')}`).toBe(true)
+    const ms = serverDurationMs(room, 'CATCH_GRACE_MS')
+    expect(Number.isInteger(ms), `CATCH_GRACE_MS not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(CATCH_LATE_GRACE_MS).toBeGreaterThan(0)
     expect(CATCH_LATE_GRACE_MS).toBeLessThan(ms)
   })
@@ -159,8 +159,8 @@ describe('the catch offer, against the server', () => {
   // Same relationship for the two-card picture's late half: the button's near
   // grace sits under the server's by a round trip.
   it('offers the spasm after a draw out of two inside the window the server charges for', () => {
-    const ms = serverDurationMs(room, 'catchNearGrace')
-    expect(Number.isInteger(ms), `catchNearGrace not found in ${serverLabel('game', 'room')}`).toBe(true)
+    const ms = serverDurationMs(room, 'CATCH_NEAR_GRACE_MS')
+    expect(Number.isInteger(ms), `CATCH_NEAR_GRACE_MS not found in ${serverLabel('game', 'room')}`).toBe(true)
     expect(CATCH_NEAR_GRACE_MS).toBeGreaterThan(0)
     expect(CATCH_NEAR_GRACE_MS).toBeLessThan(ms)
   })
@@ -172,20 +172,20 @@ describe('the catch offer, against the server', () => {
 describe('the seat count, against the server', () => {
   const room = readServer('game', 'room')
   const waiting = readFileSync(path.join(REPO, 'client', 'src', 'components', 'WaitingRoom.svelte'), 'utf8').replace(/\r\n/g, '\n')
-  const goConst = (name: string) => serverInt(room, name)
+  const serverConst = (name: string) => serverInt(room, name)
   const svelteConst = (name: string) => Number(waiting.match(new RegExp(`const ${name} = (\\d+)`))?.[1])
 
   it('offers exactly the range the server accepts', () => {
     // NaN equals NaN under toBe, so a constant that moved is caught here first.
-    for (const n of [goConst('serverMinPlayers'), goConst('serverMaxPlayers')]) {
+    for (const n of [serverConst('SERVER_MIN_PLAYERS'), serverConst('SERVER_MAX_PLAYERS')]) {
       expect(Number.isInteger(n), `constant not found in ${serverLabel('game', 'room')}`).toBe(true)
     }
-    expect(svelteConst('MIN_PLAYERS')).toBe(goConst('serverMinPlayers'))
-    expect(svelteConst('MAX_PLAYERS')).toBe(goConst('serverMaxPlayers'))
+    expect(svelteConst('MIN_PLAYERS')).toBe(serverConst('SERVER_MIN_PLAYERS'))
+    expect(svelteConst('MAX_PLAYERS')).toBe(serverConst('SERVER_MAX_PLAYERS'))
   })
 
   it('is seven at most, and a new table opens at the cap', () => {
-    expect(goConst('serverMaxPlayers')).toBe(7)
-    expect(goConst('defaultMaxPlayers')).toBe(7)
+    expect(serverConst('SERVER_MAX_PLAYERS')).toBe(7)
+    expect(serverConst('DEFAULT_MAX_PLAYERS')).toBe(7)
   })
 })

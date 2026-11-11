@@ -7,10 +7,9 @@
  * against the one that is played. Every read goes through here, so the
  * spelling of a Rust constant is decided in one place.
  *
- * Constants are asked for by their old Go names (`catchGrace`), which is how
- * the client copies and the docs name them; `rustConstName` turns one into the
- * crate's spelling. A reader that finds nothing fails its test by name rather
- * than passing on an empty match.
+ * Constants and functions are asked for by their names in the crate
+ * (`CATCH_GRACE_MS`, `card_value`). A reader that finds nothing fails its test
+ * by name rather than passing on an empty match.
  *
  * Framework-free and test-only: nothing outside `src/test/` imports it.
  */
@@ -40,26 +39,20 @@ export function readServer(pkg: ServerPackage, stem: string): string {
   return readFileSync(serverPath(pkg, stem), 'utf8').replace(/\r\n/g, '\n')
 }
 
-/** `catchNearHand` -> `CATCH_NEAR_HAND`: a Go constant's name in Rust. */
-export function rustConstName(goName: string): string {
-  return goName.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()
-}
-
-const RUST_CONST = (goName: string) =>
-  new RegExp(`const ${rustConstName(goName)}\\s*:\\s*[^=]+=\\s*([^;]+);`)
+const RUST_CONST = (name: string) =>
+  new RegExp(`const ${name}\\s*:\\s*[^=]+=\\s*([^;]+);`)
 
 const rustInt = (expr: string) => Number(expr.trim().replace(/_/g, '').replace(/(u|i)(8|16|32|64|size)$/, ''))
 
 /** An integer constant, or NaN when the source does not declare it. */
-export function serverInt(src: string, goName: string): number {
-  const m = src.match(RUST_CONST(goName))
+export function serverInt(src: string, name: string): number {
+  const m = src.match(RUST_CONST(name))
   return m ? rustInt(m[1]) : NaN
 }
 
 /** A duration constant in milliseconds, or NaN when the source does not declare it. */
-export function serverDurationMs(src: string, goName: string): number {
-  // `catchGrace` is `CATCH_GRACE_MS` in loco-game: the unit moved into the name.
-  const m = src.match(RUST_CONST(goName)) ?? src.match(RUST_CONST(`${goName}Ms`))
+export function serverDurationMs(src: string, name: string): number {
+  const m = src.match(RUST_CONST(name))
   if (!m) return NaN
   const d = m[1].match(/Duration::from_(secs|millis)\((\d[\d_]*)\)/)
   // A bare integer is a count of milliseconds, the domain's own unit.
@@ -68,23 +61,17 @@ export function serverDurationMs(src: string, goName: string): number {
 
 /**
  * A function's body, from its signature to its closing brace at column 0 or 4
- * (a method sits one level into its `impl`). `rsName` is the Rust name when it
- * is not the Go one in snake case.
+ * (a method sits one level into its `impl`).
  */
-export function serverFn(src: string, name: string, rsName = rustName(name)): string | undefined {
-  return new RegExp(`fn ${rsName}\\b[^]*?\\n(?: {4})?}`).exec(src)?.[0]
-}
-
-/** `NewDeck` -> `new_deck`, `generateCode` -> `generate_code`. */
-export function rustName(goName: string): string {
-  return goName.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+export function serverFn(src: string, name: string): string | undefined {
+  return new RegExp(`fn ${name}\\b[^]*?\\n(?: {4})?}`).exec(src)?.[0]
 }
 
 /** The table code's alphabet and length, as `join_room` validates it. */
 export function serverRoomCodeRule(): { chars: string; length: number } | undefined {
   const src = readServer('hub', 'rooms')
   const chars = src.match(/const ROOM_CODE_CHARS\s*:[^=]+=\s*b?"([^"]+)"/)?.[1]
-  const length = serverInt(src, 'roomCodeLen')
+  const length = serverInt(src, 'ROOM_CODE_LEN')
   return chars && Number.isInteger(length) ? { chars, length } : undefined
 }
 
@@ -94,7 +81,7 @@ export function serverCodeAlphabet(): { chars: string; length: number } | undefi
   // Scoped to the generator's own body: the session token in the same file
   // draws its own bytes, and matching that one would pin the code's length to
   // a number that has nothing to do with it.
-  const body = serverFn(src, 'generateCode')
+  const body = serverFn(src, 'generate_code')
   if (!body) return undefined
   const chars = body.match(/CHARS\s*:[^=]+=\s*b?"([^"]+)"/)?.[1]
   const length = Number(body.match(/(?:0\.\.|take\()(\d+)/)?.[1])
@@ -103,8 +90,7 @@ export function serverCodeAlphabet(): { chars: string; length: number } | undefi
 
 /** The deck builder's body. */
 export function serverDeckBody(): string | undefined {
-  // Go's `NewDeck()` is `Deck::standard()` in loco-game.
-  return serverFn(readServer('game', 'deck'), 'NewDeck', 'standard')
+  return serverFn(readServer('game', 'deck'), 'standard')
 }
 
 /** The number cards' range, off the deck builder's loop. */
@@ -112,8 +98,8 @@ export function serverNumberRange(body: string): { low: number; high: number } |
   // `for v in NUMBER_LOW..=NUMBER_HIGH`, the bounds declared beside the deck.
   if (!/for v in NUMBER_LOW\.\.=NUMBER_HIGH/.test(body)) return undefined
   const src = readServer('game', 'deck')
-  const low = serverInt(src, 'numberLow')
-  const high = serverInt(src, 'numberHigh')
+  const low = serverInt(src, 'NUMBER_LOW')
+  const high = serverInt(src, 'NUMBER_HIGH')
   return Number.isInteger(low) && Number.isInteger(high) ? { low, high } : undefined
 }
 
@@ -122,28 +108,27 @@ export function serverKindAppends(body: string, kind: string): number {
   return (body.match(new RegExp(`kind: Kind::${kind}\\b`, 'g')) ?? []).length
 }
 
-/** The points `CardValue` gives a domain kind, or undefined when it has no case. */
+/** The points `card_value` gives a domain kind, or undefined when it has no case. */
 export function serverCardValue(kind: string): number | undefined {
-  const fn = serverFn(readServer('game', 'card'), 'CardValue', 'card_value')
+  const fn = serverFn(readServer('game', 'card'), 'card_value')
   if (!fn) return undefined
   const m = new RegExp(`Kind::${kind}\\b[^=\\n]*=>\\s*(\\d+)`).exec(fn)
   return m ? Number(m[1]) : undefined
 }
 
-/** Whether `CardValue` scores a number card at its face value. */
+/** Whether `card_value` scores a number card at its face value. */
 export function serverNumberScoresFace(): boolean {
-  const fn = serverFn(readServer('game', 'card'), 'CardValue', 'card_value') ?? ''
+  const fn = serverFn(readServer('game', 'card'), 'card_value') ?? ''
   return /Kind::Number => c\.value/.test(fn)
 }
 
 /**
  * The values of one string enum of the maps module, in the order its list
  * names them: `const MAP_IDS: [MapId; 6] = [MapId::Neon, ...]` + the `as_str`
- * match arm `MapId::Neon => "neon",`. `typeName` is the Go type's name, kept
- * so a caller reads the same either way.
+ * match arm `MapId::Neon => "neon",`.
  */
-export function serverMapList(src: string, listName: string, _typeName: string): string[] | undefined {
-  const list = src.match(new RegExp(`const ${rustConstName(listName)}\\s*:[^=]+=\\s*\\[([^\\]]+)\\]`))
+export function serverMapList(src: string, listName: string): string[] | undefined {
+  const list = src.match(new RegExp(`const ${listName}\\s*:[^=]+=\\s*\\[([^\\]]+)\\]`))
   if (!list) return undefined
   return list[1]
     .split(',')

@@ -4,10 +4,10 @@
   import CardFall from './CardFall.svelte'
   import OutcomeMark, { type Outcome } from './OutcomeMark.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
-  import { game } from '../hooks/gameStore.svelte'
-  import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
-  import { formatMatchDuration, lastMatchDurationMs } from './matchDuration'
-  import { EMOTE_ORDER } from './emotes'
+  import { game } from '../state/gameStore.svelte'
+  import { buildMatchRecap, hasEveningToShow } from '../game/matchRecapModel'
+  import { formatMatchDuration, lastMatchDurationMs } from '../game/matchDuration'
+  import { EMOTE_ORDER } from '../game/emotes'
   import { countUp } from './countUp'
 
   type Props = {
@@ -123,7 +123,7 @@
   // time it, and then the line is simply not there.
   const duration = $derived(formatMatchDuration(lastMatchDurationMs(matchHistory), t))
   // Read through a $derived rather than out of the snapshot inside the markup:
-  // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
+  // `game.current` is replaced whole on every message. See state/live.svelte.ts.
   const serverUpdating = $derived(game.current.serverUpdating)
   const emotes = $derived(game.current.emotes)
   const nameOf = $derived((s: number) => players.find((p) => p.index === s)?.nickname ?? '')

@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { render, screen, within } from './render'
 import ScoreTable from '../components/ScoreTable.svelte'
-import { buildScoreRows, pingTier } from '../components/scoreTableModel'
+import { buildScoreRows, pingTier } from '../game/scoreTableModel'
 import { en } from '../i18n/en'
 import type { LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
 

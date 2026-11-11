@@ -21,7 +21,7 @@
  * and a failed fetch leaves the served paragraph exactly where it is — which
  * already says what an empty list means.
  */
-import { twitchChannel } from '../components/twitchLinks'
+import { twitchChannel } from '../game/twitchLinks'
 
 /** Shape of one row in `/live.json`. Kept local: this file must not pull the
  *  generated protocol types onto a content page. */

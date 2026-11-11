@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 
 // An action that hands the state back unchanged is the store's own "nothing to
 // do", and the catch middleware has to leave it one: it used to spread the

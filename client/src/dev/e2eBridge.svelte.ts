@@ -1,6 +1,6 @@
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO, ClientMsg } from '../types/protocol'
-import type { WsStatus } from '../hooks/webSocketPolicy'
+import type { WsStatus } from '../state/webSocketPolicy'
 
 /**
  * The handles Playwright drives the app through, hung on `window.__LOCO_E2E__`.

@@ -2,7 +2,7 @@
   import { fly } from 'svelte/transition'
   import { cubicOut } from 'svelte/easing'
   import { turnPillPlace } from './layout'
-  import { reducedMotion } from '../../hooks/uiPrefs.svelte'
+  import { reducedMotion } from '../../state/uiPrefs.svelte'
   import { pressToAct } from '../press'
 
   export type TurnTexts = {

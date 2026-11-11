@@ -3,7 +3,7 @@ import {
   canonicalNickname,
   isNicknameShapeValid,
   NICKNAME_MAX_CHARS,
-} from '../components/nicknameRules'
+} from '../game/nicknameRules'
 
 /**
  * The client half of nickname validation. It mirrors the *shape* rules of

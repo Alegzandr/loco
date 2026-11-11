@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Weather } from './sky'
-  import { graphicsPref, reducedMotion, weatherShed } from '../../hooks/uiPrefs.svelte'
+  import { graphicsPref, reducedMotion, weatherShed } from '../../state/uiPrefs.svelte'
   import { startWeatherGovernor, weatherTier } from './weatherLoad'
   import { DRIFT_S, FALL_S, LEAN_DEG, SPLASH_S, SWAY, TILES, sheetStyle, tileUrl, type TileKind } from './weatherTiles'
 

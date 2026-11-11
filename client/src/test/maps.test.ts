@@ -20,16 +20,16 @@ import { plateHour } from '../components/scene/plates'
 const mapsSrc = readServer('game', 'maps')
 
 /** The server's values of one string type, in the order its list names them. */
-function goList(listName: string, typeName: string): string[] {
-  const list = serverMapList(mapsSrc, listName, typeName)
+function serverList(listName: string): string[] {
+  const list = serverMapList(mapsSrc, listName)
   expect(list, `${listName} not found in ${serverLabel('game', 'maps')}`).toBeTruthy()
   return list!
 }
 
-/** `MapWeathers` off the server's source, id → weathers. */
-function goMapWeathers(): Record<string, string[]> {
+/** `MAP_WEATHERS` off the server's source, id → weathers. */
+function serverWeathers(): Record<string, string[]> {
   const weathers = serverMapWeathers(mapsSrc)
-  expect(weathers, `MapWeathers not found in ${serverLabel('game', 'maps')}`).toBeTruthy()
+  expect(weathers, `MAP_WEATHERS not found in ${serverLabel('game', 'maps')}`).toBeTruthy()
   return weathers!
 }
 
@@ -38,13 +38,13 @@ describe('map registry', () => {
   // an hour or a sky on one side and not the other is a match dealt into a room
   // this client cannot draw — and it fails as a plain felt, silently.
   it('lists the same maps, hours and skies as the server, in the same order', () => {
-    expect(MAP_IDS).toEqual(goList('MapIDs', 'MapID'))
-    expect([...TIMES]).toEqual(goList('TimesOfDay', 'TimeOfDay'))
-    expect([...WEATHERS]).toEqual(goList('Weathers', 'Weather'))
+    expect(MAP_IDS).toEqual(serverList('MAP_IDS'))
+    expect([...TIMES]).toEqual(serverList('TIMES_OF_DAY'))
+    expect([...WEATHERS]).toEqual(serverList('WEATHERS'))
   })
 
   it('allows each map exactly the skies the server can deal it', () => {
-    const server = goMapWeathers()
+    const server = serverWeathers()
     for (const id of MAP_IDS) {
       expect([...MAPS[id].weathers], id).toEqual(server[id])
     }

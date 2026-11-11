@@ -35,12 +35,12 @@ const SRC = join(process.cwd(), 'src')
 const ALLOWED = [
   // heldKey: the score table, held on TAB. A modifier-free key that shows a
   // read-only panel and moves nothing on the board.
-  join('hooks', 'viewEffects.svelte.ts'),
+  join('state', 'viewEffects.svelte.ts'),
   // The one Escape hook every overlay in the game closes through.
-  join('hooks', 'escapeKey.svelte.ts'),
+  join('state', 'escapeKey.svelte.ts'),
   // Mobile Safari hands the audio context back on a gesture, any gesture. This
   // one listens for a key press as evidence a human is there, and reads nothing.
-  join('hooks', 'appEffects.svelte.ts'),
+  join('state', 'appEffects.svelte.ts'),
 ]
 
 function walk(dir: string, out: string[] = []): string[] {

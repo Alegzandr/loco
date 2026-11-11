@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, fireEvent } from './render'
-import { gameStore } from '../hooks/gameStore'
-import { initTableInvite, takeTableInvite } from '../hooks/tableInvite'
-import { NICKNAME_KEY } from '../hooks/nicknameMemory'
+import { gameStore } from '../state/gameStore'
+import { initTableInvite, takeTableInvite } from '../state/tableInvite'
+import { NICKNAME_KEY } from '../state/nicknameMemory'
 import { en } from '../i18n/en'
 import type { ClientMsg } from '../types/protocol'
 
@@ -15,11 +15,11 @@ const stableSend = (msg: ClientMsg) => {
   sent.push(msg)
 }
 const stableForceClose = () => {}
-vi.mock('../hooks/webSocket.svelte', () => ({
+vi.mock('../state/webSocket.svelte', () => ({
   webSocket: () => ({ send: stableSend, wsStatus: 'open', forceClose: stableForceClose }),
 }))
-vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+vi.mock('../state/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/appEffects.svelte')>()),
   gameAudio: () => {},
 }))
 

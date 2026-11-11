@@ -15,7 +15,7 @@ import { createBooleanPref } from './prefStore'
  */
 const pref = createBooleanPref('loco_color_assist')
 
-/** The store itself, for the Svelte side (`hooks/prefs.svelte.ts`). */
+/** The store itself, for the Svelte side (`state/prefs.svelte.ts`). */
 export const colorAssistPref = pref
 
 export const isColorAssist = pref.get

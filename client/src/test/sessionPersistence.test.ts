@@ -8,8 +8,8 @@ import {
   clearSession,
   reconnectMessageFor,
   type ReconnectContext,
-} from '../hooks/sessionPersistence'
-import { gameStore } from '../hooks/gameStore'
+} from '../state/sessionPersistence'
+import { gameStore } from '../state/gameStore'
 
 const NOW = 1_700_000_000_000
 

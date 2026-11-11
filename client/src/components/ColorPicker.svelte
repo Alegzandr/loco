@@ -2,9 +2,9 @@
   import type { CardColor } from '../types/protocol'
   import { SUIT_PAINT, SUIT_ANGLE_DEG } from './cards/cardTheme'
   import SuitMark from './cards/SuitMark.svelte'
-  import { colorAssistPref } from '../hooks/colorAssist'
-  import { watchPref } from '../hooks/prefs.svelte'
-  import { escapeKey } from '../hooks/escapeKey.svelte'
+  import { colorAssistPref } from '../state/colorAssist'
+  import { watchPref } from '../state/prefs.svelte'
+  import { escapeKey } from '../state/escapeKey.svelte'
   import { dialogFocus } from './dialogFocus'
   import { i18n } from '../i18n/i18n.svelte'
 

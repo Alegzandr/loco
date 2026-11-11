@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import { act } from './renderHook'
 import { en } from '../i18n/en'
-import { initTabLock, resetTabLock, takeOverTab } from '../hooks/tabLock'
+import { initTabLock, resetTabLock, takeOverTab } from '../state/tabLock'
 import TabTaken from '../components/TabTaken.svelte'
 
 // The point of the whole mechanism, asserted where it can actually fail: a tab
@@ -10,15 +10,15 @@ import TabTaken from '../components/TabTaken.svelte'
 // top of App.svelte's script, so this is a question about what gets mounted, and
 // `Root.svelte` is the only thing that answers it.
 let socketsOpened = 0
-vi.mock('../hooks/webSocket.svelte', () => ({
+vi.mock('../state/webSocket.svelte', () => ({
   webSocket: () => {
     socketsOpened += 1
     return { send: () => {}, wsStatus: 'open', forceClose: () => {} }
   },
 }))
 
-vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+vi.mock('../state/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/appEffects.svelte')>()),
   gameAudio: () => {},
 }))
 

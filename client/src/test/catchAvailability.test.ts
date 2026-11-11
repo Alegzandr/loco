@@ -6,7 +6,7 @@ import {
   CATCH_LIVE_MAX_HAND,
   CATCH_LATE_GRACE_MS,
   CATCH_NEAR_GRACE_MS,
-} from '../components/catchAvailability'
+} from '../game/catchAvailability'
 import type { PlayerDTO } from '../types/protocol'
 
 const seat = (index: number, hand_size: number): PlayerDTO => ({

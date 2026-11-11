@@ -7,13 +7,13 @@
  * action that forgets, and a forgotten derivation costs a reaction silently.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { GameStateDTO, PlayerDTO } from '../types/protocol'
 import {
   CATCH_LATE_GRACE_MS,
   CATCH_LIVE_MAX_HAND,
   CATCH_NEAR_GRACE_MS,
-} from '../components/catchAvailability'
+} from '../game/catchAvailability'
 
 const now = () => Date.now()
 

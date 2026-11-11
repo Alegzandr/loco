@@ -1,5 +1,5 @@
 import { DEFAULT_LANG, HOME } from '../seo/meta'
-import { isTableCodeValid, sanitizeTableCode } from '../components/tableCodeRules'
+import { isTableCodeValid, sanitizeTableCode } from '../game/tableCodeRules'
 import { clearSession, readSession } from './sessionPersistence'
 
 /**

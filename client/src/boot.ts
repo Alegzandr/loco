@@ -1,10 +1,10 @@
 import type { Component } from 'svelte'
 import Root from './Root.svelte'
 import { initI18n } from './i18n/store'
-import { initTabLock } from './hooks/tabLock'
-import { initMotion } from './hooks/motionPref'
-import { initSessionRestore } from './hooks/sessionRestore'
-import { initTableInvite } from './hooks/tableInvite'
+import { initTabLock } from './state/tabLock'
+import { initMotion } from './state/motionPref'
+import { initSessionRestore } from './state/sessionRestore'
+import { initTableInvite } from './state/tableInvite'
 import { initLang } from './langRoute'
 import { initPinchGuard } from './pinchGuard'
 import { initContextGuard } from './contextGuard'
@@ -141,14 +141,14 @@ function boot() {
   // A table link carries its code in the URL, and it has to be read before the
   // line below decides whether this tab is reclaiming a seat: following a link is
   // a fresh intent and outranks a stored record naming another table. It also
-  // takes the code straight back out of the address bar — see hooks/tableInvite.ts.
+  // takes the code straight back out of the address bar — see state/tableInvite.ts.
   initTableInvite()
 
   // Is this tab even the one holding the game? Ahead of the line below because a
   // tab that is not must do none of what it sets up: no restoring screen, no
   // `join_room` lined up for the first onopen, and above all no socket. The
   // election is one synchronous read, so nothing here waits — see
-  // hooks/tabLock.ts for why it is storage rather than a race on a channel.
+  // state/tabLock.ts for why it is storage rather than a race on a channel.
   //
   // After `initTableInvite()` on purpose: the invitation is spent out of the
   // address bar either way, and a tab that takes the game over later still has it

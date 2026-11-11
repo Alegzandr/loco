@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from './render'
 import GameView from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { TOP_CHROME } from '../components/cards/layout'
 import { BOTTOM_RESERVE } from '../components/cards/cardTheme'
 import type { CardDTO } from '../types/protocol'
@@ -13,8 +13,8 @@ let insets = INSETS
 // The board is Svelte, so the accessor it reads is the Svelte one. Same seam,
 // same purpose: no desktop browser reports a notch, so the only way to test the
 // board against one is to hand it the numbers.
-vi.mock('../hooks/boardMetrics.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/boardMetrics.svelte')>()),
+vi.mock('../state/boardMetrics.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/boardMetrics.svelte')>()),
   safeAreaInsets: () => ({
     get current() {
       return insets

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from './render'
 import GameView from '../components/GameView.svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { en } from '../i18n/en'
 import type { PlayerDTO } from '../types/protocol'
 
