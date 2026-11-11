@@ -1,14 +1,11 @@
-//! The shapes the Rust API chose where Go had none: the kind of every refusal
-//! (Go's four `errors.Is` predicates), the match format as an enum built by
-//! conversion (Go's `SetFormat` validation), and "nobody" as `None` on the
-//! inside and Go's -1 on the wire.
+//! The shapes the API is built on: the kind of every refusal, the match format
+//! as an enum built by conversion, and "nobody" as `None`, written `null` in
+//! the snapshot and `-1` only in a refusal's text.
 
-use crate::Seat;
 use crate::card::{Card, Color};
 use crate::error::{ErrorKind, GameError};
 use crate::event::{EventKind, GameEvent};
 use crate::room::MatchFormat;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 
@@ -156,7 +153,7 @@ fn error_kinds() {
     use GameError as E;
     let all = every_refusal();
 
-    // Go: `IsStateMismatch` — the five wrapped in `stale(...)`.
+    // A stale board: the five a correct client produces only after a drift.
     assert_eq!(
         of_kind(&all, |k| k == ErrorKind::StaleState),
         texts(&[
@@ -168,7 +165,7 @@ fn error_kinds() {
         ])
     );
 
-    // Go: `IsMissedCatch` — a Contre-LOCO! that lost its race.
+    // A Contre-LOCO! that lost its race.
     let missed = [
         E::AlreadyDeclared,
         E::CatchWindowExpired,
@@ -179,8 +176,8 @@ fn error_kinds() {
         texts(&missed)
     );
 
-    // Go: `IsLostRace` named these sentinels. Every one of them is honest here.
-    let go_lost_race = [
+    // The lost races: every one of them is honest.
+    let lost_race = [
         E::AlreadyDrawn,
         E::MustDrawBeforePass,
         E::InterruptWindowClosed,
@@ -190,14 +187,14 @@ fn error_kinds() {
         E::CatchLocked,
         E::MustDeclareLoco,
     ];
-    for e in &go_lost_race {
-        assert!(e.kind().is_honest(), "{e:?} was a lost race in Go");
+    for e in &lost_race {
+        assert!(e.kind().is_honest(), "{e:?} is a lost race");
     }
-    // The honest set is Go's lost races plus the two missed catches Go's
-    // `IsLostRace` did not name: a wager lost to the clock or to a hand that
-    // moved is ordinary play too.
+    // The honest set is the lost races plus the two missed catches beyond
+    // `AlreadyDeclared`: a wager lost to the clock or to a hand that moved is
+    // ordinary play too.
     let honest = of_kind(&all, ErrorKind::is_honest);
-    let mut want = texts(&go_lost_race);
+    let mut want = texts(&lost_race);
     want.extend(texts(&[E::CatchWindowExpired, E::TargetNotSingleCard]));
     assert_eq!(honest, want);
     // A missed catch is honest; a stale board is not suspicious either, but
@@ -208,7 +205,7 @@ fn error_kinds() {
     assert!(!ErrorKind::Invalid.is_honest());
     assert!(!ErrorKind::NicknameRejected.is_honest());
 
-    // Go: `IsNicknameRejected`.
+    // The three nickname rules, which reach the player as one refusal.
     assert_eq!(
         of_kind(&all, |k| k == ErrorKind::NicknameRejected),
         texts(&[E::NicknameLength, E::NicknameCharset, E::NicknameBlocked])
@@ -244,30 +241,9 @@ fn match_format_try_from() {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct Seated {
-    #[serde(with = "crate::gojson::opt_seat")]
-    seat: Option<Seat>,
-}
-
 #[test]
-fn opt_seat_json() {
-    assert_eq!(
-        serde_json::to_value(Seated { seat: None }).unwrap(),
-        json!({"seat": -1})
-    );
-    assert_eq!(
-        serde_json::to_value(Seated { seat: Some(3) }).unwrap(),
-        json!({"seat": 3})
-    );
-    let read = |v| serde_json::from_value::<Seated>(v).unwrap().seat;
-    assert_eq!(read(json!({"seat": -1})), None);
-    assert_eq!(read(json!({"seat": 0})), Some(0));
-    assert_eq!(read(json!({"seat": 6})), Some(6));
-    // Go never wrote another negative, but it would mean nobody as well.
-    assert_eq!(read(json!({"seat": -7})), None);
-
-    // And where the wire carries it: an event's actor.
+fn nobody_is_null_in_the_snapshot() {
+    // An event's actor: `None` for the deal and a match end.
     let ev = GameEvent {
         kind: EventKind::MatchEnd,
         player: None,
@@ -276,11 +252,13 @@ fn opt_seat_json() {
         at: 0,
     };
     let v = serde_json::to_value(&ev).unwrap();
-    assert_eq!(v["player_index"], json!(-1));
+    assert_eq!(v["player"], json!(null));
+    assert_eq!(v["kind"], json!("match_end"));
     let back: GameEvent = serde_json::from_value(v).unwrap();
     assert_eq!(back, ev);
 
-    // A swap aimed at nobody prints Go's -1 too.
+    // A swap aimed at nobody: the refusal's text is the wire contract, and it
+    // says -1.
     assert_eq!(
         GameError::InvalidSwapTarget(None).to_string(),
         "invalid chosen_player -1 for swap"

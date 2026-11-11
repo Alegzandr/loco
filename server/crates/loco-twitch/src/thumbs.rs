@@ -1,5 +1,5 @@
 //! The preview cache: fetched on a timer, kept in memory, served from this
-//! origin under a key we mint. Port of `server/twitch/thumbs.go`.
+//! origin under a key we mint.
 
 use crate::LiveStream;
 use crate::config::{LIVE_THUMB_TTL, THUMB_HOST};
@@ -58,7 +58,7 @@ pub fn thumb_path(raw_url: &str) -> Option<String> {
         Some(i) => (&rest[..i], &rest[i..]),
         None => (rest, ""),
     };
-    // A fragment is never sent; Go's url.Parse dropped it the same way.
+    // A fragment is never sent: it is dropped here.
     let path = path.split('#').next().unwrap_or("");
     if host != THUMB_HOST || path.is_empty() || path.starts_with('?') {
         return None;
@@ -138,8 +138,8 @@ impl Poller {
     }
 
     async fn fetch_thumb(&self, path: &str) -> Option<Thumb> {
-        // The path may carry the URL's own query, raw, exactly as Go forwarded
-        // it: Janus passes it on unchanged.
+        // The path may carry the URL's own query, raw, forwarded as is: Janus
+        // passes it on unchanged.
         let resp = self
             .janus
             .get(&loco_janus::Request {

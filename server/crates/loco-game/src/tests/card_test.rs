@@ -1,4 +1,4 @@
-//! Ported from `server/game/card_test.go`.
+//! Cards: the deck's values, spellings and predicates.
 
 use super::support::*;
 use crate::card::{Card, Color, Kind};

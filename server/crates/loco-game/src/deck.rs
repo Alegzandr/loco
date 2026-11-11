@@ -1,4 +1,4 @@
-//! The deck (`server/game/deck.go`).
+//! The deck.
 
 use crate::card::{Card, Color, Kind};
 use crate::rng;
@@ -15,16 +15,12 @@ pub const NUMBER_HIGH: i32 = 9;
 /// An ordered collection of cards; the top is the end of the vector.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Deck {
-    #[serde(
-        rename = "Cards",
-        deserialize_with = "crate::gojson::nullable::deserialize"
-    )]
+    #[serde(default)]
     pub cards: Vec<Card>,
 }
 
 impl Deck {
-    /// The 112-card deck, unshuffled. `Deck::default()` is an empty one. (Go:
-    /// `NewDeck`.)
+    /// The 112-card deck, unshuffled. `Deck::default()` is an empty one.
     ///
     /// Per colour (Red, Yellow, Green, Blue):
     ///   - Numbers 1–9 ×2 (no zero)
@@ -99,7 +95,7 @@ impl Deck {
         rng::shuffle(rng, &mut self.cards);
     }
 
-    /// Removes and returns the top card. (Go: `Draw`.)
+    /// Removes and returns the top card.
     pub fn draw(&mut self) -> Option<Card> {
         self.cards.pop()
     }
@@ -107,7 +103,7 @@ impl Deck {
     /// Removes and returns `n` cards from the top, or nothing at all when fewer
     /// than `n` are left. Dealing is the one caller that wants this: a short
     /// hand is a broken round. Every in-play draw wants [`Deck::draw_up_to`].
-    /// (Go: `DrawN`.)
+    ///
     pub fn draw_n(&mut self, n: usize) -> Option<Vec<Card>> {
         if self.cards.len() < n {
             return None;
@@ -117,7 +113,7 @@ impl Deck {
 
     /// Removes and returns however many of the `n` requested cards are left,
     /// possibly none. A draw in this game can never fail: once every card sits
-    /// in a hand the only sane answer is a smaller penalty. (Go: `DrawUpTo`.)
+    /// in a hand the only sane answer is a smaller penalty.
     pub fn draw_up_to(&mut self, n: usize) -> Vec<Card> {
         let n = n.min(self.cards.len());
         (0..n).filter_map(|_| self.draw()).collect()
@@ -127,7 +123,7 @@ impl Deck {
     /// of it: the replenish runs when the deck is *short*, which is exactly when
     /// it is not empty. The caller keeps the current top card out of `discard`.
     /// The source is the room's, like every other shuffle that decides what
-    /// lands in a hand. (Go: `Replenish`.)
+    /// lands in a hand.
     pub fn replenish<R: RngCore + ?Sized>(&mut self, discard: &[Card], rng: &mut R) {
         self.cards.extend_from_slice(discard);
         self.shuffle(rng);

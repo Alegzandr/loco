@@ -1,9 +1,8 @@
-//! The drain snapshot serialises `game.Room` directly (schema version 5), so
-//! the Rust `SavedRoom` has to read what Go's `json.Marshal` wrote and write it
-//! back in the same shape: Go's field names, colours and kinds as integers,
-//! instants as RFC 3339 with Go's zero time for "never", nil slices as `null`.
-//! `SavedRoom` carries no source of randomness, exactly as Go's unexported
-//! `rng` was never written; `SavedRoom::restore` is handed a fresh seed.
+//! The drain snapshot serialises the room as `SavedRoom`, in plain serde:
+//! `snake_case` field names, colours and kinds as integers, instants as integer
+//! `Millis`, "nobody" and "never" as `null`, one record per seat.
+//! `SavedRoom` carries no source of randomness; `SavedRoom::restore` is handed
+//! a fresh seed.
 
 use super::support::NOW;
 use crate::card::{Color, Kind};
@@ -11,65 +10,72 @@ use crate::event::EventKind;
 use crate::maps::{MapId, TimeOfDay, Weather};
 use crate::room::{MatchFormat, SavedRoom, Status};
 use serde_json::{Value, json};
-/// A match in flight, written the way Go's encoder writes it: struct field
-/// order, `GameEvent`'s json tags (`chosen_color` omitted for Red, `card`
-/// omitted when nil), zero times, a nil `RoundHistory`.
-fn go_playing_room() -> Value {
+
+/// A match in flight, as this server writes it.
+fn playing_room() -> Value {
     let c =
-        |color: i64, kind: i64, value: i64| json!({"Color": color, "Kind": kind, "Value": value});
+        |color: i64, kind: i64, value: i64| json!({"color": color, "kind": kind, "value": value});
+    let seat = |declared: bool, last_card_at: Value, paid: &str, locked: Value, near: Value| {
+        json!({
+            "retired": false,
+            "declared": declared,
+            "last_card_at": last_card_at,
+            "catch_paid_for": paid,
+            "catch_locked_until": locked,
+            "near_left_at": near,
+        })
+    };
     json!({
-        "Code": "ABC234",
-        "Status": 1,
-        "Players": [{"Nickname": "alice", "Index": 0}, {"Nickname": "Étienne", "Index": 1}],
-        "State": {
-            "Hands": [
-                {"Cards": [c(0, 0, 7), c(4, 4, 0)]},
-                {"Cards": [c(2, 3, 0)]}
+        "code": "ABC234",
+        "status": 1,
+        "players": [{"nickname": "alice", "index": 0}, {"nickname": "Étienne", "index": 1}],
+        "state": {
+            "hands": [
+                {"cards": [c(0, 0, 7), c(4, 4, 0)]},
+                {"cards": [c(2, 3, 0)]}
             ],
-            "Deck": {"Cards": [c(1, 1, 0), c(3, 6, 0), c(4, 7, 0)]},
-            "Discard": [c(0, 0, 3), c(0, 0, 5)],
-            "CurrentTurn": 1,
-            "Direction": -1,
-            "ActiveColor": 0,
-            "PendingDraw": 2,
-            "HasDrawn": false,
-            "LastCardDeclared": [false, false],
-            "LastCardAt": ["0001-01-01T00:00:00Z", "2023-11-14T22:13:18.5Z"],
-            "CatchPaidFor": ["", "1@1699999998500000000;"],
-            "CatchLockedUntil": ["2023-11-14T22:13:22Z", "0001-01-01T00:00:00Z"],
-            "NearLeftAt": ["0001-01-01T00:00:00Z", "2023-11-14T22:13:10.001Z"],
-            "Retired": [false, false],
-            "EventLog": [
-                {"kind": "game_started", "player_index": -1, "at": "2023-11-14T22:12:00Z"},
-                {"kind": "card_played", "player_index": 0, "card": c(0, 0, 5), "at": "2023-11-14T22:13:00.25Z"},
-                {"kind": "card_played", "player_index": 1, "card": c(4, 4, 0), "chosen_color": 2, "at": "2023-11-14T22:13:05Z"}
+            "deck": {"cards": [c(1, 1, 0), c(3, 6, 0), c(4, 7, 0)]},
+            "discard": [c(0, 0, 3), c(0, 0, 5)],
+            "current_turn": 1,
+            "direction": -1,
+            "active_color": 0,
+            "pending_draw": 2,
+            "has_drawn": false,
+            "seats": [
+                seat(false, json!(null), "", json!(1_700_000_002_000_i64), json!(null)),
+                seat(false, json!(1_699_999_998_500_i64), "1@1699999998500;", json!(null), json!(1_699_999_990_001_i64)),
             ],
-            "InterruptOpen": true,
-            "LastPlayBy": 0,
-            "LastPlayAt": "2023-11-14T22:13:00.25Z"
+            "event_log": [
+                {"kind": "game_started", "player": null, "card": null, "chosen_color": 0, "at": 1_699_999_920_000_i64},
+                {"kind": "card_played", "player": 0, "card": c(0, 0, 5), "chosen_color": 0, "at": 1_699_999_980_250_i64},
+                {"kind": "card_played", "player": 1, "card": c(4, 4, 0), "chosen_color": 2, "at": 1_699_999_985_000_i64}
+            ],
+            "interrupt_open": true,
+            "last_play_by": 0,
+            "last_play_at": 1_699_999_980_250_i64
         },
-        "Winner": "",
-        "Format": 3,
-        "MaxPlayers": 7,
-        "MapID": "orbit",
-        "MapTime": "night",
-        "MapWeather": "fog",
-        "RoundNumber": 1,
-        "Scores": [0, 0],
-        "RoundsWon": [0, 0],
-        "LostHandTotal": [0, 0],
-        "Retired": [false, false],
-        "RoundHistory": null,
-        "RoundEnded": false,
-        "MatchOver": false,
-        "MatchWinner": ""
+        "winner": "",
+        "format": 3,
+        "max_players": 7,
+        "map_id": "orbit",
+        "map_time": "night",
+        "map_weather": "fog",
+        "round_number": 1,
+        "scores": [0, 0],
+        "rounds_won": [0, 0],
+        "lost_hand_total": [0, 0],
+        "retired": [false, false],
+        "round_history": [],
+        "round_ended": false,
+        "match_over": false,
+        "match_winner": ""
     })
 }
 
 #[test]
-fn a_go_snapshot_room_round_trips() {
-    let go = go_playing_room();
-    let room: SavedRoom = serde_json::from_value(go.clone()).expect("Go-shaped Room decodes");
+fn a_snapshot_room_round_trips() {
+    let raw = playing_room();
+    let room: SavedRoom = serde_json::from_value(raw.clone()).expect("a saved room decodes");
 
     assert_eq!(room.code, "ABC234");
     assert_eq!(room.status, Status::Playing);
@@ -86,49 +92,55 @@ fn a_go_snapshot_room_round_trips() {
     let last_card_at: Vec<_> = st.seats.iter().map(|s| s.last_card_at).collect();
     assert_eq!(last_card_at, vec![None, Some(1_699_999_998_500)]);
     assert_eq!(st.seats[0].catch_locked_until, Some(1_700_000_002_000));
-    assert_eq!(st.seats[1].catch_paid_for, "1@1699999998500000000;");
+    assert_eq!(st.seats[1].catch_paid_for, "1@1699999998500;");
     assert_eq!(st.seats[1].near_left_at, Some(1_699_999_990_001));
     assert_eq!(st.last_play_by, Some(0));
+    assert_eq!(st.last_play_at, Some(1_699_999_980_250));
     assert_eq!(st.event_log[0].player, None);
     assert_eq!(st.event_log[2].chosen_color, Color::Green);
     assert_eq!(st.event_log[0].card, None);
     assert_eq!(st.event_log[1].kind, EventKind::CardPlayed);
 
     let back = serde_json::to_value(&room).unwrap();
-    assert_eq!(back, go, "the Rust room does not write Go's shape back");
+    assert_eq!(back, raw, "the room does not write back what it read");
 }
 
 #[test]
-fn a_go_lobby_room_round_trips() {
-    // A lobby: nothing dealt, nothing drawn, every match slice still nil.
-    let go = json!({
-        "Code": "LOBBY2", "Status": 0, "Players": null, "State": null, "Winner": "",
+fn a_lobby_room_round_trips() {
+    // A lobby: nothing dealt, nothing drawn, every match list still empty.
+    let raw = json!({
+        "code": "LOBBY2", "status": 0, "players": [], "state": null, "winner": "",
+        "format": 1, "max_players": 7, "map_id": null, "map_time": null, "map_weather": null,
+        "round_number": 0, "scores": [], "rounds_won": [], "lost_hand_total": [],
+        "retired": [], "round_history": [], "round_ended": false, "match_over": false,
+        "match_winner": ""
+    });
+    let room: SavedRoom = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(room.status, Status::Lobby);
+    assert!(room.state.is_none() && room.map_id.is_none() && room.players.is_empty());
+    assert_eq!(serde_json::to_value(&room).unwrap(), raw);
+}
+
+#[test]
+fn a_schema_5_room_does_not_decode() {
+    // The shape before schema 6: PascalCase fields and RFC 3339 instants. The
+    // hub's version gate drops such a file whole before it gets here; the room
+    // refusing it too means nothing half-reads one.
+    let old = json!({
+        "Code": "ABC234", "Status": 1, "Players": null, "State": null, "Winner": "",
         "Format": 1, "MaxPlayers": 7, "MapID": "", "MapTime": "", "MapWeather": "",
         "RoundNumber": 0, "Scores": null, "RoundsWon": null, "LostHandTotal": null,
         "Retired": null, "RoundHistory": null, "RoundEnded": false, "MatchOver": false,
         "MatchWinner": ""
     });
-    let room: SavedRoom = serde_json::from_value(go.clone()).unwrap();
-    assert_eq!(room.status, Status::Lobby);
-    assert!(room.state.is_none() && room.map_id.is_none() && room.players.is_empty());
-    assert_eq!(serde_json::to_value(&room).unwrap(), go);
-}
-
-#[test]
-fn go_instants_with_nanoseconds_and_offsets_truncate_to_the_millisecond() {
-    let mut go = go_playing_room();
-    go["State"]["LastPlayAt"] = json!("2023-11-14T23:13:00.250999999+01:00");
-    let room: SavedRoom = serde_json::from_value(go).unwrap();
-    // 22:13:00.250 UTC; NOW (1_700_000_000_000) is 22:13:20 UTC.
-    assert_eq!(room.state.unwrap().last_play_at, Some(1_699_999_980_250));
+    assert!(serde_json::from_value::<SavedRoom>(old).is_err());
 }
 
 #[test]
 fn a_restored_room_plays_on_its_fresh_seed() {
-    // Go's rng was unexported, so no snapshot ever carried it, and a Rust room
-    // cannot exist without one: the restore is handed the seed, and the room
-    // it returns acts at once.
-    let saved: SavedRoom = serde_json::from_value(go_playing_room()).unwrap();
+    // The source of randomness never travels, and a room cannot exist without
+    // one: the restore is handed the seed, and the room it returns acts at once.
+    let saved: SavedRoom = serde_json::from_value(playing_room()).unwrap();
     let mut room = saved.clone().restore([7; 32]);
     assert_eq!(SavedRoom::from(&room), saved, "the restore moved a field");
     room.draw_card(1, NOW).expect("a restored room draws");
@@ -140,7 +152,7 @@ fn a_restored_room_plays_on_its_fresh_seed() {
 }
 
 #[test]
-fn a_rust_room_survives_its_own_round_trip() {
+fn a_room_survives_its_own_round_trip() {
     let mut r = super::support::setup_three_player_game();
     r.retire_seat(2, NOW).unwrap();
     let saved = SavedRoom::from(&r);

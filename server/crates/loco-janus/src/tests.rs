@@ -1,4 +1,4 @@
-//! Port of `server/janus/client_test.go`, test for test and under the same names.
+//! The gateway client against a stand-in gateway.
 
 use super::*;
 use axum::body::Body;

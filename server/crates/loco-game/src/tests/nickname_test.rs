@@ -1,5 +1,5 @@
-//! Ported from `server/game/nickname_test.go`. Every input string is the Go
-//! literal byte for byte; the invisible characters are spelled as escapes.
+//! Nickname validation: length, charset and the blocked-term matcher. The
+//! invisible characters in the inputs are spelled as escapes.
 
 #[allow(unused_imports)]
 use super::support::*;
@@ -224,8 +224,7 @@ fn nickname_errors_are_one_wire_string() {
             err.kind() == ErrorKind::NicknameRejected,
             "{err} does not wrap ErrNicknameRejected"
         );
-        // Go's `%w` wrapping kept the sentinel's text at the head of the
-        // message; the Display carries it the same way.
+        // Every nickname refusal starts with the one text a player is shown.
         assert!(
             err.to_string().starts_with(NICKNAME_REJECTED),
             "{err} does not start with {NICKNAME_REJECTED:?}"

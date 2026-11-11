@@ -1,6 +1,3 @@
-//! Ported from `server/game/retire_test.go`. `retireRoom` lives in
-//! `support.rs` as `retire_room`.
-//!
 //! Walking out of a match in progress.
 //!
 //! The rule the hub enforces is "three seats have to be left able to play"; this

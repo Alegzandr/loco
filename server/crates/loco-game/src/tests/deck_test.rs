@@ -1,4 +1,4 @@
-//! Ported from `server/game/deck_test.go`.
+//! The deck: its composition, the shuffle, the draw and the replenish.
 
 use super::support::*;
 use crate::card::{COLORS, Card, Color, Kind};
@@ -163,9 +163,7 @@ fn deck_replenish() {
 // order knows the rest of the round outright. It takes the room's own source,
 // like the deal.
 //
-// Go asserted it by giving two crypto-seeded rooms the same pile and requiring
-// the orders to differ. A Rust room has no other source to fall back on, so
-// the test says both halves: two rooms' sources give two orders, and the same
+// The test says both halves: two rooms' sources give two orders, and the same
 // room source given again gives the same one (the shuffle reads nothing but it).
 #[test]
 fn replenish_uses_the_rooms_own_source() {

@@ -1,7 +1,5 @@
-//! Ported from Go: `server/game/room_test.go`, from
-//! `TestRoom_Reverse_FlipsDirection` to the end of the file. The helpers that
-//! file defined in this range (`setupTwoPlayerGame`, `setupThreePlayerGame`,
-//! `armInterrupt`, `finishMatch`, `nearSeat`, `declareLast`) live in
+//! The room's commands, from a Reverse onwards: interrupts, the catch, scoring,
+//! the match. The first half is `room_test.rs`; shared helpers are in
 //! `support.rs`.
 
 use super::support::*;
@@ -10,7 +8,6 @@ use crate::error::{ErrorKind, GameError};
 use crate::hand::Hand;
 use crate::room::{CATCH_WINDOW_MS, FAILED_CATCH_PENALTY, INITIAL_HAND_SIZE, MatchFormat, Status};
 
-/// Go: `r.State.Hands[i].Cards = append([]Card{c}, r.State.Hands[i].Cards...)`.
 fn prepend(r: &mut crate::room::Room, seat: usize, card: Card) {
     st(r).hands[seat].cards.insert(0, card);
 }

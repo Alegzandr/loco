@@ -1,7 +1,7 @@
-//! The HTTP listener, with Go's two slow-client timeouts.
+//! The HTTP listener, with its two slow-client timeouts.
 //!
-//! `axum::serve` exposes neither of `http.Server`'s `ReadHeaderTimeout` (10s)
-//! nor `IdleTimeout` (60s), and a connection that sends half a request line and
+//! `axum::serve` exposes neither a header-read timeout nor an idle timeout,
+//! and a connection that sends half a request line and
 //! waits is a socket and a task held for free — the Slowloris shape. So the
 //! accept loop is ours, on hyper's HTTP/1 builder:
 //!
@@ -9,7 +9,7 @@
 //!   it whenever the connection waits for a request head — the first one and
 //!   every one after a response — so a slow header is closed at 10s.
 //! - **That also bounds idleness**: an idle keep-alive connection is waiting
-//!   for a head, so it is closed at the same 10s, inside Go's 60s idle bound.
+//!   for a head, so it is closed at the same 10s.
 //!   Nothing behind nginx notices: nginx reopens an upstream connection on its
 //!   own, and a WebSocket is past HTTP once upgraded, so neither clock touches
 //!   a game.
@@ -25,7 +25,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
-/// Go's `ReadHeaderTimeout`.
+/// How long a connection may take to send a request head.
 pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What the listener enforces.
@@ -167,8 +167,7 @@ mod tests {
         }
     }
 
-    // Port of the property Go's ReadHeaderTimeout gave: half a request line
-    // and silence is not a connection held for free.
+    // Half a request line and silence is not a connection held for free.
     #[tokio::test]
     async fn a_slow_header_is_closed() {
         let (addr, _tx, _task) = start(quick()).await;
@@ -183,8 +182,8 @@ mod tests {
         );
     }
 
-    // And an idle keep-alive connection is not kept for ever either: Go's
-    // IdleTimeout, here bounded by the same clock.
+    // And an idle keep-alive connection is not kept for ever either: it is
+    // bounded by the same clock.
     #[tokio::test]
     async fn an_idle_keep_alive_connection_is_closed() {
         let (addr, _tx, _task) = start(quick()).await;

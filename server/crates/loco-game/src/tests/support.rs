@@ -1,9 +1,9 @@
-//! The helpers the Go test files shared at package level, ported once so every
-//! test module builds its fixtures the same way.
+//! The helpers every test module shares, so each builds its fixtures the same
+//! way.
 //!
-//! Go's tests read `time.Now()`; these read [`NOW`], a fixed instant, and step
-//! it explicitly. Go's rooms were crypto-seeded; these are seeded from a
-//! per-thread counter, so a test deals the same cards on every run.
+//! They read [`NOW`], a fixed instant, and step it explicitly, never a clock.
+//! Rooms are seeded from a per-thread counter, so a test deals the same cards
+//! on every run.
 
 #![allow(dead_code)]
 
@@ -24,7 +24,7 @@ thread_local! {
     static NEXT_SEED: Cell<u64> = const { Cell::new(1) };
 }
 
-/// A fresh lobby with its own deterministic seed (Go: `NewRoom`).
+/// A fresh lobby with its own deterministic seed.
 pub(crate) fn new_room(code: &str) -> Room {
     let seed = NEXT_SEED.with(|s| {
         let v = s.get();
@@ -60,7 +60,7 @@ fn join_all(r: &mut Room, names: &[&str]) {
     }
 }
 
-/// Go: `setupTwoPlayerGame` â€” alice and bob, seat 0 to play, no pending draw,
+/// Alice and bob, seat 0 to play, no pending draw,
 /// clockwise.
 pub(crate) fn setup_two_player_game() -> Room {
     let mut r = new_room("GAME");
@@ -73,7 +73,7 @@ pub(crate) fn setup_two_player_game() -> Room {
     r
 }
 
-/// Go: `setupThreePlayerGame` â€” alice, bob and carol.
+/// Alice, bob and carol.
 pub(crate) fn setup_three_player_game() -> Room {
     let mut r = new_room("3PLY");
     join_all(&mut r, &["alice", "bob", "carol"]);
@@ -85,23 +85,21 @@ pub(crate) fn setup_three_player_game() -> Room {
     r
 }
 
-/// Go: `declareLast`.
 pub(crate) fn declare_last(r: &mut Room, seat: Seat) {
     r.declare_last_card(seat, NOW)
         .unwrap_or_else(|e| panic!("DeclareLastCard({seat}): {e}"));
 }
 
-/// Go: `nearSeat` â€” seat `i` on exactly two cards.
+/// Seat `i` on exactly two cards.
 pub(crate) fn near_seat(r: &mut Room, i: usize) {
     st(r).hands[i] = Hand::of([Card::number(Color::Red, 1), Card::number(Color::Red, 2)]);
 }
 
-/// Go: `armInterrupt`.
 pub(crate) fn arm_interrupt(r: &mut Room, seat: Seat) {
     st(r).arm_interrupt_window(seat, NOW);
 }
 
-/// Go: `finishMatch` â€” a BO1 ended by seat 0's round.
+/// A BO1 ended by seat 0's round.
 pub(crate) fn finish_match(names: &[&str]) -> Room {
     let mut r = new_room("TEST");
     join_all(&mut r, names);
@@ -112,7 +110,6 @@ pub(crate) fn finish_match(names: &[&str]) -> Room {
     r
 }
 
-/// Go: `hasEvent`.
 pub(crate) fn has_event(r: &Room, kind: EventKind, seat: Seat) -> bool {
     st_ref(r)
         .event_log
@@ -120,7 +117,7 @@ pub(crate) fn has_event(r: &Room, kind: EventKind, seat: Seat) -> bool {
         .any(|e| e.kind == kind && e.player == Some(seat))
 }
 
-/// Go: `interruptState` â€” seat 0 just played `top`, the bot is seat 1.
+/// Seat 0 just played `top`, the bot is seat 1.
 pub(crate) fn interrupt_state(top: Card, active: Color, bot_hand: &[Card]) -> GameState {
     GameState {
         hands: vec![Hand::of([top]), Hand::of(bot_hand)],
@@ -134,7 +131,7 @@ pub(crate) fn interrupt_state(top: Card, active: Color, bot_hand: &[Card]) -> Ga
     }
 }
 
-/// Go: `twoSeatRoom` â€” one seat per size, each hand of red numbers.
+/// One seat per size, each hand of red numbers.
 pub(crate) fn two_seat_room(sizes: &[usize]) -> Room {
     let mut r = new_room("TEST01");
     for i in 0..sizes.len() {
@@ -152,7 +149,6 @@ pub(crate) fn two_seat_room(sizes: &[usize]) -> Room {
     r
 }
 
-/// Go: `matchRoom`.
 pub(crate) fn match_room(code: &str, format: MatchFormat, names: &[&str]) -> Room {
     let mut r = new_room(code);
     join_all(&mut r, names);
@@ -161,13 +157,13 @@ pub(crate) fn match_room(code: &str, format: MatchFormat, names: &[&str]) -> Roo
     r
 }
 
-/// Go: `retireRoom` â€” a BO3 at `seats` seats.
+/// A BO3 at `seats` seats.
 pub(crate) fn retire_room(seats: usize) -> Room {
     let names = ["alice", "bob", "carol", "dave", "erin", "frank"];
     match_room("RET", MatchFormat::Bo3, &names[..seats])
 }
 
-/// Go: `exhaustPiles` â€” the pile down to its top, the deck down to `keep`.
+/// The pile down to its top, the deck down to `keep`.
 pub(crate) fn exhaust_piles(r: &mut Room, keep: usize) {
     let s = st(r);
     let top = s.top_card();
@@ -176,7 +172,6 @@ pub(crate) fn exhaust_piles(r: &mut Room, keep: usize) {
     s.deck.cards.truncate(keep);
 }
 
-/// Go: `startedRoom`.
 pub(crate) fn started_room(players: &[&str]) -> Room {
     let mut r = new_room("MAPTST");
     join_all(&mut r, players);
@@ -184,7 +179,7 @@ pub(crate) fn started_room(players: &[&str]) -> Room {
     r
 }
 
-/// Go: `playRound` â€” seat `seat` takes the round off a declared last card,
+/// Seat `seat` takes the round off a declared last card,
 /// every other seat holding `loser_cards`; then the next round is dealt
 /// unless the match is over.
 pub(crate) fn play_round(r: &mut Room, seat: Seat, loser_cards: &[Card]) {
@@ -213,7 +208,7 @@ pub(crate) fn play_round(r: &mut Room, seat: Seat, loser_cards: &[Card]) {
     }
 }
 
-/// Go: `newTestState` â€” a minimal state for rule tests.
+/// A minimal state for rule tests.
 pub(crate) fn new_test_state(players: usize, current_turn: Seat) -> GameState {
     GameState {
         current_turn,
@@ -222,12 +217,12 @@ pub(crate) fn new_test_state(players: usize, current_turn: Seat) -> GameState {
     }
 }
 
-/// Go's `charged` half of `PenalizeFailedCatch`'s `(cards, charged)`.
+/// Whether a failed catch was charged.
 pub(crate) fn is_charged(c: &CatchCharge) -> bool {
     matches!(c, CatchCharge::Charged { .. })
 }
 
-/// Go's `cards` half of `PenalizeFailedCatch`'s `(cards, charged)`.
+/// The cards a failed catch charged, empty when it was free.
 pub(crate) fn charged_cards(c: &CatchCharge) -> &[Card] {
     match c {
         CatchCharge::Free => &[],
@@ -235,7 +230,7 @@ pub(crate) fn charged_cards(c: &CatchCharge) -> &[Card] {
     }
 }
 
-/// Shorthands for the card literals the Go tests are full of.
+/// Shorthands for the card literals the tests are full of.
 pub(crate) const fn num(color: Color, value: i32) -> Card {
     Card::number(color, value)
 }

@@ -1,4 +1,4 @@
-//! Ported from Go: `server/game/draw_exhaustion_test.go`.
+//! Drawing against exhausted piles: a draw shrinks, it never fails.
 //!
 //! `exhaust_piles` (in `support.rs`) leaves exactly `keep` cards in the deck and
 //! a single card on the discard, which is the state `ensure_deck` cannot recover
@@ -181,9 +181,9 @@ fn deck_draw_up_to() {
         got.is_empty(),
         "DrawUpTo on an empty deck returned {got:?}, want nothing"
     );
-    // Go also asserted `DrawUpTo(-1)` returns nil. `draw_up_to` takes a `usize`,
-    // so a negative count cannot be expressed; the nearest case, asking a full
-    // deck for nothing, must hand over nothing and leave the deck whole.
+    // Asking a full deck for nothing hands over nothing and leaves the deck
+    // whole (a negative count cannot be expressed: `draw_up_to` takes a
+    // `usize`).
     let mut d = Deck::standard();
     let got = d.draw_up_to(0);
     assert!(got.is_empty(), "DrawUpTo(0) returned {got:?}, want nothing");

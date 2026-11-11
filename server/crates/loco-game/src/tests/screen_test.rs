@@ -1,10 +1,10 @@
-//! Ported from `server/game/screen_test.go`.
+//! Screening a name this game did not write.
 
 #[allow(unused_imports)]
 use super::support::*;
 use crate::screen;
 
-// The matcher itself is covered by nickname_test.go. What this file owns is
+// The matcher itself is covered by nickname_test.rs. What this file owns is
 // the part that is new: that the exported door answers for a name this game
 // did not create, and that it is the *matcher* it shares rather than the seat
 // label's charset — which is the mistake that would have refused half of

@@ -1,10 +1,9 @@
 //! Everything the server can say.
 //!
 //! One variant per message type, each carrying exactly the fields the server
-//! writes on it. The Go server wrote every message out of one flat envelope;
-//! the bytes it produced are the contract, and the fixtures in
-//! `tests/fixtures/` (frames captured from the Go server) are read back and
-//! written again by `tests/parity.rs` to prove nothing moved.
+//! writes on it. The bytes on the wire are the contract: the golden frames in
+//! `tests/fixtures/` are read back and written again by `tests/parity.rs` to
+//! prove nothing moved.
 //!
 //! Two things every message carries:
 //!
@@ -14,12 +13,12 @@
 //!   instant, and this is what lets a client whose clock is seconds off read
 //!   them. Optional, because one message (`live_streams`) is marshalled once and
 //!   handed to many sockets over time, and carries no stamp.
-//! - `turn` and `drawn_count`. The Go envelope never omitted either (a zero is
-//!   a seat, and a draw of nothing is a count), so it wrote both on *every*
-//!   message, `0` on the thirty-odd that have no turn and drew nothing. The
+//! - `turn` and `drawn_count`. Neither is ever omitted (a zero is a seat, and
+//!   a draw of nothing is a count): both are written on *every* message, `0`
+//!   on the thirty-odd that have no turn and drew nothing. The
 //!   messages that mean them (`card_played`, `card_drawn`, `turn_changed`,
 //!   `match_ready`) carry them as fields; on every other message the serializer
-//!   writes the same `0` the Go server did, so the wire is unchanged. No client
+//!   writes `0`, so every message keeps the same shape. No client
 //!   reads them there, and the generated types do not mention them there.
 
 use schemars::JsonSchema;
@@ -36,7 +35,7 @@ use crate::is_default;
 /// What every server message payload knows about itself.
 pub trait ServerPayload: Serialize {
     /// Whether the payload carries `turn` itself. When it does not, the
-    /// serializer writes `"turn": 0` beside it, as the Go envelope did.
+    /// serializer writes `"turn": 0` beside it.
     const OWNS_TURN: bool = false;
     /// Same for `drawn_count`.
     const OWNS_DRAWN_COUNT: bool = false;
@@ -118,8 +117,8 @@ macro_rules! server_messages {
     };
 }
 
-/// A payload as it travels: its tag, its own fields, and the Go envelope's
-/// two always-written zeros where the payload does not carry them itself.
+/// A payload as it travels: its tag, its own fields, and the two
+/// always-written zeros where the payload does not carry them itself.
 #[derive(Serialize)]
 struct Wire<'a, T: ServerPayload> {
     #[serde(rename = "type")]

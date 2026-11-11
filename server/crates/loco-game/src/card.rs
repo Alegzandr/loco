@@ -1,9 +1,9 @@
-//! Cards, colours and kinds (`server/game/card.go`).
+//! Cards, colours and kinds.
 //!
-//! Colours and kinds serialise as the integers Go's `iota` gave them, because
-//! the drain snapshot is Go's `json.Marshal(game.Room)` and neither type had a
-//! `MarshalJSON`. The wire protocol spells them as strings (`as_str`), which is
-//! `loco-protocol`'s business, not this crate's.
+//! Colours and kinds serialise as their integer discriminants, which is what
+//! the drain snapshot stores, so the order of the variants below is part of
+//! that file's shape. The wire protocol spells them as strings (`as_str`),
+//! which is `loco-protocol`'s business, not this crate's.
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -35,11 +35,11 @@ pub enum Color {
     Wild = 4,
 }
 
-/// The four real colours, in Go's order.
+/// The four real colours, in the deck's order.
 pub const COLORS: [Color; 4] = [Color::Red, Color::Yellow, Color::Green, Color::Blue];
 
 impl Color {
-    /// The wire spelling (Go's `Color.String()`).
+    /// The wire spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Color::Red => "red",
@@ -98,7 +98,7 @@ pub enum Kind {
     GlobalSwitch = 7,
 }
 
-/// Every kind, in Go's order.
+/// Every kind, in discriminant order.
 pub const KINDS: [Kind; 8] = [
     Kind::Number,
     Kind::Skip,
@@ -111,7 +111,7 @@ pub const KINDS: [Kind; 8] = [
 ];
 
 impl Kind {
-    /// The wire spelling (Go's `Kind.String()`).
+    /// The wire spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Kind::Number => "number",
@@ -141,17 +141,14 @@ impl fmt::Display for Kind {
 /// match; that equality is what an interject, a batch and a counter test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Card {
-    #[serde(rename = "Color")]
     pub color: Color,
-    #[serde(rename = "Kind")]
     pub kind: Kind,
     /// 1–9 for number cards, 0 for action cards.
-    #[serde(rename = "Value")]
     pub value: i32,
 }
 
 impl Card {
-    /// A card of any shape (Go's composite literal).
+    /// A card of any shape.
     pub const fn new(color: Color, kind: Kind, value: i32) -> Card {
         Card { color, kind, value }
     }
@@ -187,7 +184,7 @@ impl Card {
 
 /// The scoring value of a card, per `docs/rules.md` §10: Number = face value,
 /// Reverse = 10, Skip = 20, DrawTwo = 30, Swap = 30, GlobalSwitch = 40,
-/// Wild = 40, WildDrawFour = 50. (Go: `CardValue`.)
+/// Wild = 40, WildDrawFour = 50.
 pub const fn card_value(c: Card) -> i32 {
     match c.kind {
         Kind::Number => c.value,

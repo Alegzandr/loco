@@ -1,6 +1,3 @@
-//! Ported from `server/game/match_format_test.go`. `playRound` and
-//! `matchRoom` live in `support.rs` as `play_round` and `match_room`.
-//!
 //! The match format, since rounds won started deciding it.
 //!
 //! Two rules live here and they are separate: who wins a match that has run its

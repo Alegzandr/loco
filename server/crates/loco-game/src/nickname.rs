@@ -1,4 +1,4 @@
-//! Nickname validation (`server/game/nickname.go`).
+//! Nickname validation.
 //!
 //! The nickname is the only string a player ever authors, printed on a seat,
 //! in the score table and in a clip somebody is streaming. Shape first, then
@@ -54,7 +54,7 @@ pub const NICKNAME_ALLOW_SEED: [&str; 15] = [
     "assange",
 ];
 
-/// The vendored lists, one per language, in the order Go's `ReadDir` read them.
+/// The vendored lists, one per language, in file-name order.
 const WORDLISTS: [&str; 19] = [
     include_str!("../wordlists/cs.txt"),
     include_str!("../wordlists/da.txt"),
@@ -79,7 +79,7 @@ const WORDLISTS: [&str; 19] = [
 
 /// Canonicalises and checks an inbound nickname: trimmed, internal runs of
 /// spaces collapsed, 1–20 characters, an allowlisted charset, no blocked term.
-/// Returns the form the room should store. (Go: `ValidateNickname`.)
+/// Returns the form the room should store.
 pub fn validate_nickname(raw: &str) -> Result<String, GameError> {
     let n = collapse_spaces(raw);
     let count = n.chars().count();
@@ -120,7 +120,7 @@ fn is_mn(r: char) -> bool {
     get_general_category(r) == Gc::NonspacingMark
 }
 
-/// Go's `unicode.IsLetter`: the five letter categories.
+/// Whether a character is a letter: the five Unicode letter categories.
 fn is_letter(r: char) -> bool {
     matches!(
         get_general_category(r),
@@ -144,9 +144,9 @@ fn is_digit(r: char) -> bool {
     get_general_category(r) == Gc::DecimalNumber
 }
 
-/// Go's `unicode.ToLower`, a simple (one-to-one) case mapping. Rust's full
-/// mapping turns 'İ' into two characters; Go's simple one gives 'i', which is
-/// the first of them.
+/// A simple (one-to-one) case mapping. Rust's full mapping turns 'İ' into two
+/// characters; the simple one keeps one character for one and gives 'i', the
+/// first of them.
 fn to_lower(r: char) -> char {
     r.to_lowercase().next().unwrap_or(r)
 }
@@ -244,8 +244,7 @@ fn leet(r: char) -> Option<char> {
 }
 
 /// Folds a nickname to the form the list is written in: lower case, no
-/// diacritics, no leet, no separators. Repeats are left alone. (Go:
-/// `normalizeNickname`.)
+/// diacritics, no leet, no separators. Repeats are left alone.
 pub(crate) fn normalize_nickname(s: &str) -> String {
     let mut b = String::with_capacity(s.len());
     for r in s.chars() {
@@ -269,8 +268,7 @@ pub(crate) fn normalize_nickname(s: &str) -> String {
     b
 }
 
-/// Squeezes runs of the same character to one ("fuuuuck"). (Go:
-/// `collapseRepeats`.)
+/// Squeezes runs of the same character to one ("fuuuuck").
 pub(crate) fn collapse_repeats(s: &str) -> String {
     let mut b = String::with_capacity(s.len());
     let mut prev = None;
@@ -332,8 +330,7 @@ pub(crate) fn lists() -> &'static Lists {
     })
 }
 
-/// Whether the nickname carries a blocked term once normalised. (Go:
-/// `blockedNickname`.)
+/// Whether the nickname carries a blocked term once normalised.
 pub(crate) fn blocked_nickname(n: &str) -> bool {
     let l = lists();
     let plain = normalize_nickname(n);
@@ -362,7 +359,7 @@ pub(crate) fn blocked_nickname(n: &str) -> bool {
 
 /// Cuts a nickname into the words a person reads in it, normalised: on
 /// separators, on digit boundaries and on lower→upper transitions
-/// ("xXsalopeXx"). (Go: `nicknameTokens`.)
+/// ("xXsalopeXx").
 pub(crate) fn nickname_tokens(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();

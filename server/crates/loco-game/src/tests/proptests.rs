@@ -1,10 +1,10 @@
-//! Invariants no single Go test could state, held over random play.
+//! Invariants no single example could state, held over random play.
 //!
 //! - 112 cards, always: hands + deck + discard, through every replenish,
 //!   penalty, rotation and retirement.
 //! - `Wild` is never the active colour.
 //! - A draw never fails once it is the seat's to make, piles dry or not.
-//! - A refusal changes nothing (Go's validate-then-mutate order).
+//! - A refusal changes nothing (every command validates before it mutates).
 //! - The LOCO! gate holds on all four paths that can empty a hand.
 
 use crate::card::{COLORS, Card, Color, Kind};

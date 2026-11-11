@@ -1,6 +1,5 @@
-//! Ported from Go: `server/game/room_test.go`, lines 1-1518 (TestRoom_Create
-//! through TestRoom_Skip_EndToEnd). The rest of the file is
-//! `room_test_part2.rs`.
+//! The room's commands, from the lobby through a Skip played end to end. The
+//! rest of the room's tests are in `room_test_part2.rs`.
 
 use super::support::*;
 use crate::card::{Card, Color, Kind};
@@ -626,7 +625,8 @@ fn room_bo1_match_over() {
     assert_eq!(r.status, Status::Finished, "Status");
 }
 
-/// Go: the `winRound` closure of `TestRoom_MatchScoreAccumulation`.
+/// Seat `winner_idx` takes a round off `loser_idx`, who is left holding
+/// `loser_cards`.
 fn win_round(r: &mut Room, winner_idx: usize, loser_idx: usize, loser_cards: Vec<Card>) {
     let top = num(Color::Red, 1);
     let win_card = num(Color::Red, 1);

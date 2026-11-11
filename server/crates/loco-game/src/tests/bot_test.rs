@@ -1,8 +1,7 @@
-//! Ported from `server/game/bot_test.go`.
+//! A bot's turn (`bot_think`): what it plays, holds, batches and names.
 //!
-//! Go's `BotThink` read the global `math/rand`; `bot_think` takes a source.
-//! Where Go looped to cover the randomness, the loop draws from one seeded
-//! source.
+//! `bot_think` takes its source as a parameter; where a test loops to cover the
+//! randomness, the loop draws from one seeded source.
 
 use super::support::*;
 use crate::bot::{BotActionKind, bot_think};

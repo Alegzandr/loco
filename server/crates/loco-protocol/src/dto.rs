@@ -1,9 +1,9 @@
 //! The records the messages carry.
 //!
-//! The omission rules are the Go server's, mechanically: a field Go tagged
-//! `omitempty` is `#[serde(default, skip_serializing_if = ...)]` here and
-//! optional in TypeScript; a Go pointer is an `Option` and optional; anything
-//! else is always written, zero included, and required.
+//! The omission rules, mechanically: a field left out when it holds its zero
+//! is `#[serde(default, skip_serializing_if = ...)]` and optional in
+//! TypeScript; a field that may be absent is an `Option` and optional;
+//! anything else is always written, zero included, and required.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

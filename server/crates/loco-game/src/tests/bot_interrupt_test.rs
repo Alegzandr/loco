@@ -1,5 +1,4 @@
-//! Ported from `server/game/bot_interrupt_test.go`. `interruptState` lives in
-//! `support.rs` as `interrupt_state`.
+//! A bot's interject: when it slams, which card, and that it is one card.
 
 use super::support::*;
 use crate::bot::bot_interrupt;
@@ -187,15 +186,13 @@ fn bot_interrupt_out_of_range_seat() {
     let s = interrupt_state(top, Color::Red, &[top]);
     let got = bot_interrupt(&s, 7);
     assert!(got.is_none(), "BotInterrupt(seat 7) = {got:?}, want nil");
-    // Go also passed a nil state; a reference cannot be null, so the nearest
-    // thing is a state with no hands at all.
+    // A state with no hands at all: no seat to read.
     let got = bot_interrupt(&GameState::default(), 0);
     assert!(
         got.is_none(),
         "BotInterrupt(empty state) = {got:?}, want nil"
     );
-    // Go's -1 is unrepresentable in a `Seat`; the nearest thing is the seat a
-    // -1 would wrap to.
+    // The furthest seat there is: what a -1 would wrap to.
     let got = bot_interrupt(&s, usize::MAX);
     assert!(got.is_none(), "BotInterrupt(seat -1) = {got:?}, want nil");
 }
