@@ -123,8 +123,8 @@ async fn stopped(rx: &mut tokio::sync::watch::Receiver<bool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
     use axum::routing::get;
+    use std::net::SocketAddr;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn start(

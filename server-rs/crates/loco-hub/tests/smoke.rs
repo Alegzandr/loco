@@ -110,12 +110,29 @@ async fn turn_timer_auto_draw_and_pass() {
     th.stop().await;
 }
 
+// A seat the clock plays and a bot that plays itself reach a round end.
+//
+// The position is pinned, and it has to be. From a random deal, the seat the
+// clock plays draws on every turn and never lays a card, so it ends up holding
+// nearly the whole deck (105 of 112 cards was typical). Once the draw pile and
+// the discard are empty, the bot is the only thing that can move the round, and
+// about one deal in three it cannot: its only card in the active colour is a
+// Swap that would hand it the 105 (held, `bot_swap_pays`), or it holds nothing
+// in that colour at all. Each turn then draws nothing and passes, the turn
+// clock keeps the table alive, and no round ends — a dead position made by the
+// fixture's idle seat, not a stall in the server (docs/rules.md §5.3 accepts
+// it). Pinned, the bot holds three cards in the active colour and nothing that
+// can be held, so the round ends in three of its turns whatever the deck does.
 #[tokio::test]
 async fn a_bot_game_plays_itself_to_a_round_end() {
     let mut c = HubConfig::default();
     c.debug_mode = true;
     c.timings.bots.think = Duration::from_millis(5);
     c.timings.bots.jitter_max = Duration::from_millis(5);
+    c.timings.bots.uno_delay = Duration::from_millis(5);
+    c.timings.bots.uno_jitter_max = Duration::from_millis(5);
+    c.timings.bots.finish_delay = Duration::from_millis(5);
+    c.timings.bots.finish_jitter_max = Duration::from_millis(5);
     c.timings.turn_timeout = Duration::from_millis(50);
     c.timings.turn_timeout_grace = Duration::ZERO;
     c.timings.afk_kick_threshold = 10_000;
@@ -132,6 +149,29 @@ async fn a_bot_game_plays_itself_to_a_round_end() {
     send_msg(&mut alice, json!({"type": "start_game"})).await;
     read_msg_of_type(&mut alice, "game_started").await;
     complete_map_load(&mut [&mut alice]).await;
+    // The turn is left where the deal put it: whatever is armed for it (the
+    // clock for Alice, a move for the bot) carries on into the pinned hands.
+    send_msg(
+        &mut alice,
+        json!({"type": "debug_set_state", "debug": {
+            "hands": [
+                {"player_index": 0, "hand": [
+                    {"color": "blue", "kind": "number", "value": 4},
+                    {"color": "green", "kind": "number", "value": 6},
+                    {"color": "yellow", "kind": "number", "value": 8}
+                ]},
+                {"player_index": 1, "hand": [
+                    {"color": "red", "kind": "number", "value": 1},
+                    {"color": "red", "kind": "number", "value": 2},
+                    {"color": "red", "kind": "number", "value": 3}
+                ]}
+            ],
+            "discard": {"color": "red", "kind": "number", "value": 5},
+            "pending_draw": 0
+        }}),
+    )
+    .await;
+    read_msg_of_type(&mut alice, "game_state").await;
     // Alice never acts: the clock plays her, the bot plays itself.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     loop {
