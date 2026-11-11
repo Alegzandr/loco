@@ -14,7 +14,7 @@ import { gameStore } from '../hooks/gameStore'
  * spelled it.
  *
  * The order of the two subscriptions is the whole trick. `gameStore.svelte.ts`
- * holds the snapshot every component reads, and listeners fire in the order they
+ * holds the cells every component reads, and listeners fire in the order they
  * were added — so `setup.ts` imports it before calling this, and the flush below
  * runs after the snapshot it is meant to paint.
  *
