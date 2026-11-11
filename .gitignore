@@ -1,12 +1,11 @@
-# Go
-server/loco-server
+# Server (server/.gitignore covers its target/). server-bin is the release
+# binary CI hands from backend_test to e2e_test through the cache.
 server-bin
 server-bin.sha
 
-# CI caches (GOPATH/GOMODCACHE/GOCACHE and npm are redirected into the project
-# because GitLab can only cache paths under it)
-.gocache/
-.golangci-cache/
+# CI caches (CARGO_HOME and npm are redirected into the project because GitLab
+# can only cache paths under it)
+.cargo/
 .npm/
 
 # Node

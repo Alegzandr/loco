@@ -110,10 +110,74 @@ const OURS = /\.(ts|tsx|go|mjs|css|astro|md|yml|json|conf|html|webp|png|svg|txt|
 const looksLikePath = (t: string) =>
   !NOT_A_PATH.some((re) => re.test(t)) && (OURS.test(t) || t.endsWith('/'))
 
+/**
+ * Built by `npm run build` and never committed, so absent from a fresh
+ * checkout (which is where CI runs this, before the build).
+ */
+const BUILD_OUTPUT = new Set(['client/build', 'csp-hashes.conf', 'version.json'])
+
+/**
+ * The Go server, deleted at the cutover to Rust, is still what much of the
+ * prose names (`hub/rooms.go`, `server/hub/`), and rewriting that prose is its
+ * own pass. Until it lands, a Go path counts as resolved when the Rust module
+ * that replaced it is on disk — one module per Go file, so `hub/rooms.go` is
+ * `server/crates/loco-hub/src/rooms.rs` — and a Go package directory when its
+ * crate is. A Go name with no Rust twin still fails, so the guard keeps
+ * catching a name that points at nothing. Delete this with the last Go path.
+ */
+const GO_PACKAGE_CRATE: Record<string, string> = {
+  game: 'loco-game',
+  hub: 'loco-hub',
+  protocol: 'loco-protocol',
+  janus: 'loco-janus',
+  twitch: 'loco-twitch',
+  'cmd/protocolgen': 'protocolgen',
+}
+/** Go files whose Rust module took another name, or that became no module. */
+const GO_RENAMED: Record<string, string> = {
+  'converter.go': 'convert.rs',
+  'config.go': 'config.rs',
+  'enums.go': 'enums.rs',
+  'messages.go': 'dto.rs',
+  'rules.go': 'rules.rs',
+  'client.go': 'client.rs',
+  'loop_bench_test.go': 'benches/hub.rs',
+  'messages_test.go': 'tests/parity.rs',
+}
+const RUST_FILES = TREE.filter((p) => p.startsWith('server/') && p.endsWith('.rs'))
+const RETIRED_GO = new Set(['server/.golangci.yml', '.golangci.yml'])
+
+function goTwinResolves(clean: string): boolean {
+  if (RETIRED_GO.has(clean)) return true
+  const dir = clean.replace(/^server\//, '')
+  if (dir in GO_PACKAGE_CRATE) return TREE.includes(`server/crates/${GO_PACKAGE_CRATE[dir]}`)
+  // Something kept inside a package, a word list say: the same path in its crate.
+  const pkg = Object.keys(GO_PACKAGE_CRATE).find((k) => dir.startsWith(`${k}/`))
+  if (pkg && !dir.endsWith('.go')) {
+    return TREE.includes(`server/crates/${GO_PACKAGE_CRATE[pkg]}/${dir.slice(pkg.length + 1)}`)
+  }
+  if (!clean.endsWith('.go')) return false
+  const base = clean.split('/').pop()!
+  const renamed = GO_RENAMED[base]
+  if (renamed) return TREE.some((p) => p.startsWith('server/') && p.endsWith(renamed))
+  // A Go test file is a Rust test of the same name, under tests/ or
+  // src/internal_tests/, or a unit test inside the module it tests.
+  const stem = base.replace(/(_internal)?_test\.go$/, '').replace(/\.go$/, '')
+  return RUST_FILES.some((p) =>
+    [`/${stem}.rs`, `/${stem}_internal.rs`, `/${stem}_test.rs`].some((end) => p.endsWith(end)),
+  )
+}
+
 const resolves = (t: string) => {
-  const clean = t.replace(/^\.\//, '').replace(/\/$/, '')
-  if (OUTSIDE_THE_REPO.has(clean)) return true
-  return TREE.some((p) => p === clean || p.endsWith(`/${clean}`))
+  const clean = t
+    .replace(/^\.\//, '')
+    .replace(/\/$/, '')
+    // The Rust tree was server-rs/ until it replaced the Go one.
+    .replace(/^server-rs\//, 'server/')
+  if (clean === 'server-rs') return true
+  if (OUTSIDE_THE_REPO.has(clean) || BUILD_OUTPUT.has(clean)) return true
+  if (TREE.some((p) => p === clean || p.endsWith(`/${clean}`))) return true
+  return goTwinResolves(clean)
 }
 
 const docs = [

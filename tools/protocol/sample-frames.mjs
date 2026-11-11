@@ -11,7 +11,7 @@
 // omitted on another is two shapes, which is the point: the omission rules are
 // what the parity test exists to hold.
 //
-// How the fixtures under server-rs/crates/loco-protocol/tests/fixtures/ were
+// How the fixtures under server/crates/loco-protocol/tests/fixtures/ were
 // captured is written down in docs/protocol.md ("Parity fixtures").
 
 import { readFileSync } from 'node:fs'
