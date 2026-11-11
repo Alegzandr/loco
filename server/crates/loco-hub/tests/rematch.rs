@@ -1,4 +1,4 @@
-//! Port of `server/hub/rematch_test.go`.
+//! A rematch by agreement.
 
 mod common_b;
 

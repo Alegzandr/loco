@@ -1,8 +1,8 @@
 //! The three fixed things a player can say, on the game-over screen and
-//! nowhere else. Port of `server/hub/emotes.go`.
+//! nowhere else.
 //!
 //! Closed and server-side: an unknown emote never decodes (`wire.rs` answers
-//! it with Go's "unknown emote"), nothing is kept anywhere, and a bot neither
+//! it with "unknown emote"), nothing is kept anywhere, and a bot neither
 //! sends nor is the reason for one. No free text anywhere in this game.
 
 use crate::net::client::Client;

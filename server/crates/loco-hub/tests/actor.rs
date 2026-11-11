@@ -1,5 +1,3 @@
-//! Port of `server/hub/actor_test.go`.
-//!
 //! The two things a table owning its own task is supposed to buy, and the one
 //! it could have cost. Both are through real sockets, because what is being
 //! claimed is about the server a player is connected to and not about a
@@ -106,9 +104,7 @@ async fn one_slow_table_does_not_hold_up_another() {
     read_msg_of_type(&mut quick, "room_created").await;
 
     // Wedge the slow table inside a handler and make sure it is really in
-    // there before asking anything of the other one. Go watched the loop's
-    // event count settle; the probe saying so itself is the same fact, read
-    // directly.
+    // there before asking anything of the other one: the probe says so itself.
     *slow_code.lock().unwrap() = created["room_code"].as_str().unwrap().to_owned();
     send_msg(
         &mut slow,

@@ -1,4 +1,4 @@
-//! Port of `server/hub/resync_test.go`.
+//! A refusal that proves a drift carries the correction.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

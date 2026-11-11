@@ -1,5 +1,3 @@
-//! Port of `server/hub/match_history_test.go`.
-//!
 //! The evening's recap: one row per finished match, kept across the rematch
 //! that wipes the scoreboard. Without it a group playing six matches on one
 //! table ends up with nobody able to say who won.

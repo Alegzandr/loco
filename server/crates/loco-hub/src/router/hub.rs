@@ -1,5 +1,4 @@
-//! The hub: its shared half, the state its loop owns, and the loop. Port of
-//! `server/hub/hub.go`.
+//! The hub: its shared half, the state its loop owns, and the loop.
 //!
 //! A table owns its own task (`actor.rs`), and the hub owns what is genuinely
 //! between tables: the map of them, the matchmaking queue, the connected
@@ -332,14 +331,13 @@ impl Hub {
 
     /// Fired at the top of every job a table runs, with that table's code: how
     /// a test makes one table's handler panic, or holds one table still while
-    /// another plays. Go's `SetTableProbe`.
+    /// another plays.
     #[cfg(any(test, feature = "testkit"))]
     pub fn set_table_probe(&self, f: impl Fn(&str) + Send + Sync + 'static) {
         *self.0.table_probe.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
     }
 
-    /// Fired at the top of `dispatch`, with the message type. Go's
-    /// `SetDispatchProbe`.
+    /// Fired at the top of `dispatch`, with the message type.
     #[cfg(any(test, feature = "testkit"))]
     pub fn set_dispatch_probe(&self, f: impl Fn(&str) + Send + Sync + 'static) {
         *self

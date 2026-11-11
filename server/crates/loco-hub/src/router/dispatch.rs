@@ -1,5 +1,5 @@
 //! Inbound routing: the floor every message stands on, the not-playing gate,
-//! and the switch. Port of `server/hub/dispatch.go`.
+//! and the switch.
 //!
 //! Replay protection is implicit: the protocol carries no nonce, and every
 //! gameplay handler validates against the current authoritative state, so a

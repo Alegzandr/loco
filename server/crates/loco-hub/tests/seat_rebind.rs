@@ -1,5 +1,3 @@
-//! Port of `server/hub/seat_rebind_test.go`.
-//!
 //! A socket carries its seat, and the table carries a pointer to that same
 //! socket in its members, indexed by seat. Nothing used to stop a seated client
 //! from sending create_room or join_room again: the two identities came apart,

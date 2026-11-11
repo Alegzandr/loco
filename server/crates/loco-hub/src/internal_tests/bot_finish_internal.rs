@@ -1,4 +1,4 @@
-//! Port of `server/hub/bot_finish_internal_test.go`.
+//! When a bot's round-taking move may land (`bot_finish_due`).
 
 use crate::ops::config::BotTimings;
 use crate::table::bots::bot_finish_due;
@@ -31,10 +31,10 @@ fn two_card_state(seats: usize) -> GameState {
 // inside it, and a fresh draw per arming made the busiest table the fastest
 // one.
 //
-// Adapted: `moment_jitter` is private to `bots.rs`, so it is read through
+// `moment_jitter` is private to `bots.rs`, so it is read through
 // `bot_finish_due` with a zero finish delay and no declaration floor, which
 // is exactly `since + moment_jitter(seat, since, SALT_FINISH, max)`. Moments
-// are milliseconds here, where Go's were nanoseconds.
+// are milliseconds.
 #[test]
 fn moment_jitter_same_moment_same_answer_inside_the_bound() {
     let at: Millis = 1_700_000_000_123;

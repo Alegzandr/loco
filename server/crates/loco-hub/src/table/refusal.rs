@@ -2,9 +2,9 @@
 //!
 //! The strings are the wire: the client maps each one in
 //! `client/src/i18n/serverErrors.ts` (a refused action never shows a wire
-//! string), so they are Go's byte for byte and a new one is added there in the
-//! same change. A domain refusal travels as its `GameError` (whose `Display`
-//! is Go's text too); the few refusals built from a value (`debug.hands:
+//! string), so they must not change by a byte and a new one is added there in
+//! the same change. A domain refusal travels as its `GameError` (whose
+//! `Display` is the wire text); the few refusals built from a value (`debug.hands:
 //! invalid player_index 3`, a batch longer than the hand) are `Other`.
 
 /// A refusal sent to the one socket that asked. Never broadcast.

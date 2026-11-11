@@ -1,4 +1,4 @@
-//! Port of `server/hub/gameplay_internal_test.go`.
+//! The gameplay handlers, run on a table directly.
 
 use crate::ops::clock::now_ms;
 use crate::{Client, Hub, HubConfig, Table};

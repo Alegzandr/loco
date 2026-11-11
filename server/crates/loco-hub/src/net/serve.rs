@@ -1,7 +1,7 @@
 //! The socket, from the HTTP request to a registered client: which origins may
 //! open one, and the two ceilings refused **before** the upgrade, because the
-//! window between the upgrade and the register is where a flood lives. Port of
-//! `server/hub/serve.go`, plus the two operator endpoints `main.go` served.
+//! window between the upgrade and the register is where a flood lives. Plus
+//! the two operator endpoints, `/health` and `/metrics`.
 
 use crate::Hub;
 use crate::net::client::{Client, MAX_MSG_SIZE};
@@ -186,12 +186,12 @@ pub async fn serve_ws(
         })
 }
 
-/// `GET /health`: JSON, as Go served it, `200` even while draining.
+/// `GET /health`: JSON, `200` even while draining.
 pub async fn serve_health(State(hub): State<Hub>) -> Response {
     axum::Json(hub.health()).into_response()
 }
 
-/// `GET /metrics`: Prometheus text, under the Go names.
+/// `GET /metrics`: Prometheus text, under the names the operators read.
 pub async fn serve_metrics(State(hub): State<Hub>) -> Response {
     (
         [(
@@ -215,8 +215,6 @@ pub fn routes(hub: Hub) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Port of origin_test.go.
 
     #[test]
     fn origin_allowed_default_is_same_host() {

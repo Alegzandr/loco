@@ -1,5 +1,3 @@
-//! Port of `server/hub/abandoned_test.go`.
-//!
 //! A match nobody is at any more, and the two ways it used to go on anyway:
 //! once the other seat's hold has expired, nothing at it will ever act again,
 //! and the room went on auto-playing for it until the empty-room timeout.

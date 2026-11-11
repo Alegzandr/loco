@@ -1,5 +1,5 @@
-//! Play, draw, pass, declare, catch, counter, interrupt. Port of
-//! `server/hub/gameplay.go`. Every handler here runs on its table's task, past
+//! Play, draw, pass, declare, catch, counter, interrupt. Every handler here
+//! runs on its table's task, past
 //! the gameplay gate in `dispatch.rs`.
 
 use crate::net::client::Client;
@@ -28,7 +28,7 @@ impl Table {
         if !play_cards.is_empty() {
             let hand = self.hand_size(c.player_id());
             if play_cards.len() > hand {
-                // Not a domain error in Go either: a hub-level refusal, and it
+                // Not a domain error: a hub-level refusal, and it
                 // counts towards suspicion like any refusal that is not a race.
                 let text = format!("batch of {} cards exceeds the hand", play_cards.len());
                 c.refuse(crate::table::refusal::Refusal::Other(text.clone()));

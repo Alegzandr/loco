@@ -1,9 +1,8 @@
-//! The turn clock, and the consecutive timeouts that make a seat away. Port of
-//! `server/hub/turntimer.go`.
+//! The turn clock, and the consecutive timeouts that make a seat away.
 //!
-//! The clock is one deadline under the key `turn`: arming it for a new turn
-//! replaces the old one, and the fire re-checks the turn and its start stamp
-//! anyway, exactly as Go's did.
+//! The clock is one deadline under `DeadlineKey::TurnTimeout`: arming it for a
+//! new turn replaces the old one, and the fire re-checks the turn and its start
+//! stamp anyway.
 
 use crate::ops::clock;
 use crate::table::Table;

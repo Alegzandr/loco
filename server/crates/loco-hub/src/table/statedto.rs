@@ -1,5 +1,5 @@
 //! What a client is handed: the player list, the scoreboard, the personalised
-//! state. Port of `server/hub/statedto.go`.
+//! state.
 
 use crate::ops::clock;
 use crate::table::Table;
@@ -139,7 +139,7 @@ impl Table {
             .collect()
     }
 
-    /// One recipient's view. Defensive on purpose: a nil state, a seat out of
+    /// One recipient's view. Defensive on purpose: a missing state, a seat out of
     /// range or an empty discard answer with a minimal state and a WARN rather
     /// than a panic.
     pub fn player_game_state_with(

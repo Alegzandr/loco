@@ -1,4 +1,4 @@
-//! Port of `server/hub/catch_afk_internal_test.go`.
+//! A Contre-LOCO! and the AFK counter.
 
 use crate::ops::clock::now_ms;
 use crate::{Client, Hub, HubConfig, Table};

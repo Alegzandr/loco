@@ -1,5 +1,5 @@
 //! One WebSocket connection: its send queue, its two pumps, its token bucket,
-//! its latency probe and the seat it holds. Port of `server/hub/client.go`.
+//! its latency probe and the seat it holds.
 
 use crate::ids::RoomCode;
 use crate::net::wire::{Outgoing, decode_client, msg, now_ms};
@@ -534,8 +534,8 @@ async fn send_within(
 mod tests {
     use super::*;
 
-    // Port of client_internal_test.go, and of the limiter Go tested only
-    // through sockets.
+    // The client's own state, and the limiter, which the socket tests reach
+    // only from outside.
 
     #[tokio::test(start_paused = true)]
     async fn note_pong_smooths_samples() {

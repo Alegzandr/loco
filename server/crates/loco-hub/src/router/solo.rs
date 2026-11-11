@@ -1,5 +1,5 @@
 //! `play_bot`: a 1v1 against the server, the queue's shape without the queue.
-//! Port of `server/hub/solo.go`. No code, no waiting room, nothing to
+//! No code, no waiting room, nothing to
 //! configure, BO1, and it touches nothing the queue owns.
 
 use crate::net::client::Client;

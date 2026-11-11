@@ -1,4 +1,4 @@
-//! Port of `server/hub/live_test.go`.
+//! The live-streams strip, as a socket not at a table sees it.
 
 use futures_util::StreamExt;
 use loco_hub::net::wire::LiveStream;
@@ -23,7 +23,7 @@ fn live_rows(logins: &[&str]) -> Vec<LiveStream> {
 }
 
 /// Waits up to 2 s for the next `live_streams` and returns its rows, or
-/// `None` when none arrived. Go's `readLive`.
+/// `None` when none arrived.
 async fn read_live(ws: &mut Ws) -> Option<Vec<Value>> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     for _ in 0..20 {
@@ -104,7 +104,7 @@ async fn live_streams_sent_on_connect() {
     let th = new_test_hub().await;
     th.hub.publish_live(live_rows(&["kisuke_"]));
     // The publication crosses to the loop through the router box; one round
-    // trip through the loop orders the connect after it, where Go slept.
+    // trip through the loop orders the connect after it.
     th.hub.on_loop(|_| ()).await;
 
     let mut conn = dial_ws(&th).await;

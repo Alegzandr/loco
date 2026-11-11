@@ -1,5 +1,4 @@
-//! Draining: what a deploy does to a server people are playing on. Port of
-//! `server/hub/drain.go`.
+//! Draining: what a deploy does to a server people are playing on.
 //!
 //! Nothing new starts, and everything already running is left completely
 //! alone. **The drain has to terminate**, which is what decides the refusal

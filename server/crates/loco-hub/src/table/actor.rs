@@ -1,5 +1,4 @@
-//! One table, one task, and the two ways work crosses between them. Port of
-//! `server/hub/actor.go`.
+//! One table, one task, and the two ways work crosses between them.
 //!
 //! A table owns its own task and is the sole owner of its state, so nothing in
 //! it is locked. The two directions are deliberately the same shape:
@@ -13,8 +12,8 @@
 //! delivered is dropped and counted, and the posts whose loss would leak
 //! something retry once.
 //!
-//! Go armed `time.AfterFunc` callbacks that posted back and then re-checked a
-//! stamp to see whether they had gone stale. Here a deadline lives in the
+//! A deadline is not a callback that posts back and then has to re-check a
+//! stamp to see whether it went stale: it lives in the
 //! table's own state ([`Deadlines`]), keyed by what it is for: arming a key
 //! replaces whatever was armed there, so a stale callback does not exist to be
 //! filtered. The task sleeps until the next one inside the same `select!` that
@@ -352,7 +351,7 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
         .unwrap_or_else(tracing::Span::none);
     let _entered = span.enter();
     let result = catch_unwind(AssertUnwindSafe(|| {
-        // Go fired its probe at the top of a message's handler, never a
+        // The probe fires at the top of a message's handler, never a
         // timer's: a client job is that.
         #[cfg(any(test, feature = "testkit"))]
         if let Some(p) = probe

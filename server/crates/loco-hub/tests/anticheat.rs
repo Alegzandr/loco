@@ -1,5 +1,3 @@
-//! Port of `server/hub/anticheat_test.go`.
-//!
 //! The audit these tests come out of asked one question of every message a
 //! client can send: what does it cost, and who else pays for it. Four answers
 //! were wrong, and each of them was wrong in the same direction — a message the
@@ -280,7 +278,6 @@ async fn resync_is_throttled_to_one_per_second() {
 }
 
 /// Drives a fresh 2-player BO1 table to match_end. Alice hosts at seat 0.
-/// Go's `winBO1`.
 async fn win_bo1(th: &TestHub) -> (Ws, Ws, String) {
     let TwoPlayers {
         mut alice,
@@ -293,7 +290,7 @@ async fn win_bo1(th: &TestHub) -> (Ws, Ws, String) {
 }
 
 /// Hands the host a single playable card on their turn and plays it, ending a
-/// BO1 match. Go's `winMatchFromHostTurn`.
+/// BO1 match.
 async fn win_match_from_host_turn(host: &mut Ws, others: &mut [&mut Ws]) {
     let card = json!({"color": "red", "kind": "number", "value": 7});
     send_msg(

@@ -1,5 +1,4 @@
-//! 1v1 matchmaking, leaving a table, and the forfeit. Port of
-//! `server/hub/matchmaking.go`.
+//! 1v1 matchmaking, leaving a table, and the forfeit.
 //!
 //! One FIFO queue whose size is never on the wire (only on `/metrics`). The
 //! queue is the hub's and the seat is the table's: `find_match` and

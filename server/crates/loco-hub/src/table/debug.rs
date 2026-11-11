@@ -1,5 +1,5 @@
 //! `debug_set_state`: the fixture the Playwright suite deals a table with.
-//! Port of `server/hub/debug.go`. Answered only with `LOCO_E2E=1`, which must
+//! Answered only with `LOCO_E2E=1`, which must
 //! never be set in production (`debug_mode_active` on `/metrics` says so).
 
 use crate::net::client::Client;

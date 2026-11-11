@@ -1,11 +1,10 @@
 //! The counters, and the numbers that say how close this process is to the load
-//! it can carry. Port of `server/hub/metrics.go` and of the two payloads
-//! `hub.go` served.
+//! it can carry, and the two payloads `/health` and `/metrics` serve.
 //!
 //! The counters are atomics on one struct, written from every task, because
 //! the high-water marks need a compare-and-swap and `/health` needs a few of
 //! them as plain numbers. `/metrics` renders them through the `metrics` crate's
-//! Prometheus exporter, **under the Go names**: the E2E helpers and every
+//! Prometheus exporter, **under fixed names**: the E2E helpers and every
 //! operator's muscle memory read `matchmaking_queue`, `handler_panics`,
 //! `log_lines_dropped` and the rest by those spellings. Each hub keeps its own
 //! recorder rather than installing a global one, so two hubs in one test
@@ -73,7 +72,7 @@ pub fn raise64(mark: &AtomicI64, v: i64) {
     mark.fetch_max(v, Ordering::Relaxed);
 }
 
-/// What `/health` answers, in JSON, exactly as Go did.
+/// What `/health` answers, in JSON.
 #[derive(Clone, Debug, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct HealthStats {
     pub status: String,
@@ -86,7 +85,7 @@ pub struct HealthStats {
     pub draining: bool,
 }
 
-/// What `/metrics` reports about the poller, under its Go names.
+/// What `/metrics` reports about the poller.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct LiveStats {
     pub twitch_polls: i64,
@@ -105,8 +104,8 @@ pub struct MetricsStats {
     pub matches_finished: i32,
     pub bots_active: i32,
     pub uptime_sec: i64,
-    /// Go counted goroutines; this counts the runtime's live tasks, which is
-    /// the same question ("is anything leaking?") asked of tokio.
+    /// The runtime's live tasks, low and stable unless something leaks. The
+    /// name is the one `/health` and `/metrics` have always used.
     pub goroutine_count: i64,
     pub messages_rate_limited: i64,
     pub messages_dropped_busy: i64,
@@ -362,7 +361,7 @@ mod tests {
         assert_eq!(m.loop_slowest_us.load(Ordering::Relaxed), 7999);
     }
 
-    // The Go names, in Prometheus text: what matchmakingQueue.ts and the
+    // The fixed names, in Prometheus text: what matchmakingQueue.ts and the
     // operators read.
     #[test]
     fn the_page_keeps_the_go_names() {

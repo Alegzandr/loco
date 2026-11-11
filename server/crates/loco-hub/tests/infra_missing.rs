@@ -1,7 +1,6 @@
-//! The Go infrastructure tests (`privacy_test.go`, `origin_test.go`,
-//! `logsink_test.go`, `client_internal_test.go`) whose Rust counterparts were
-//! not among the unit tests inside `src/privacy.rs`, `src/serve.rs`,
-//! `src/logsink.rs`, `src/client.rs` and `src/metrics.rs`.
+//! Infrastructure checks that reach across modules, beside the unit tests
+//! inside `src/net/privacy.rs`, `src/net/serve.rs`, `src/ops/logsink.rs`,
+//! `src/net/client.rs` and `src/ops/metrics.rs`.
 
 use loco_hub::Hub;
 use loco_hub::net::privacy::split_list;
@@ -11,8 +10,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-// origin_test.go. `LOCO_ALLOWED_ORIGINS` is read through the shared list
-// splitter now (Go's `splitOrigins`).
+// `LOCO_ALLOWED_ORIGINS` is read through the shared list splitter.
 #[test]
 fn split_origins() {
     assert_eq!(
@@ -24,7 +22,7 @@ fn split_origins() {
 }
 
 /// A sink that signals when its thread is inside a write, then waits on a
-/// gate. logsink_test.go's `recordingWriter`.
+/// gate.
 struct Gated {
     entered: mpsc::SyncSender<()>,
     gate: Arc<Mutex<mpsc::Receiver<()>>>,
@@ -41,7 +39,7 @@ impl Write for Gated {
     }
 }
 
-// logsink_test.go. messages_dropped_busy has an operator counterpart for every
+// messages_dropped_busy has an operator counterpart for every
 // other thing this server throws away, and a log that silently shortens itself
 // under load is exactly what somebody reading /metrics during an incident
 // needs to know about. (foundation.rs had a looser version: at least 8 of 10.)

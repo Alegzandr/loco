@@ -1,9 +1,8 @@
-//! Port of `server/hub/converter_test.go`.
+//! Reading the wire's colours, kinds and match formats.
 //!
-//! Go parsed the wire's strings in `parseColor` / `parseKind` /
-//! `parseMatchFormat`; here the wire enums' own (forgiving) deserialisers do
-//! that job, so the cases below are read through `serde_json` exactly as a
-//! client message is. The tables stay strings on purpose: half their cases are
+//! The wire enums' own (forgiving) deserialisers parse the strings, so the
+//! cases below are read through `serde_json` exactly as a client message is.
+//! The tables stay strings on purpose: half their cases are
 //! values the wire types cannot hold ("purple", "BO2", ""), and refusing those
 //! is the whole job under test.
 

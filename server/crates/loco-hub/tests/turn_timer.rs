@@ -1,4 +1,4 @@
-//! Port of `server/hub/turn_timer_test.go`.
+//! The turn clock, re-armed by every draw.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 
@@ -10,7 +10,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const TURN_TIMEOUT: Duration = Duration::from_millis(700);
 
 /// The connection whose turn it is, the opponent's, and the active seat.
-/// Go's `setupActiveGame`.
 async fn setup_active_game(th: &TestHub) -> (Ws, Ws, i64) {
     let mut c1 = dial_ws(th).await;
     let mut c2 = dial_ws(th).await;

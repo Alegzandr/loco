@@ -1,5 +1,3 @@
-//! Port of `server/hub/match_history_internal_test.go`.
-//!
 //! The recap is indexed by seat like everything else on a table, so it moves
 //! with every move that re-bases a seat. These are the two the black-box suite
 //! cannot reach cheaply: a swap (transfer_host in the lobby a rematch reopened)
@@ -73,7 +71,7 @@ fn match_history_survives_reset_for_next_match() {
 
 // The record copies the room's arrays rather than pointing at them: the reset
 // for a rematch empties those, and a row holding the live slice would read as
-// the next match. (In Rust the copy is a given; the test pins it anyway.)
+// the next match.
 #[test]
 fn match_history_record_copies_the_scoreboard() {
     let mut room = new_room("COPY");

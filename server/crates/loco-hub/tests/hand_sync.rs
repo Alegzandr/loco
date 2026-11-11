@@ -1,5 +1,3 @@
-//! Port of `server/hub/hand_sync_test.go`.
-//!
 //! Every path that grows a hand must tell the affected player WHICH cards it
 //! gained — a count is only enough for the other players. A client that never
 //! receives the cards silently runs a shorter hand than the server, and the
@@ -19,7 +17,6 @@ fn e2e() -> HubConfig {
 }
 
 /// The connection whose turn it is, the opponent's, and the active seat.
-/// Go's `setupActiveGame`.
 struct StartedGame {
     active: Ws,
     other: Ws,

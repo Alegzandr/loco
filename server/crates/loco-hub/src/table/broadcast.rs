@@ -1,5 +1,5 @@
 //! Sending: the fan-out, `send_hand_growth`, `refuse_action`, the
-//! personalised state. Port of `server/hub/broadcast.go`.
+//! personalised state.
 
 use crate::net::client::Client;
 use crate::net::wire::Outgoing;

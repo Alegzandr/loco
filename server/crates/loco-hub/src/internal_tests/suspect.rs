@@ -1,4 +1,4 @@
-//! Port of `server/hub/suspect_test.go`.
+//! What counts towards `suspected_cheats`, and what does not.
 
 use crate::net::client::SUSPECT_THRESHOLD;
 use crate::{Client, Hub, HubConfig};
@@ -55,8 +55,8 @@ async fn note_rejection_still_catches_real_rejections() {
 // A wrapped sentinel is the same sentinel. Anything that reaches for the error
 // string instead breaks the first time a message is reworded.
 //
-// Adapted: Rust's `GameError` is an enum and nothing wraps it, so the
-// classification is by variant by construction. What is left to pin is that
+// `GameError` is an enum and nothing wraps it, so the classification is by
+// variant by construction. What is left to pin is that
 // the lost race is recognised by its variant whatever its wire text, i.e.
 // many presses of the same lost race stay unsuspicious.
 #[tokio::test]
@@ -69,9 +69,3 @@ async fn note_rejection_matches_wrapped_sentinels() {
     assert_eq!(suspected(&hub), 0, "a lost race counted as suspect");
     hub.stop().await;
 }
-
-// Go passed a nil error. `note_rejection` takes a `&GameError`, so there is no
-// "no error" to pass: the type system is the guarantee.
-#[test]
-#[ignore = "NOT-PORTABLE: note_rejection takes &GameError; a nil error cannot be expressed"]
-fn note_rejection_nil_is_not_a_rejection() {}

@@ -1,5 +1,5 @@
 //! Which network a socket belongs to, and the only place the peer's address is
-//! ever read. Port of `server/hub/privacy.go`.
+//! ever read.
 //!
 //! **Nothing outside this file may read the remote address.** `serve.rs` takes a
 //! [`ClientNet`] extractor, which is already truncated, and never sees the peer:
@@ -35,8 +35,7 @@ pub fn truncate_ip(ip: IpAddr) -> String {
     }
 }
 
-/// `host`, `host:port`, `[v6]:port` or a bare v6 literal, like Go's
-/// `net.SplitHostPort` followed by `netip.ParseAddr`.
+/// `host`, `host:port`, `[v6]:port` or a bare v6 literal, as an address.
 fn parse_host(addr: &str) -> Option<IpAddr> {
     if let Ok(sa) = addr.parse::<SocketAddr>() {
         return Some(sa.ip());
@@ -210,8 +209,6 @@ impl<S: HasNetPolicy + Send + Sync> FromRequestParts<S> for ClientNet {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
-
-    // Port of privacy_test.go.
 
     #[test]
     fn truncate_addr_cases() {

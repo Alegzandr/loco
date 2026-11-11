@@ -1,4 +1,4 @@
-//! Port of `server/hub/botrecover_internal_test.go`.
+//! A refused bot move gives the turn up, never the table.
 
 use crate::net::client::Client;
 use crate::ops::clock;
@@ -11,8 +11,7 @@ use std::collections::BTreeSet;
 use tokio::time::Instant;
 
 /// Deals Alice (seat 0, human) and Bot1 (seat 1, bot) and hands the table back
-/// unstarted, which is enough for the handlers that never cross a task. Go's
-/// `twoSeatTable`.
+/// unstarted, which is enough for the handlers that never cross a task.
 fn two_seat_table(hub: &Hub) -> Table {
     let mut room = Room::from_u64_seed("AAAAAA", 7);
     for n in ["Alice", "Bot1"] {

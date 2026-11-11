@@ -1,5 +1,4 @@
-//! A rematch by agreement: an ask, not a decision, in every room. Port of
-//! `server/hub/rematch.go`.
+//! A rematch by agreement: an ask, not a decision, in every room.
 //!
 //! Every ask is broadcast with the whole offer state and the quorum; two asks
 //! deal the next match at any size (bots are not asked), and nobody is

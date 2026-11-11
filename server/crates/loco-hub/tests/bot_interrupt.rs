@@ -1,4 +1,4 @@
-//! Port of `server/hub/bot_interrupt_test.go`.
+//! A bot slamming a matching card onto the pile.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

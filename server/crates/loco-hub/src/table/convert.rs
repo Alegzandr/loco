@@ -1,4 +1,4 @@
-//! DTO conversion, and nothing else. Port of `server/hub/converter.go`.
+//! DTO conversion, and nothing else.
 //!
 //! The wire enums are `loco-protocol`'s and the domain's are `loco-game`'s; the
 //! two are pinned to each other by `loco-protocol/tests/enums.rs`, so these
@@ -67,8 +67,7 @@ pub fn card_dtos(cards: &[Card]) -> Vec<CardDTO> {
 
 /// A card off the wire, and the colour it names. Only a wild reads
 /// `chosen_color`; anything else names its own. A missing colour reads as
-/// `Wild`, exactly as Go's `parseColor("")` did, and every domain entry point
-/// refuses a colourless wild.
+/// `Wild`, and every domain entry point refuses a colourless wild.
 pub fn dto_to_card(dto: &CardDTO, chosen: Option<CardColor>) -> (Card, Color) {
     let color = color_of(dto.color);
     let kind = kind_of(dto.kind);
@@ -112,7 +111,7 @@ pub fn match_format_of(f: WireFormat) -> MatchFormat {
 mod tests {
     use super::*;
 
-    // Port of converter_test.go: every colour and kind survives the round
+    // Every colour and kind survives the round
     // trip, and a wild names the colour it was played as.
     #[test]
     fn every_card_round_trips() {

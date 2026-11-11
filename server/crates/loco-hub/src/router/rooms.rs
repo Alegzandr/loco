@@ -1,6 +1,5 @@
 //! The table itself: opening one, taking a seat at it, the host controls, and
-//! the bookkeeping that frees a seat or deletes an empty room. Port of
-//! `server/hub/rooms.go`.
+//! the bookkeeping that frees a seat or deletes an empty room.
 
 use crate::ids::{RoomCode, SessionToken};
 use crate::net::client::Client;
@@ -511,9 +510,8 @@ impl Table {
         }));
     }
 
-    /// Starts the clock that deletes the room if it stays empty. Go stamped
-    /// the table and had the fire compare stamps; here seating anybody
-    /// disarms the deadline, so there is no stale fire to recognise.
+    /// Starts the clock that deletes the room if it stays empty. Seating
+    /// anybody disarms the deadline, so there is no stale fire to recognise.
     pub fn schedule_room_cleanup(&mut self) {
         let at = Instant::now() + self.timings.empty_room_timeout;
         self.deadlines

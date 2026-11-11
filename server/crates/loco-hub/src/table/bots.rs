@@ -1,5 +1,4 @@
-//! Every bot delay and every bot decision's scheduling. Port of
-//! `server/hub/bots.go`.
+//! Every bot delay and every bot decision's scheduling.
 //!
 //! The decisions are the domain's (`loco_game::bot_think`, `bot_interrupt`);
 //! this file decides *when*, through the same domain calls and broadcasts a
@@ -622,8 +621,8 @@ impl Table {
 mod tests {
     use super::*;
 
-    // Port of bottiming_internal_test.go / botcatch_internal_test.go's pure
-    // halves: the instants are functions of the moment, and the odds hold.
+    // The pure halves of the bot timing and catch tests: the instants are
+    // functions of the moment, and the odds hold.
 
     #[test]
     fn the_declaration_has_one_instant_per_window() {

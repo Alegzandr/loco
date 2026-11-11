@@ -1,6 +1,5 @@
 //! The map-loading gate: the table is shut between `game_started` and the
-//! moment every client has the room decoded. Port of
-//! `server/hub/maploading.go`.
+//! moment every client has the room decoded.
 //!
 //! The turn clock and the bots are not armed until it opens: a clock that
 //! starts while somebody's table is still a grey rectangle is a head start in a

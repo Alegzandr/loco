@@ -1,4 +1,4 @@
-//! Helpers shared by the ported matchmaking, solo, rematch, match history,
+//! Helpers shared by the matchmaking, solo, rematch, match history,
 //! walk-out, expiry and abandoned-table tests. Each test file uses a subset.
 
 #![allow(dead_code)]
@@ -9,24 +9,24 @@ use loco_hub::testkit::*;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-/// A config with `debug_set_state` reachable (Go's `t.Setenv("LOCO_E2E", "1")`).
+/// A config with `debug_set_state` reachable (`LOCO_E2E=1`).
 pub fn debug_cfg() -> HubConfig {
     let mut c = HubConfig::default();
     c.debug_mode = true;
     c
 }
 
-/// Go's `shortReveal`: the versus screen collapsed to 30 ms.
+/// The versus screen collapsed to 30 ms.
 pub fn short_reveal(c: &mut HubConfig) {
     c.timings.matchmaking.reveal_delay = Duration::from_millis(30);
 }
 
-/// Go's `shortReconnectHold`.
+/// Shortens the hold a dropped seat is kept for.
 pub fn short_reconnect_hold(c: &mut HubConfig, d: Duration) {
     c.timings.reconnect_timeout = d;
 }
 
-/// `find_match`, and the acknowledgement read back. Go's `queueUp`.
+/// `find_match`, and the acknowledgement read back.
 pub async fn queue_up(th: &TestHub, nickname: &str) -> Ws {
     let mut ws = dial_ws(th).await;
     send_msg(&mut ws, json!({"type": "find_match", "nickname": nickname})).await;
@@ -34,8 +34,7 @@ pub async fn queue_up(th: &TestHub, nickname: &str) -> Ws {
     ws
 }
 
-/// Queues two players and takes them through to an open table. Go's
-/// `pairedMatch`.
+/// Queues two players and takes them through to an open table.
 pub async fn paired_match(th: &TestHub) -> (Ws, Ws) {
     let mut a = queue_up(th, "Alice").await;
     let mut b = queue_up(th, "Bob").await;
@@ -48,7 +47,7 @@ pub async fn paired_match(th: &TestHub) -> (Ws, Ws) {
 }
 
 /// `read_msg_of_type` with room for the traffic a few auto-played turns
-/// produce. Go's `waitForType`.
+/// produce.
 pub async fn wait_for_type(ws: &mut Ws, typ: &str, limit: usize) -> Value {
     for _ in 0..limit {
         let m = read_msg(ws).await;
@@ -64,7 +63,7 @@ pub fn card(color: &str, value: i64) -> Value {
 }
 
 /// Plays seat 0 down to an empty hand through the debug seam (a BO1 match
-/// ends with it). Go's `finishRoundForSeat`.
+/// ends with it).
 pub async fn finish_round_for_seat(winner: &mut Ws, other: &mut Ws) {
     send_msg(
         winner,
@@ -89,8 +88,7 @@ pub async fn finish_round_for_seat(winner: &mut Ws, other: &mut Ws) {
 }
 
 /// Hands the host a single playable card on their turn and plays it, ending a
-/// BO1 match; returns the host's `match_end`. Go's `winMatchFromHostTurn` /
-/// `winMatchReturningEnd`. The hub must be on `debug_cfg()`.
+/// BO1 match; returns the host's `match_end`. The hub must be on `debug_cfg()`.
 pub async fn win_match_from_host_turn(host: &mut Ws, others: &mut [&mut Ws]) -> Value {
     send_msg(
         host,
@@ -116,7 +114,7 @@ pub async fn win_match_from_host_turn(host: &mut Ws, others: &mut [&mut Ws]) -> 
 }
 
 /// Seats `names` at one table and deals; the first is the host. Returns the
-/// sockets, the code and every session token. Go's `openTable`.
+/// sockets, the code and every session token.
 pub async fn open_table(th: &TestHub, names: &[&str]) -> (Vec<Ws>, String, Vec<String>) {
     let mut host = dial_ws(th).await;
     send_msg(
@@ -151,8 +149,7 @@ pub async fn open_table(th: &TestHub, names: &[&str]) -> (Vec<Ws>, String, Vec<S
     (conns, code, tokens)
 }
 
-/// A table of `names` dealt and won by the host. Go's `winBO1` (two names),
-/// `winBO1AtThree` / `winBO1WithThree` / `finishedTableOfThree` (three).
+/// A table of `names` dealt and won by the host.
 pub async fn won_table(th: &TestHub, names: &[&str]) -> (Vec<Ws>, String, Vec<String>) {
     let (mut conns, code, tokens) = open_table(th, names).await;
     let (host, rest) = conns.split_first_mut().unwrap();
@@ -161,7 +158,7 @@ pub async fn won_table(th: &TestHub, names: &[&str]) -> (Vec<Ws>, String, Vec<St
     (conns, code, tokens)
 }
 
-/// Whether a fresh socket is told this code does not exist. Go's `roomGone`.
+/// Whether a fresh socket is told this code does not exist.
 pub async fn room_gone(th: &TestHub, code: &str) -> bool {
     let mut probe = dial_ws(th).await;
     send_msg(
@@ -173,8 +170,7 @@ pub async fn room_gone(th: &TestHub, code: &str) -> bool {
     m["error"] == "room not found"
 }
 
-/// Polls `room_gone` until it holds or `budget` passes. Go's `waitFor` around
-/// `roomGone`.
+/// Polls `room_gone` until it holds or `budget` passes.
 pub async fn wait_room_gone(th: &TestHub, code: &str, budget: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + budget;
     loop {
@@ -189,7 +185,6 @@ pub async fn wait_room_gone(th: &TestHub, code: &str, budget: Duration) -> bool 
 }
 
 /// Reads until a message of `typ` arrives (true) or `within` passes (false).
-/// Go's `drainUntil`.
 pub async fn drain_until(ws: &mut Ws, typ: &str, within: Duration) -> bool {
     let end = tokio::time::Instant::now() + within;
     loop {
@@ -211,7 +206,7 @@ pub async fn drain_until(ws: &mut Ws, typ: &str, within: Duration) -> bool {
 }
 
 /// A seat's `connected` flag in a roster, and whether the seat is in it at
-/// all. Go's `seatConnected`.
+/// all.
 pub fn seat_connected(players: &Value, seat: i64) -> (bool, bool) {
     for p in players.as_array().into_iter().flatten() {
         if p["index"].as_i64() == Some(seat) {

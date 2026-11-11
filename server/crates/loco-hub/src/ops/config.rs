@@ -1,6 +1,5 @@
-//! The hub's tunables and ceilings. In Go these were package variables that
-//! tests narrowed and restored; here they are one value handed to the hub, so
-//! two tests running at once can each have their own. Defaults are Go's.
+//! The hub's tunables and ceilings: one value handed to the hub, never a
+//! global, so two tests running at once can each narrow their own.
 
 use crate::net::privacy::{NetPolicy, split_list};
 use std::time::Duration;
@@ -31,8 +30,7 @@ impl Default for Limits {
     }
 }
 
-/// The game's clocks the hub arms. Carried here so the handler port finds them
-/// in one place; each is documented where Go declared it (`hub/hub.go`).
+/// The game's clocks the hub arms, in one place.
 #[derive(Clone, Debug)]
 pub struct Timings {
     pub empty_room_timeout: Duration,
@@ -89,7 +87,7 @@ impl Default for MatchmakingTimings {
     }
 }
 
-/// The bots' clocks and odds, as Go declared them in `hub/bots.go`.
+/// The bots' clocks and odds.
 #[derive(Clone, Debug)]
 pub struct BotTimings {
     pub think: Duration,
@@ -131,8 +129,7 @@ impl Default for BotTimings {
 
 impl BotTimings {
     /// `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`, read only when
-    /// `LOCO_E2E=1`. Returns whether either was applied. Go's
-    /// `botTimingOverride` + `ApplyBotTimingEnv`.
+    /// `LOCO_E2E=1`. Returns whether either was applied.
     pub fn apply_env(&mut self, getenv: &dyn Fn(&str) -> String) -> bool {
         if getenv("LOCO_E2E") != "1" {
             return false;

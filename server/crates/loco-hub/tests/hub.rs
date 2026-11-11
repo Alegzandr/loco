@@ -1,5 +1,4 @@
-//! Port of `server/hub/hub_test.go`: the hub's handlers end to end, through
-//! real sockets on loopback. One Rust test per Go test, under its name.
+//! The hub's handlers end to end, through real sockets on loopback.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 
@@ -24,7 +23,7 @@ fn debug_cfg() -> HubConfig {
     c
 }
 
-/// Go's `newTestHubFastCleanup`: a hub whose empty tables go after `timeout`.
+/// A hub whose empty tables go after `timeout`.
 async fn new_test_hub_fast_cleanup(timeout: Duration) -> TestHub {
     let mut c = HubConfig::default();
     c.timings.empty_room_timeout = timeout;
@@ -77,7 +76,7 @@ async fn next_frame(ws: &mut Ws, wait: Duration) -> Frame {
     }
 }
 
-/// Go's `drainUntil`: reads until a message of `typ` or `deadline` passes.
+/// Reads until a message of `typ` or `deadline` passes.
 async fn drain_until(ws: &mut Ws, typ: &str, deadline: Duration) -> bool {
     let end = Instant::now() + deadline;
     while Instant::now() < end {
@@ -107,7 +106,7 @@ async fn none_of_type_within(ws: &mut Ws, typ: &str, wait: Duration) -> Result<(
     }
 }
 
-/// Go's `waitForClients`: a closed socket is torn down asynchronously.
+/// A closed socket is torn down asynchronously.
 async fn wait_for_clients(hub: &Hub, want: i32) {
     let h = hub.clone();
     assert!(
@@ -505,7 +504,7 @@ async fn room_created_includes_match_format_and_max_players() {
     th.stop().await;
 }
 
-// The Go test only checked that a game starts; so does this one.
+// Only that a game starts.
 #[tokio::test]
 async fn game_state_includes_round_and_scoreboard() {
     let th = new_test_hub().await;
@@ -515,8 +514,8 @@ async fn game_state_includes_round_and_scoreboard() {
 
 // --- Metrics tests ---
 
-// Adapted: /metrics is Prometheus text now, not JSON. What is pinned is that
-// the page answers 200 and parses under the Go names.
+// /metrics is Prometheus text: the page answers 200 and parses, under the
+// names the operators read.
 #[tokio::test]
 async fn metrics_endpoint_returns_json() {
     let th = new_test_hub().await;
@@ -698,11 +697,11 @@ async fn join_room_empty_nickname_rejected() {
     th.stop().await;
 }
 
-// --- Task stability (Go: goroutine stability) ---
+// --- Task stability ---
 //
-// Go counted goroutines; the Rust equivalent is the runtime's live task count,
-// which is what `goroutine_count` reports. Each #[tokio::test] has a runtime of
-// its own, so the count is this test's alone.
+// The runtime's live task count, which is what `goroutine_count` reports.
+// Each #[tokio::test] has a runtime of its own, so the count is this test's
+// alone.
 
 fn live_tasks(th: &TestHub) -> i64 {
     th.hub.metrics_stats().goroutine_count
@@ -732,7 +731,7 @@ fn fast_bots(c: &mut HubConfig) {
 // path), full bot games then close, and mid-game disconnects (reconnect expiry
 // path). The task count must not grow with the number of rooms.
 #[tokio::test]
-async fn goroutine_stability_full_lifecycle() {
+async fn task_stability_full_lifecycle() {
     let mut c = HubConfig::default();
     c.timings.empty_room_timeout = Duration::from_millis(80);
     c.timings.reconnect_timeout = Duration::from_millis(120);
@@ -775,7 +774,7 @@ async fn goroutine_stability_full_lifecycle() {
     th.stop().await;
 }
 
-// Adapted: goroutine_count is on the Prometheus page, and counts runtime tasks.
+// goroutine_count is on the Prometheus page, and counts runtime tasks.
 #[tokio::test]
 async fn metrics_goroutine_count_present() {
     let th = new_test_hub().await;
@@ -789,7 +788,7 @@ async fn metrics_goroutine_count_present() {
 // Creating and destroying many rooms does not leak tasks: the 504 bug was
 // timers and schedulers piling up per room.
 #[tokio::test]
-async fn goroutine_stability_room_lifecycle() {
+async fn task_stability_room_lifecycle() {
     let th = new_test_hub_fast_cleanup(Duration::from_millis(80)).await;
     tokio::time::sleep(Duration::from_millis(20)).await;
     let baseline = live_tasks(&th);
@@ -813,7 +812,7 @@ async fn goroutine_stability_room_lifecycle() {
 
 // A 1v1 bot game run and closed leaves no tasks behind.
 #[tokio::test]
-async fn goroutine_stability_bot_game() {
+async fn task_stability_bot_game() {
     let mut c = HubConfig::default();
     c.timings.empty_room_timeout = Duration::from_millis(80);
     c.timings.reconnect_timeout = Duration::from_millis(120);
@@ -1009,9 +1008,8 @@ async fn immediate_close_no_zombie_client() {
     th.stop().await;
 }
 
-// Adapted: the Rust hub has no register hook. Go used it to close the socket
-// the instant the hub registered it; here the test waits for the registration
-// (the clients count reaching one) and closes on that, which is the same race
+// A socket closed the instant the hub registers it: the test waits for the
+// registration (the clients count reaching one) and closes on that, the race
 // window seen from outside: registered, then gone at once.
 #[tokio::test]
 async fn register_hook_cleanup_after_immediate_close() {
@@ -1382,8 +1380,8 @@ fn catching_bot_cfg(catch_delay: Duration) -> HubConfig {
 
 // A bot catches a human who plays down to one card without the call.
 //
-// Go skipped when the deal gave the bot the first turn; here the turn is pinned
-// to the human through debug_set_state instead, so the test always runs.
+// The turn is pinned to the human through debug_set_state, so the deal giving
+// the bot the first turn never skips the test.
 #[tokio::test]
 async fn bot_catch_within_window() {
     let th = new_test_hub_with(catching_bot_cfg(Duration::from_millis(10))).await;
@@ -1417,7 +1415,7 @@ async fn bot_catch_within_window() {
 // A bot catch scheduled before the human's declaration is discarded once the
 // declaration lands: no uno_caught after uno_declared.
 //
-// Same deterministic turn pin as above, in place of Go's skip.
+// Same deterministic turn pin as above.
 #[tokio::test]
 async fn bot_catch_stale_callback_ignored_after_declared() {
     let th = new_test_hub_with(catching_bot_cfg(Duration::from_millis(300))).await;
@@ -1737,8 +1735,7 @@ async fn rate_limit_burst_then_error() {
     th.stop().await;
 }
 
-// Adapted: Go read LOCO_E2E live; the Rust hub takes it once as
-// `HubConfig::debug_mode`. Two hubs, one each way.
+// `LOCO_E2E` is read once, as `HubConfig::debug_mode`. Two hubs, one each way.
 #[tokio::test]
 async fn metrics_debug_mode_flag() {
     let off = new_test_hub().await;

@@ -1,5 +1,5 @@
-//! Who is streaming this game, told to the ones who are not playing yet. Port
-//! of `server/hub/live.go`: the live-streams strip's one crossing into the loop.
+//! Who is streaming this game, told to the ones who are not playing yet: the
+//! live-streams strip's one crossing into the loop.
 
 use crate::Hub;
 use crate::net::client::Client;
@@ -28,7 +28,7 @@ impl HubCore {
     pub(crate) fn set_live_streams(&mut self, mut rows: Vec<LiveStream>) {
         rows.truncate(LIVE_WIRE_MAX);
         let n = rows.len();
-        // Not stamped, as in Go: the bytes are kept and sent later, to sockets
+        // Not stamped: the bytes are kept and sent later, to sockets
         // arriving after this instant, and a server_now from the past would
         // be a clock reading the client should not trust.
         let msg = msg::live_streams(rows);

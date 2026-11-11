@@ -1,10 +1,8 @@
 //! The foundation through real sockets: admission, the endpoints, the pumps,
-//! the actor, the drain and the snapshot. Ports the parts of hub_test.go,
-//! hardening_test.go, actor_test.go, drain_test.go, snapshot_test.go,
-//! online_test.go and live_test.go that stand without a game; the rest come
-//! with the handler port, on the same harness. The Go-named ports of those
-//! files are `drain.rs`, `snapshot.rs`, `online.rs`, `live.rs`, `actor.rs`;
-//! what stays here are the structural checks they do not repeat.
+//! the actor, the drain and the snapshot: the checks that stand without a
+//! game. The fuller suites for those subjects are `drain.rs`, `snapshot.rs`,
+//! `online.rs`, `live.rs` and `actor.rs`; what stays here are the structural
+//! checks they do not repeat.
 
 use loco_game::SavedRoom;
 use loco_hub::ops::snapshot::{RoomSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotFile};

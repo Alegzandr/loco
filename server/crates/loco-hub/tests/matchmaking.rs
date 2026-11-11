@@ -1,4 +1,4 @@
-//! Port of `server/hub/matchmaking_test.go`.
+//! The 1v1 queue.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 

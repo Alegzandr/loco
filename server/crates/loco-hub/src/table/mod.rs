@@ -1,16 +1,16 @@
-//! One table, as one thing. Port of `server/hub/table.go`, reshaped.
+//! One table, as one thing.
 //!
 //! Everything the hub knows about one room code is a field here, and nothing
 //! here is touched by any task but the table's own — which is why none of it is
 //! locked.
 //!
-//! **A seat is one value.** Go kept seven structures keyed by seat number —
-//! the sockets, the session tokens, the holds, the departed, the bots, the AFK
-//! counters, the rematch asks — and every removal had to re-base all seven in
-//! one hand-maintained list (`shiftSeatKeys`), where a map added and not listed
-//! kept its old indices while the others moved. Here they are the fields of one
-//! [`Seat`] in one `Vec`: removing a seat is `Vec::remove`, a host transfer is
-//! `Vec::swap`, and there is nothing to forget. Who is in the chair is an
+//! **A seat is one value.** The socket, the session token, the hold, the
+//! departure, the bot, the AFK counter and the rematch ask are not seven
+//! structures keyed by seat number, each to be re-based by hand on every
+//! removal, where one forgotten would keep its old indices while the others
+//! moved. They are the fields of one [`Seat`] in one `Vec`: removing a seat
+//! is `Vec::remove`, a host transfer is `Vec::swap`, and there is nothing to
+//! forget. Who is in the chair is an
 //! [`Occupant`], so a seat cannot be at once held and seated, or a bot with a
 //! socket.
 //!
@@ -49,8 +49,7 @@ pub struct MatchRecord {
     pub rounds_won: Vec<i64>,
     pub scores: Vec<i64>,
     /// The seat that took the match, or `None` once that seat has left the
-    /// table. Written as Go did, `-1` for nobody, so the snapshot keeps its
-    /// shape.
+    /// table. Written `-1` for nobody, so the snapshot keeps its shape.
     #[serde(serialize_with = "winner_out", deserialize_with = "winner_in")]
     pub winner: Option<usize>,
     /// How long it was played. Zero is "cannot say" and stays off the wire.

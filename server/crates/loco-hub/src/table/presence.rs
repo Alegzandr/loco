@@ -1,6 +1,5 @@
 //! Leaving and coming back: what a disconnect costs at a table that has dealt
-//! and at one that has not, the hold, and the reclaim. Port of
-//! `server/hub/presence.go`.
+//! and at one that has not, the hold, and the reclaim.
 
 use crate::net::client::Client;
 use crate::router::hub::HubCore;
@@ -165,7 +164,7 @@ impl Table {
         tracing::info!(player = seat, "reconnect window expired");
         let nickname = self.nickname_of(seat);
         // Absent for good: the roster must stop calling it connected. The
-        // token stays, as Go's did: a finished table removes the seat anyway.
+        // token stays: a finished table removes the seat anyway.
         self.mark_gone(seat, false);
 
         let status = self.room.status;

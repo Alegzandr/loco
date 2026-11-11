@@ -1,4 +1,4 @@
-//! Port of `server/hub/maploading_test.go`.
+//! The map-loading gate between `game_started` and the first move.
 
 #![allow(clippy::field_reassign_with_default)] // a test narrows one knob of the default config
 
@@ -9,7 +9,7 @@ use serde_json::json;
 use std::time::Duration;
 
 /// Creates a room, joins a second human and starts the match, returning both
-/// connections with the table still shut. Go's `twoHumansAtStart`.
+/// connections with the table still shut.
 async fn two_humans_at_start(th: &TestHub) -> (Ws, Ws) {
     let mut conn1 = dial_ws(th).await;
     send_msg(
@@ -56,7 +56,7 @@ async fn assert_gated(conn: &mut Ws, why: &str) {
     assert!(msg.contains("load the table"), "error = {msg:?}, {why}");
 }
 
-/// Go's `winMatchFromHostTurn` for a host alone with a bot.
+/// Ends a BO1 from the host's turn, for a host alone with a bot.
 async fn win_match_from_host_turn(host: &mut Ws) {
     let win = json!({"color": "red", "kind": "number", "value": 7});
     send_msg(

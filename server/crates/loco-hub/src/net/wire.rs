@@ -71,10 +71,10 @@ pub mod msg {
     }
 }
 
-/// Decodes a client frame, or names the refusal Go would have answered it
-/// with. Decoding is stricter than Go's was: an unknown `type`, colour, kind,
-/// format or emote fails here rather than in a handler, so the failure is
-/// mapped back onto the string the Go handler used — `unknown message type`,
+/// Decodes a client frame, or names the refusal it is answered with. An
+/// unknown `type`, colour, kind, format or emote fails here rather than in a
+/// handler, so the failure is mapped onto the refusal string the client
+/// already translates — `unknown message type`,
 /// `unknown color: "x"`, `unknown kind: "x"`, `invalid match format …`,
 /// `unknown emote` — and anything else that does not decode is `invalid
 /// message format`. Either way it is one `Client::refuse`, counted as a refusal.

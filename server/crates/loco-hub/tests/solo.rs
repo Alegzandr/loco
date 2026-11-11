@@ -1,5 +1,3 @@
-//! Port of `server/hub/solo_test.go`.
-//!
 //! A 1v1 against the server: the queue's experience with the queue taken out.
 //! The property that matters beyond the mode working is the last test here: it
 //! touches nothing the matchmaking queue owns.
@@ -10,7 +8,7 @@ use common_b::*;
 use loco_hub::testkit::*;
 use serde_json::{Value, json};
 
-/// Sends `play_bot` and reads the deal back. Go's `playBot`.
+/// Sends `play_bot` and reads the deal back.
 async fn play_bot(ws: &mut Ws, nickname: &str) -> Value {
     send_msg(ws, json!({"type": "play_bot", "nickname": nickname})).await;
     read_msg_of_type(ws, "game_started").await
@@ -140,8 +138,8 @@ async fn play_bot_rematch_is_refused_and_another_press_deals_again() {
     th.stop().await;
 }
 
-// The property the E2E suite depends on: this mode is not the queue. Go read
-// these counters off /metrics as JSON; the Rust hub hands them over directly.
+// The property the E2E suite depends on: this mode is not the queue,
+// read off the hub's own counters.
 #[tokio::test]
 async fn play_bot_never_touches_the_matchmaking_queue() {
     let th = new_test_hub().await;

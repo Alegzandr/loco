@@ -1,5 +1,4 @@
-//! How many people are here, told to the ones who are not playing yet. Port of
-//! `server/hub/online.go`.
+//! How many people are here, told to the ones who are not playing yet.
 //!
 //! Sockets, not seats; seatless only; and **what each socket was last told is
 //! kept per socket**, which is what makes a player coming back from a match
