@@ -214,7 +214,7 @@
     <RulesButton label={t.rulesHowBtn} variant="text" onclick={() => (showRules = true)} />
   </div>
 
-  <!-- The mark, not the page's heading. `GamePage.svelte` serves the one top-level
+  <!-- The mark, not the page's heading. the game's layout (`routes/(game)/+layout.svelte`) serves the one top-level
        heading this document has, in text, before any of this mounts; wrapping a
        logotype in a second one gave `/` two headings that both said "LOCO" and
        neither of which said what the page was.
@@ -375,7 +375,7 @@
   </div>
 
   <!-- Privacy and terms are not here any more: they are a page, linked at the
-       right-hand end of the footer this screen sits above (GamePage.svelte). A
+       right-hand end of the footer this screen sits above (the bar, `layouts/SiteFooter.svelte`). A
        policy has to be linkable, and the entry screen is the one screen that
        footer is visible on anyway. -->
 
@@ -460,7 +460,7 @@
 
   /* Under 46rem it moves to the foot of the screen, centred under the menu.
      That top line is full at this width — the burger owns the left corner
-     (`GamePage.svelte` fixes it at these very offsets), the speaker and "How to
+     (`GamePage.css` fixes it at these very offsets), the speaker and "How to
      play" own the right — and a plate squeezed onto it landed straight across
      both, while stacking it underneath put a second row of chrome above a
      wordmark that is the first thing anybody should read. The bottom is empty

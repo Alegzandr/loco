@@ -83,7 +83,7 @@ describe('a seat costs the pinch, and nothing else does', () => {
     // Same gate as the CSS, read at event time: before a seat, and on every
     // content page, the gesture is untouched.
     expect(guard).toMatch(/hasAttribute\('data-seated'\)/)
-    expect(read('entry.ts'), 'the guard has to be installed at boot').toMatch(/initPinchGuard\(\)/)
+    expect(read('boot.ts'), 'the guard has to be installed at boot').toMatch(/initPinchGuard\(\)/)
   })
 })
 

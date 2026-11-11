@@ -1,6 +1,6 @@
 // Every page of this site is a file. The game's page included: its served half
 // (the heading, the footer row, the prose behind the sheet) is what a crawler
-// reads, and `#root` is left empty for src/entry.ts to fill in the browser.
+// reads, and `#root` is left empty for the root layout to fill in the browser.
 export const prerender = true
 
 // SvelteKit builds directories (`/fr/index.html`), which nginx would serve at

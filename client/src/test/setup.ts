@@ -1,6 +1,22 @@
 import '@testing-library/jest-dom'
 import { flushSync } from 'svelte'
-import { beforeEach } from 'vitest'
+import { beforeEach, vi } from 'vitest'
+
+/**
+ * The router, as a test sees it.
+ *
+ * A language change is a SvelteKit navigation now (`src/langRoute.ts`), and the
+ * real `goto` throws outside a started app: there is no router under jsdom. So
+ * every test gets a recorded one instead, and a test asking where the page went
+ * reads `goto`'s calls — `vi.mocked(goto).mock.calls`. Cleared before each test
+ * with the rest of the per-test state below.
+ */
+vi.mock('$app/navigation', () => ({
+  goto: vi.fn(() => Promise.resolve()),
+  afterNavigate: vi.fn(),
+  beforeNavigate: vi.fn(),
+  onNavigate: vi.fn(),
+}))
 import { configure, fireEvent } from '@testing-library/dom'
 import { resetI18n } from '../i18n/store'
 // Imported for its side effect and its order: see the flush below.
@@ -62,8 +78,10 @@ flushStoreWrites()
  * inherits whatever the first one chose — and a French label under an English
  * assertion is a confusing way to find that out.
  */
-beforeEach(() => {
+beforeEach(async () => {
   resetI18n()
+  const { goto } = await import('$app/navigation')
+  vi.mocked(goto).mockClear()
 })
 
 /**

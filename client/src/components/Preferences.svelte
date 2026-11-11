@@ -77,7 +77,7 @@
     })
   })
 
-  // The drawer in `layouts/GamePage.svelte` is prerendered markup, outside
+  // The drawer (`layouts/SiteDrawer.svelte`) is rendered by the page, outside
   // `#root`, so it asks for this panel by event rather than by calling into it.
   // Only one screen is mounted at a time, so only one listener ever answers.
   $effect(() => {

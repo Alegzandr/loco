@@ -1,14 +1,14 @@
 import { test, expect, type Page } from '@playwright/test'
 
 /**
- * The site and the game are one app (SvelteKit's router, `client/src/entry.ts`
+ * The site and the game are one app (SvelteKit's router, the root layout
  * parking the game across a navigation, one bar and one drawer for both
  * halves). What that promises a player, checked in the browser:
  *
  *  - moving between a content page and the game is a navigation, never a
  *    document load, and the site's bar is the same box on both sides;
- *  - the globe in that bar is on `/` too, and there it translates the page in
- *    place rather than navigating;
+ *  - the globe in that bar is on `/` too, and there it moves to the other home
+ *    by the router, the game following, with nothing reloaded;
  *  - a table survives a trip to another page and back — one document, one
  *    socket, the same seat.
  *
@@ -54,7 +54,7 @@ test.describe('one app', () => {
     expect(await page.evaluate(() => document.documentElement.dataset.servedLang)).toBe('en')
   })
 
-  test('changes language in place from the bar on the home page', async ({ page }) => {
+  test('changes language from the bar on the home page without a reload', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByRole('button', { name: /New table/ })).toBeVisible()
     const loads = countLoads(page)
@@ -62,7 +62,8 @@ test.describe('one app', () => {
     await page.locator('.siteFooter .langBtn').click()
     await page.locator('#langPop a[lang="fr"]').click()
 
-    // The game, the bar and the address bar, together, with nothing reloaded.
+    // The game, the bar and the address bar, together: a navigation the game
+    // survives, with nothing reloaded.
     await expect(page.getByRole('button', { name: /Nouvelle table/ })).toBeVisible()
     await expect(page.locator('.footerRow a[href="/fr/regles/"]')).toBeVisible()
     await expect(page).toHaveURL(/\/fr\/$/)

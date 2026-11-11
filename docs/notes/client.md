@@ -147,129 +147,184 @@ appends to a `$state` array here has to do the same.
 ## How the game gets on the page
 
 The site is one SvelteKit app (`@sveltejs/kit` 3, `adapter-static`). Every URL is a prerendered file
-in `client/build/`, served by nginx exactly as Astro's output directory was — there is no Node in production —
-and the router moves between them without a document load. That last part is the reason for the
+in `client/build/`, served by nginx exactly as Astro's output directory was — there is no Node in
+production — and the router moves between them without a document load. That is the reason for the
 move: under Astro a content page and the game were two builds glued at the document, so reading the
 rules from the lobby threw away the socket, the music and the store, and the way back was a cold
 boot. Now it is a navigation inside one app.
 
-**The routes are the old pages, one for one** (`src/routes/`): `/` and `/fr/` render
-`layouts/GamePage.svelte`, every content page renders `layouts/ContentPage.svelte` around its
-article (`src/content/*Article.svelte`), `/i/` is the game page with the invitation's head, the 404
-is `routes/404/` (built to `404.html`, `trailingSlash = 'never'`, `csr = false`), and the two sitemaps
-are prerendered `+server.ts` routes built from `seo/meta.ts`. `routes/+layout.ts` sets `prerender =
-true` and `trailingSlash = 'always'` for everything else. `+error.svelte` is what the dev server
-answers a miss with; in production nginx serves the 404 file and the router never sees a miss (a
-link it cannot match is followed as a full navigation).
+The first port kept Astro's shape and moved it across: a layout component per kind of page wrapped by
+a route per URL, `entry.ts` `mount()`ing the game by hand into an element and moving that element
+in and out of the page, the home page translating itself with `data-alt*` attributes, and
+`page-boot.ts` / `homeSheet.ts` wiring behaviour onto prerendered markup by `querySelector`. Each of
+those was the right answer to a static page with no framework behind it and the wrong one to an
+app, so they were redesigned the SvelteKit way. What each became, and why:
 
-**`<html>` and `<body>` are not a component's**, so they are written twice from one function:
-`seo/document.ts: documentFor(path)` gives the `lang`, `data-served-lang`, `data-alt-title` and the
-body class (`doc` for a content page, `game` for the game, nothing for the 404). `hooks.server.ts`
-writes it into `src/app.html`'s placeholders when a page is prerendered; the page layouts call
-`applyDocument` with the same answer, synchronously in their script, when the router renders them in
-place of another page. `seo.test.ts` walks every registry path through it.
+### Routes: two groups, and the registry decides every path
 
-**The app is never server-rendered**, and that is still deliberate. `initSessionRestore()` reads
-`sessionStorage`, the language comes from `localStorage` then `navigator.language`, and the whole
-board is measured from the viewport (`boardSpace`, `elementSize`, `safeAreaInsets`). A server knows
-none of those. So the game page's prerendered HTML carries the served half of `/` — the `<h1>`, the
-footer bar, the sheet of prose, the drawer — and an **empty `#root`**, which `src/entry.ts` fills in
-the browser. This is a deliberate departure from the migration plan's "`ssr = false` on the game
-route": that would have shipped `/` as an empty shell, and the served half is what a crawler and a
-reader with no script read, and what `<details>` opens with scripts off.
+```
+src/routes/
+  +layout.svelte          fonts, reset, the document's attributes, the cross-fade, and the game
+  +layout.ts              prerender = true, trailingSlash = 'always'
+  +error.svelte           the dev server's miss (production's is nginx's 404)
+  (game)/+layout.svelte   the frame around the game: head, <h1>, the bar with the sheet, the drawer
+  (game)/+page.svelte, (game)/fr/+page.svelte, (game)/i/+page.svelte
+  (content)/+layout.svelte              header, column, back-to-top, the bar
+  (content)/[slug=pageEn]/+page.svelte  every English content page   (+page.ts: entries)
+  (content)/fr/[slug=pageFr]/+page.svelte  every French one          (+page.ts: entries)
+  404/                    builds 404.html: trailingSlash 'never', csr = false
+  sitemap-index.xml/, sitemap-0.xml/    prerendered +server.ts from seo/sitemap.ts
+```
 
-**The game is mounted once per document and parked, never destroyed** (`entry.ts: attachGame`).
-`GamePage` hands its `#root` over on mount and calls what comes back when the router replaces it.
-The first call runs the boot sequence (below) and `mount()`s `Root.svelte` into a host element of its
-own (`.appHost`, which `GamePage.css` sizes to `#root`); every later call — a player coming back from
-the rules — moves that same host back in. In between it waits in an inert, invisible, viewport-sized
-holder on `<body>`. Unmounting would have closed the socket (`Root.svelte` opens it with the app), so
-a player who stepped into the rules from the lobby was a new connection on the way back, and one who
-pressed Back at a seat dropped out of the match. Parked, nothing stops: the socket, the bed, the
-store and a running match carry on behind the page.
+**Two route groups, one per shell.** A move from the rules to the cards keeps `(content)/+layout`
+and replaces only the article; a move from `/` to `/fr/` keeps `(game)/+layout`. Under Astro each
+page was its own document and its own copy of the shell.
 
-Two things the game does *to the document* must not survive the trip, and `hooks/gameShown.svelte.ts`
-is the flag that releases them: `data-seated` (which costs a page its pinch and its text selection —
-`App.svelte` writes it only while the game is shown, while `setTabSeated` keeps answering the other
-tab's question about the seat) and the TAB key the scoreboard holds (`heldKey` stands down while
-parked, so TAB walks the content page).
+**A content page is one parameterised route per language, not a directory per page.** The slug is
+matched against the registry (`src/params.ts`, `defineParams` — Kit 3's single matcher export) and
+the routes' `entries` are the registry's slugs (`seo/document.ts: contentSlugs`), so `seo/meta.ts` is
+the single source of every path: the sitemap, the hreflang sets, the matchers and the prerendered
+files cannot disagree, and a URL the registry does not know is the 404 rather than an empty article.
+`content/Article.svelte` says which article is which page. `params.ts` and its imports name their
+`.ts` extensions: Kit 3 loads the matcher file through Node's own loader at build time, where an
+extensionless import does not resolve.
 
-**The boot sequence keeps its order and runs once per document, on the game page only**: `initLang`,
-`initMotion`, `initI18n`, `initPinchGuard`, `initContextGuard`, `initTableInvite`, `initTabLock`,
-`initSessionRestore`, then the mount. Not in the root layout's `onMount`, which the plan suggested: a
-content page in a tab of its own would then be elected by `initTabLock()`, and the tab actually
-holding the game would draw the curtain. A document that starts on a content page boots the game the
-first time the router brings it to `/`. On every later return, `initLang()` and
-`i18n/store.ts: redetectLang()` decide the language again against the page now on screen — it may be
-the other language's, and the content pages' globe may have recorded a choice on the way.
+**Everything a page shows comes from its URL**: `seo/document.ts: routeFor(pathname)` gives the page
+of the registry, its language, whether it is the game or a document, and what goes on `<html>` /
+`<body>`. Three readers use it and must never disagree — `hooks.server.ts` writes the attributes into
+`src/app.html`'s placeholders at prerender, the root layout rewrites them on the live document on
+every navigation (`$effect.pre` on `page.url`, from `$app/state`), and the two group layouts render
+their head, chrome and article from it. No `load` function carries this: the URL is the one thing all
+three already have, and data a `load` returned would be serialised into every page's bootstrap for
+nothing. `seo.test.ts` walks every registry path through it.
+
+Two things deliberately did not move:
+
+- **`content/ui.ts` stays a data module**, typed per language, for the site's own copy. Under Astro
+  it was build-time only; now the pages hydrate, so it ships with the pages that render it, which is
+  the cost of a content page being part of the app. It is not folded into `i18n/en.ts` / `fr.ts`:
+  those are the game's translations, downloaded by every player, and the content pages' prose has
+  no business in them.
+- **One article chunk for both content routes.** `content/Article.svelte` imports every article so
+  one parameterised route can render any page, which puts them in one chunk instead of seven. The
+  pages are prerendered, so this weighs on hydration and on the first client-side visit to a content
+  page, never on what a reader or a crawler sees first; it is the price of one route per language,
+  and a `load` that picked the article would serialise into every page's bootstrap for no gain.
+
+### The game lives in the root layout
+
+The root layout is the one component the router never replaces, so it is where the game is rendered:
+`<div id="root">` with the game in it, **before** the page's own children. On a game page that is
+the board's place in the flex column (`GamePage.css` gives it what the bar leaves); on a content page
+it stays rendered but `.parked` — `inert`, `aria-hidden`, invisible, viewport-sized (`base.css`) —
+so the socket, the music, the store and a running match carry on while the reader is on the rules,
+and are there on the way back. Back at a seat and then Forward returns to the same table, one
+document and one socket throughout (`e2e/tests/shell.spec.ts`). Under the first port this was
+`entry.ts: attachGame` moving a hand-`mount()`ed element between the page and a holder on `<body>`;
+it is a `{#if}` and a class now.
+
+While parked the game releases what it does to the document (`hooks/gameShown.svelte.ts`, written by
+the root layout): `data-seated`, which costs a page its pinch and its text selection (`App.svelte`
+writes it only while shown; `setTabSeated` still answers the other tab's question about the seat),
+and the TAB key the scoreboard holds (`heldKey` stands down).
+
+**The app is never server-rendered.** The prerendered `#root` is empty: the store is seeded from
+`sessionStorage`, the language from `localStorage`, the board measured from the viewport, and a
+server knows none of those. The game route is *not* `ssr = false`, which the migration plan
+suggested: that would have shipped `/` as an empty shell, and its served half — the `<h1>`, the bar,
+the sheet of prose — is what a crawler and a reader with no script read, and what `<details>` opens
+with scripts off.
+
+**The boot sequence keeps its order and runs once per document, the first time the router is on a
+game page** (`src/boot.ts: bootGame`, called by the root layout, which then renders the component it
+returns): `initLang`, `initMotion`, `initI18n`, `initPinchGuard`, `initContextGuard`,
+`initTableInvite`, `initTabLock`, `initSessionRestore`. Not `hooks.client.ts`, and not on every page:
+a tab reading the rules holds no game, and `initTabLock()` electing it would draw the curtain over the
+tab actually playing. On every later arrival at a game page the root layout runs `initLang()` and
+`redetectLang()` again: the page may be the other language's, and the globe may have recorded a
+choice on the way. `Root.svelte` stays — it is not an Astro leftover but the tab lock's switch, which
+must decide whether `App` (and its socket) exists at all.
 
 **The cost of the split is still that `/` arrives twice, so the two halves are held together on
-purpose.** The footer bar, the phone's burger and the prose behind the sheet are prerendered markup
-and paint on the first frame; the lobby paints whenever the app has mounted. On a reload that read as
-the background coming up with one lonely control on it and the game dropping in a few hundred
-milliseconds later.
+purpose.** The bar, the phone's burger and the prose behind the sheet are prerendered markup and
+paint on the first frame; the lobby paints whenever the game has booted. The app's rendered child and
+the served chrome therefore hold at `opacity: 0` until `boot.ts: markBooted` writes `data-booted` on
+`<html>`, two `requestAnimationFrame`s after the render, then a single 0.34s fade brings them up
+together. **What fades is what arrives, never the surface it arrives onto**: `#root` and the bar are
+filled with `--color-canvas`, and fading either let the body's gradient through, so the selectors are
+`#root > *`, `.onHome .footerRow` and `.homeBurger` (`GamePage.css`). The hold is inside
+`@media (scripting: enabled)` with a 3s fallback delay, the reveal value is spent 600ms later so it
+never replays on a screen change, and it animates opacity only. `contentPages.test.ts` pins each.
 
-The app's mounted child and the served chrome therefore hold at `opacity: 0` until `entry.ts` writes
-`data-booted` on `<html>`, two `requestAnimationFrame`s after the mount so the attribute lands on a
-commit that has actually painted. Then a single 0.34s fade brings them up together.
+### Behaviour is the components', not a script's over the markup
 
-**What fades is what arrives, never the surface it arrives onto.** `tokens.css` fills `#root` and the
-bar with `--color-canvas`, and those flat fills are the reason the body's candy gradient is never
-seen in the game. Fading either let the gradient through for a third of a second. The selectors are
-`#root > *` and the chrome's contents instead (`layouts/GamePage.css`); the canvas is painted on the
-first frame and does not move again.
+`page-boot.ts`, `homeSheet.ts` and `navMenu.ts` found prerendered elements by selector and wired
+them, because an Astro page had no component instance in the browser to own them. SvelteKit hydrates
+the page, so each behaviour moved into the component that renders the element:
 
-Four details make it safe rather than a way to lose the page:
+- **The sheet of prose** (`(game)/+layout.svelte`): a native `<details bind:open>` — still opened by
+  its `<summary>` with no script — plus Escape (`<svelte:document onkeydown>`, Escape only), the
+  scrim's click, the ✕, and focus handed back to the control it was opened from.
+- **The drawer** (`layouts/SiteDrawer.svelte`): shutting when the window widens past the phone
+  (`$effect` on `matchMedia`, checked once on arrival too), shutting after a navigation
+  (`afterNavigate`), and the About and Preferences rows.
+- **The language panel** (`layouts/SiteFooter.svelte`): the choice recorded on the link itself
+  (`onclick={() => rememberLang(l)}`), the panel shut after a navigation.
+- **Back to top** (`layouts/ToTop.svelte`), **smooth in-page travel** (`(content)/+layout.svelte`,
+  `html[data-scroll]` from the system preference) and **the live list** (`content/LiveArticle.svelte`
+  rendering the rows `content/liveList.ts: fetchLiveRows` returns — Svelte text, never markup).
 
-- The hold is inside `@media (scripting: enabled)`. With no script there is no mount to wait for, and
-  the prose behind the sheet is the only thing on `/` a crawler reads. `seo.spec.ts` browses this page
-  with JavaScript disabled, and it must keep seeing it immediately.
-- The same animation carries a 3s delay while the attribute is missing. A bundle that 404s, throws or
-  is blocked reveals the page anyway.
-- **The reveal is spent.** `entry.ts` blanks the value 600ms later, leaving the bare attribute that
-  lifts the hold and no rule that animates — a live `#root > *` reveal would fade the board in again
-  on every screen change.
-- It animates `opacity` and nothing else. A transform would make each held element the containing
-  block for the fixed burger and for every panel the app renders, for as long as it ran.
+A control only a script can honour still ships `hidden` and is revealed on mount
+(`hidden={!hydrated}`), and the pages read the same with no script: progressive enhancement, which
+is what SvelteKit's prerender-then-hydrate is.
 
-Reduced motion keeps the wait and loses the fade: the blanket rule in `tokens.css` cuts every
-animation's *duration* and leaves its *delay* alone. `contentPages.test.ts` pins each of these,
-including the selectors that must **not** be there.
+### The CSP stays closed, and the header is what allows the router
 
-**The CSP stays closed, and the header is what allows the router.** A prerendered page starts the
-router with one inline `<script>`. SvelteKit hashes it (`csp: { mode: 'hash' }` in `vite.config.ts`)
-and writes the hash into a `<meta http-equiv>` — which is the same trap Astro's islands were: a meta
-policy does not loosen a header policy, both are enforced, and nginx sends `script-src 'self'` as a
-header. So the last step of `npm run build` is `scripts/csp-hashes.mjs`: it hashes every executable
-inline script in `build/`, fails if one is not in its own page's meta, and writes `csp-hashes.conf`,
-one `set $loco_script_hashes "…";` that `security-headers.conf` includes and splices into
-`script-src`. The Dockerfile copies it from the builder stage, never from the context. It is
-generated and git-ignored: a stale copy would refuse the bootstrap of every page it no longer
-matches. `csp.test.ts` pins the wiring and the reader; `make csp` (`tools/csp/check.mjs`) is what
-proves it, on the page nginx serves. The 404 carries no script at all.
+A prerendered page starts the router with one inline `<script>`. SvelteKit hashes it (`csp: { mode:
+'hash' }` in `vite.config.ts`) and writes the hash into a `<meta http-equiv>` — which is the same trap
+Astro's islands were: a meta policy does not loosen a header policy, both are enforced, and nginx
+sends `script-src 'self'` as a header. So the last step of `npm run build` is
+`scripts/csp-hashes.mjs`: it hashes every executable inline script in `build/`, fails if one is not in
+its own page's meta, and writes `csp-hashes.conf`, one `set $loco_script_hashes "…";` that
+`security-headers.conf` includes and splices into `script-src`. The Dockerfile copies it from the
+builder stage, never from the context; it is generated and git-ignored. Since the content pages share
+two routes, there are five distinct bootstraps rather than seventeen. `csp.test.ts` pins the wiring
+and the reader; `make csp` (`tools/csp/check.mjs`) loads every prerendered page and a content-to-game
+navigation behind the real header. The 404 carries no script at all.
+
+What the plan retired with Astro, and what replaced it:
+
+| Astro rule | Now |
+| --- | --- |
+| "the game is never an island" (a `client:*` directive inlines a runtime the CSP refuses) | there are no islands; the inline bootstrap is hashed into the header, and `csp.test.ts` refuses any *hand-written* inline script (structured data excepted) |
+| "a content page ships no JavaScript except `page-boot.ts`" | a content page hydrates; what survives is the reason — **a content page is readable with no script**: prerendered whole, its articles render their prose on the server and only the live list in the browser (`livePage.test.ts`, `legal.test.ts`) |
+| `/` translates itself in place (`data-alt*`, `langSwap.ts`) | a language is a navigation to the page in that language (`langRoute.ts`), below |
+| `entry.ts` mounts the game into `#root` | the root layout renders it, and parks it |
+| `inlineStylesheets: 'always'` | `inlineStyleThreshold: Infinity` |
+| `@astrojs/sitemap` walking the output | `src/seo/sitemap.ts` built from `PAGES` |
+| `<Image />` | `@sveltejs/enhanced-img` (`<enhanced:img>`, three widths) |
+| `envPrefix: ['PUBLIC_', 'VITE_']` restored by hand | Vite's own `VITE_`, written out for `wsEnv.test.ts`; the site origin is a `define` (`__LOCO_ORIGIN__`) rather than `$env/static/public`, because the E2E suite imports `seo/meta.ts` through Node's CommonJS loader, where neither `import.meta` nor `$env` exists |
 
 ### One shell, not two sites
 
 The router made the seam between the site and the game visible: under Astro every crossing was a page
 load and nobody compared the two sides, and once it became a navigation everything that differed
-between them was the one thing that changed on screen. So what both sides draw is now drawn once:
+between them was the one thing that changed on screen. So what both sides draw is drawn once:
 
 - **One bar and one drawer** (`layouts/SiteFooter.svelte`, `layouts/SiteDrawer.svelte`), rendered by
-  `GamePage` and `ContentPage` alike and styled once in `content.css`. Same links in the same order,
-  privacy at the end, **the language globe in the same place on every page that is not a seat**, one
-  height on both. What each page needs is passed in: the sheet of prose or "Play" at the bar's left
-  end, Preferences or Play as the drawer's one action. Reasoning and history: `seo.md`, "The shell".
-- **The bar does not move between pages.** It carries `view-transition-name: site-footer`, and
-  `routes/+layout.svelte` turns every navigation into a 0.22s cross-fade (`onNavigate` +
+  both group layouts and styled once in `content.css`. Same links in the same order, privacy at the
+  end, **the language globe in the same place on every page that is not a seat**, one height on both.
+  What each page needs is passed in: the sheet of prose or "Play" at the bar's left end, Preferences
+  or Play as the drawer's one action. Reasoning and history: `seo.md`, "The shell".
+- **The bar does not move between pages.** It carries `view-transition-name: site-footer`, and the
+  root layout turns every navigation into a 0.22s cross-fade (`onNavigate` +
   `document.startViewTransition`, progressive), skipped under reduced motion — the game's
   `data-motion` once it has booted, the system's before — and for a fragment.
-- **On `/` a globe pick is the gear's swap**, not a navigation: `homeSheet.ts` catches the click in
-  the capture phase and does what `LanguageSwitcher` does (`setLang` + `swapServedLang`), so the
-  game, the bar and the address bar change together without the router re-rendering the page it is
-  already on. On a content page the same links navigate, and `page-boot.ts: recordLangChoice()`
-  writes the choice down on the way.
+- **The globe is a link everywhere**, `/` included: on a content page it goes to that page in the
+  other language, on `/` to the other home, and the game the root layout keeps follows the choice
+  there. The choice is written down on the press.
 - **No glass.** The content header and the bar were 92% canvas over a 14px backdrop blur; they are
-  opaque canvas now, as the game's own surfaces are, because DESIGN.md keeps blur for the modal scrim
+  opaque canvas, as the game's own surfaces are, because DESIGN.md keeps blur for the modal scrim
   alone.
 
 What stays deliberately distinct: the content pages' **header** (the mark back to the game and
@@ -277,17 +332,6 @@ What stays deliberately distinct: the content pages' **header** (the mark back t
 its own composition with the wordmark at its centre; the game's **top-right chip row** (fullscreen,
 gear, audio, rules) stays the game's, because everything behind it is a game setting; and **at a
 seat there is no site chrome at all** — the bar and the burger go on `data-seated`.
-
-What the plan retired with Astro, and what replaced it:
-
-| Astro rule | Now |
-| --- | --- |
-| "the game is never an island" (a `client:*` directive inlines a runtime the CSP refuses) | there are no islands to have; the inline bootstrap is hashed into the header, and `csp.test.ts` refuses any *hand-written* inline script (structured data excepted) |
-| "a content page ships no JavaScript except `page-boot.ts`" | a content page loads the router and its own page chunk; `page-boot.ts` is now `bootContentPage()`, called on mount and undone on destroy. What survives is the reason: **a content page is readable with no script** — prerendered whole, its articles carry no effect, no `{@html}`, no inline script (`livePage.test.ts`, `legal.test.ts`) |
-| `inlineStylesheets: 'always'` | `inlineStyleThreshold: Infinity` |
-| `@astrojs/sitemap` walking the output | `src/seo/sitemap.ts` built from `PAGES` |
-| `<Image />` | `@sveltejs/enhanced-img` (`<enhanced:img>`, three widths) |
-| `envPrefix: ['PUBLIC_', 'VITE_']` restored by hand | Vite's own `VITE_`, written out in `vite.config.ts` for `wsEnv.test.ts` |
 
 ## The toolchain, and the one place it is deliberately not the newest
 
@@ -790,8 +834,8 @@ That is the disconnect people actually have, and it was the one that could not b
   overwrite each other's token and reclaim the wrong seat; it survives a reload, a back/forward
   navigation and a crash restore, which is every case this exists for; and it dies with the tab
   rather than handing the next person a live seat.
-- `initSessionRestore()` runs in `entry.ts` **before the first render**, next to `initTheme()` and for
-  the same reason: `webSocket` connects in an effect on App's first mount and the rejoin goes out
+- `initSessionRestore()` runs in `boot.ts` **before the first render**, last in the boot sequence, for
+  this reason: `webSocket` connects in an effect on App's first mount and the rejoin goes out
   from that very first `onopen`, so the store has to already know what it is reclaiming.
 - `screen: 'restoring'` is its own screen, not a flag over `'game'`: the board has no hand, no discard
   and no players at that point, and a table drawn from an empty state behind an overlay is a broken
@@ -1241,7 +1285,7 @@ nothing here decides anything.
   box anchored at `left: 50%` is offered the half of the line it starts at, and the count wrapped
   onto a second row inside its own plate.
 - **The wait needed that move as much as the entry screen did, and for a different reason.** On `/`
-  the burger owns the left corner (`GamePage.svelte` fixes it at these very offsets) and the plate
+  the burger owns the left corner (`GamePage.css` fixes it at these very offsets) and the plate
   landed straight across it. On `Searching.svelte` there is no burger — that corner is free — and the
   plate was left in it at every width on exactly that reasoning. What the reasoning missed is the row
   opposite: three controls, and the middle one of them is a **word**, because "How to play" is a pill
@@ -1527,7 +1571,7 @@ the table, one more round — and lets the scoreboard answer the rest.
 
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
-- `initI18n()` (`client/src/i18n/store.ts`) wraps app in `entry.ts`. `i18n` → `{ lang, t, setLang }`.
+- `initI18n()` (`client/src/i18n/store.ts`) runs in the boot sequence (`boot.ts`); `redetectLang()` decides again when the router brings the game back to a game page. `i18n` → `{ lang, t, setLang }`.
 - Detect order (`chooseLang` in `src/lang.ts`, the one definition): `localStorage('loco_lang')` →
   `navigator.language` **but only on a document served as the default language or as none at all** →
   `data-served-lang` on `<html>`. `detectLang` in the store is that function read against the DOM.
@@ -1540,70 +1584,67 @@ the table, one more round — and lets the scoreboard answer the rest.
 
 ### One document, one language
 
-The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework, because
-the content pages take part in this decision and mount nothing at all.
+The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework,
+and the decision itself is `chooseLang` there, pure. `src/langRoute.ts` is the part that acts on it.
 
 The bug that produced it. A stored choice outranks the URL in `detectLang`, and half of `/` is markup
-prerendered per URL — the bar, the drawer, the sheet of prose — which no in-app state rewrites.
-So `/` opened with French stored rendered the game in French under a footer reading "With friends",
-having rewritten `<html lang>` to `fr`: a document declaring itself French while half its text was
-English, which is a lie to a screen reader before it is anything else.
+prerendered per URL — the bar, the drawer, the sheet of prose. So `/` opened with French stored
+rendered the game in French under a footer reading "With friends", having rewritten `<html lang>` to
+`fr`: a document declaring itself French while half its text was English, which is a lie to a screen
+reader before it is anything else.
 
-The first answer was a navigation: `location.replace` to the other language's URL, before anything
-else booted. It worked, and it cost two things. A round trip on the page the game is played from, and
-a redirect on the site's canonical English URL — which is the pattern Google names when it asks sites
-not to redirect on a visitor's presumed language, and which is why the arrival could never be
-answered for a *browser* setting, only for a stored choice.
+It has had three answers, and the reason for each is worth keeping:
 
-**The served half speaks both languages now.** Every string and every link `GamePage.svelte` and
-`HomeProse.svelte` render per language also carries its counterpart in `data-alt`, `data-alt-href` and
-`data-alt-aria`; `<html>` carries `data-alt-title`. `src/langSwap.ts` walks those attributes,
-exchanges them, and moves the address bar with `history.replaceState`. `initLang()` is the three
-lines that decide and apply it, first thing in `boot()`.
+1. **A document load** — `location.replace` to the other language's URL. A round trip on the page the
+   game is played from, and a redirect on the canonical English URL, which is the pattern Google
+   names when it asks sites not to redirect on a visitor's presumed language.
+2. **A rewrite in place** (Astro). Every string and link of the served half carried its other
+   language in `data-alt*`, and `langSwap.ts` exchanged them and moved the address bar with a bare
+   `history.replaceState`. The right answer for a static page with no router: nothing else could
+   render the other page without a load. It cost a second copy of every string in the markup, a test
+   counting `href={` against `data-alt-href={`, and a URL the router did not know it was at.
+3. **A navigation** (now). The other language's page exists, the router renders it without a round
+   trip, and the game is kept across the move because it lives in the root layout. So
+   `langRoute.ts: initLang` decides and, when this page is the wrong one, `goto`es the right one with
+   `{ replace: true, reset: false }`; the gear's language pick (`LanguageSwitcher`) does the same
+   after `setLang`. The `data-alt*` attributes, `langSwap.ts` and its test are gone, and
+   `langSync.test.ts` fails on a `data-alt` coming back.
 
-Five properties are what make it safe:
+The properties that made the swap safe are the properties of the navigation:
 
-- **The copy lives in the markup, never in the bundle.** The obvious implementation imports
-  `content/ui.ts` and `seo/meta.ts` and rebuilds the footer from them: 240 lines of bilingual copy
-  for pages the player is not on, plus the registry of every page on the site, downloaded by everyone
-  to translate a footer most never open. `lang.ts` already refuses the second import for that reason.
-  Carrying the alternative in the HTML costs about a kilobyte on one page and the bundle nothing —
-  and it makes the swap total by construction, since there is no key list here to fall out of step
-  with the layout. `homeLangSwap.test.ts` fails when the layout renders more than it marks.
-- **The links are the half that matters.** A label left in English is a wart; a footer link left
-  pointing at `/rules/` sends a French visitor to a static page that mounts nothing and cannot
-  correct itself. There is no second chance on that one, which is why the test counts `href={` against
-  `data-alt-href={` rather than trusting a review.
 - **A detection is never persisted.** The browser's language is re-read on every boot and gives the
   same answer, so storing it buys nothing — and it would cost the case it exists to protect: a stored
   value is a *choice*, and a choice outranks the URL, so the next French link that player was sent
-  would open in English for good. `rememberLang` stays the two switches' to call.
+  would open in English for good. `rememberLang` is called by the gear and by the globe's links, the
+  two places a language is *chosen*.
 - **The browser only ever wins on the default URL.** `/` is where somebody lands without saying
-  anything; `/fr/` is somebody having asked. `chooseLang` is pure and is tested exhaustively over
-  both languages, every stored value and several browser settings: whatever it decides for a
-  document, it decides again for the document at the URL that answer names, so a reload never sits
-  between two languages.
+  anything; `/fr/` is somebody having asked. `chooseLang` is tested exhaustively, and whatever it
+  decides for a document it decides again for the document at the URL that answer names — which is
+  also why `initI18n()` need not wait for the move to land: asked on either page, it gets the same
+  answer.
 - **It runs before `initTableInvite()`, and it carries the query string and the fragment.** That one
-  spends the invitation out of the address bar and this one rewrites the address bar; in this order
-  neither loses anything to the other. `replaceState`, never `pushState`: Back must not point at a
-  URL that would send the player straight here again. An invitation is untouched either way — `/i/`
-  is served with no `data-served-lang`, which `langUrl` reads as nothing to disagree with, and
-  `chrome={false}` leaves that document with no served copy in it at all.
+  spends the invitation out of the address bar and this one moves the address bar; in this order
+  neither loses anything to the other. **In place of the history entry**, never a new one: Back must
+  not point at a URL that would send the player straight here again. An invitation is untouched —
+  `/i/` is served with no `data-served-lang`, which `langUrl` reads as nothing to disagree with.
+- **It is not a redirect.** The request for `/` was answered with the English page, with its own
+  canonical and its `hreflang` pair; a crawler asking holds exactly that. The client-side move is
+  neither a redirect nor a canonicalisation signal.
+- **The document at the new URL is real.** `/fr/` is a page the build emitted, so reloading serves
+  it and sharing the link hands it over.
 
-What the swap deliberately does **not** touch is `data-served-lang`. It says what the page was
-*built* as, which stays true, and it is what a reload hands back — `detectLang` reads it, so a swap
-that rewrote it would make the app detect its own output.
+`data-served-lang` says what the page on screen was built as. Since every language change is now a
+navigation, it is always true of the page showing, and the root layout rewrites it with the rest of
+the document's attributes on every move (`seo/document.ts: applyDocument`). `<html lang>` is the
+game's to write once it has booted (`i18n/store.ts`), because on `/i/` the game is in the reader's
+language and the page is in none.
 
-**The document at the new URL is real.** That is the property the whole arrangement rests on: `/fr/`
-is a page the build emitted, so reloading serves it, sharing the link hands it over, and the swap is only
-ever a shortcut to a document that exists. A crawler asking for `/` still gets the English page, with
-its own canonical and its `hreflang` pair intact.
-
-The other half is the content pages' globe. Its two links stay real `<a href>`s — the href is what
-makes an `hreflang` pair navigable and a crawler follows nothing else — and `page-boot.ts` adds one
-delegated listener that records the choice on the way out. Without it the choice reached the pages
-and never the game: a reader who switched to French, read the rules and pressed "Jouer" arrived at
-`/fr/` with English still stored, and the stored choice won. One key, written by both halves.
+The globe is the other half. Its two links are real `<a href>`s on every page that is not a seat —
+the href is what makes an `hreflang` pair navigable, and a crawler follows nothing else — and each
+records the choice on the press. Without that the choice reached the pages and never the game: a
+reader who switched to French, read the rules and pressed "Jouer" arrived at `/fr/` with English
+still stored, and the stored choice won. Arriving back at a game page, the root layout decides again
+(`initLang()`, `redetectLang()`), so the game follows whichever way the reader came.
 
 ## Preferences
 `Preferences.svelte` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
@@ -1652,7 +1693,8 @@ with Escape is offered "Full screen" again and never a button that thinks it is 
 - **The language is a dropdown, and the pick is the application — on every screen.** The graphics tier below
   it is a segmented row applied on the press, which is right for a setting that changes the screen
   in place, and the language is now exactly that setting: `setLang` swaps the game's strings and
-  records the choice, `swapServedLang` takes the prerendered half and the address bar with it.
+  records the choice, and on a home page the router moves to the same page in that language
+  (`langRoute.ts: moveTo`), which re-renders the page around a game it keeps.
 
   It used to be two steps at the entry screen, and the reason is worth keeping. Applying there *left
   the page* — half of `/` is markup built per URL — and a control that reloads must not fire on the
@@ -1797,8 +1839,8 @@ with Escape is offered "Full screen" again and never a button that thinks it is 
   Labels step to 15px, hints to 13px, the switch row to 56px, the language control and its rows to
   46px, the slider track to 16px with a 30px thumb — all of it inside the same `max-width: 46rem`
   block, in each component, so the two shapes stay one decision.
-- **The drawer opens it by event.** `#navPrefs` is the page's prerendered markup, outside `#root`, so
-  `homeSheet.ts` closes the popover and dispatches `loco:preferences`; the mounted `<Preferences />`
+- **The drawer opens it by event.** `#navPrefs` is rendered by the page, the panel by the game in the
+  root layout, so `SiteDrawer.svelte` closes the popover and dispatches `loco:preferences`; the mounted `<Preferences />`
   answers. Only one screen is mounted at a time, so only one panel opens. It also remembers what had
   the focus, because `hidePopover()` hands it back to the burger and closing the panel has to return
   it somewhere real.
@@ -1836,7 +1878,7 @@ two, because `auto` is what the switch reads before it is ever touched.
 - There is no animation runtime left to hand the preference to: the attribute drives the stylesheet,
   and the two Web Animations shakes (`GameBoard.kickBoard`, `GameView.shakeScreen`) ask
   `prefersReducedMotion()` themselves before they animate anything. `motionPref.test.ts` pins the
-  wiring — that `entry.ts` calls `initMotion()` at all, that a system asking for less motion reaches
+  wiring — that `boot.ts` calls `initMotion()` at all, that a system asking for less motion reaches
   the attribute, and that an explicit answer wins over the system in both directions.
 - The capture harness still works unchanged: Playwright emulates the media query, `initMotion` reads
   it, and the attribute lands before the first paint.
@@ -1951,11 +1993,12 @@ whether a game is worth ten seconds.
 - **The phone has to be able to reach that prose.** Under 46rem `.homeIntroMain` is
   `display: none` and the drawer deliberately carries no copy, so a first visit was a logo, a
   tagline, two buttons and a burger. `#navAbout` is the drawer's first row: it shuts the popover and
-  opens the same `<details>`. It ships `hidden` and `homeSheet.ts` reveals it — the same contract as
-  `#navPrefs`, for the same reason. Two details make it work rather than look like it does:
-  `.homeIntroMain:has(.homeSheet[open])` puts the container back at that width (the sheet lives
-  inside the row that is hidden), and `homeSheet.ts` remembers **which** control opened the sheet, so
-  closing it hands the focus back to the drawer row rather than to a `display: none` summary.
+  opens the same `<details>`. It ships `hidden` and is revealed once a script runs — the same contract
+  as `#navPrefs`, for the same reason. Two details make it work rather than look like it does: at
+  that width only the *closed* sheet's button is hidden (`.homeSheet:not([open])`), so the open sheet
+  survives the row it lives in being gone, and the game's layout remembers **which** control opened
+  the sheet, so closing it hands the focus back to the drawer row rather than to a `display: none`
+  summary.
 
 The rules modal follows the same voice and one extra constraint: **it is read once, standing up,
 by somebody who wants to play now.** Section headings are the promise (`The cards that hurt`,

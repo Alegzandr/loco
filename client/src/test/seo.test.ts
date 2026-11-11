@@ -32,7 +32,8 @@ import {
   type Lang,
   type PageDef,
 } from '../seo/meta'
-import { documentFor } from '../seo/document'
+import { bodyClassFor, contentPageBySlug, contentSlugs, routeFor } from '../seo/document'
+import { params } from '../params'
 import { sitemapUrls } from '../seo/sitemap'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
@@ -49,10 +50,22 @@ function contentSources(dir = path.join(CLIENT, 'src', 'content'), out: string[]
   return out
 }
 
-/** The route file SvelteKit builds a given URL path from. */
+/**
+ * The route file SvelteKit builds a given URL path from: one of the game's
+ * three pages under `routes/(game)/`, or one of the two parameterised content
+ * routes, which only builds the path if its slug is among the `entries` it
+ * prerenders.
+ */
 function candidateFiles(urlPath: string): string[] {
+  const route = routeFor(urlPath)
   const clean = urlPath.replace(/^\/|\/$/g, '')
-  return [path.join(ROUTES_DIR, clean, '+page.svelte')]
+  if (route.kind === 'game') return [path.join(ROUTES_DIR, '(game)', clean, '+page.svelte')]
+  const fr = urlPath.startsWith('/fr/')
+  const slug = clean.replace(/^fr\//, '')
+  if (!contentSlugs(fr ? 'fr' : 'en').includes(slug)) return []
+  return fr
+    ? [path.join(ROUTES_DIR, '(content)', 'fr', '[slug=pageFr]', '+page.ts')]
+    : [path.join(ROUTES_DIR, '(content)', '[slug=pageEn]', '+page.ts')]
 }
 
 describe('the page registry', () => {
@@ -334,7 +347,7 @@ describe('the one heading a crawler can read', () => {
   // `/` is a game: what stands where a title would is a drawing, and the only
   // <h1> the page had was one React mounted. A crawler reads the served HTML,
   // and every audit came back saying the home page had no heading at all.
-  const gamePage = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.svelte'), 'utf8')
+  const gamePage = readFileSync(path.join(CLIENT, 'src', 'routes', '(game)', '+layout.svelte'), 'utf8')
 
   it('is served as markup on the home page, in text, off the screen', () => {
     // `[^>]*` rather than a literal tag: the heading also carries its own
@@ -401,15 +414,29 @@ describe('what the server has to agree with', () => {
     // server hook and the router both read them off `seo/document.ts`.
     for (const page of PAGES) {
       for (const l of LANGS) {
-        const doc = documentFor(page.path[l])
-        expect(doc.lang, page.path[l]).toBe(l)
-        expect(doc.servedLang, page.path[l]).toBe(l)
-        expect(doc.bodyClass, page.path[l]).toBe(page.id === HOME.id ? 'game' : 'doc')
+        const route = routeFor(page.path[l])
+        expect(route.page, page.path[l]).toBe(page)
+        expect(route.lang, page.path[l]).toBe(l)
+        expect(route.servedLang, page.path[l]).toBe(l)
+        expect(bodyClassFor(route), page.path[l]).toBe(page.id === HOME.id ? 'game' : 'doc')
       }
     }
-    expect(documentFor('/').altTitle).toBe(HOME.title.fr)
-    expect(documentFor('/fr/').altTitle).toBe(HOME.title.en)
-    expect(documentFor('/nope').bodyClass).toBeUndefined()
+    expect(bodyClassFor(routeFor('/nope'))).toBeUndefined()
+    expect(routeFor('/nope').kind).toBe('none')
+  })
+
+  it('matches a content slug only when the registry has the page', () => {
+    // The two parameterised routes answer only the registry's slugs, in their
+    // own language: anything else is the 404, never an empty article.
+    for (const l of LANGS) {
+      for (const slug of contentSlugs(l)) expect(contentPageBySlug(slug, l), `${l}/${slug}`).toBeDefined()
+    }
+    const en = params.pageEn as unknown as { '~standard': { validate(v: string): { value?: string; issues?: unknown } } }
+    const fr = params.pageFr as unknown as typeof en
+    expect(en['~standard'].validate('rules').value).toBe('rules')
+    expect(en['~standard'].validate('regles').issues).toBeTruthy()
+    expect(fr['~standard'].validate('regles').value).toBe('regles')
+    expect(fr['~standard'].validate('nope').issues).toBeTruthy()
   })
 
   it('keeps dev hosts out of the index, and says nothing else there', () => {

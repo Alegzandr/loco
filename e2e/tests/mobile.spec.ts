@@ -323,12 +323,13 @@ test.describe('mobile viewport', () => {
   })
 
   /**
-   * Half of `/` is markup Astro rendered per URL — the footer row, this drawer,
-   * the sheet of prose — so switching language in the app alone left the game in
-   * French under a menu still reading "With friends". That half carries both
-   * languages now (`src/langSwap.ts`), so the pick applies itself: the whole
-   * document changes, the address bar moves to the URL a reload would need, and
-   * there is no Apply button left because nothing costs the page any more.
+   * Half of `/` is markup prerendered per URL — the bar, this drawer, the sheet
+   * of prose — so switching language in the app alone left the game in French
+   * under a menu still reading "With friends". The pick is a navigation to the
+   * same page in that language now (`src/langRoute.ts`), which the router
+   * renders around a game it keeps: the whole document changes, the address bar
+   * is the URL a reload would need, and there is no Apply button left because
+   * nothing costs the page.
    *
    * The links are the half worth asserting. A label left behind is a wart; a
    * link left pointing at `/rules/` sends this player to a static English page
