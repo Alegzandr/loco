@@ -2,68 +2,63 @@
 
 All messages are JSON over a single WebSocket per player.
 
-**`server-rs/crates/loco-protocol/` is the source.** `client.rs` holds `ClientMsg`, `server.rs`
+**`server/crates/loco-protocol/` is the source.** `client.rs` holds `ClientMsg`, `server.rs`
 `ServerMsg`, `dto.rs` the records they carry and `enums.rs` the wire enums (pinned to `loco-game` by
-`tests/enums.rs`). `make protocol` runs `server-rs/crates/protocolgen`, which writes the client's
+`tests/enums.rs`). `make protocol` runs `server/crates/protocolgen`, which writes the client's
 `src/types/protocol.ts` (by `ts-rs`) and `src/types/protocolSchemas.ts` (a JSON Schema by
 `schemars`, turned into Valibot by `tools/protocol/valibot.mjs`). Those two files carry a "do not
-edit" header and CI (`protocol_check_rs`) fails on any difference. This page is prose for humans and
+edit" header and CI (`protocol_check`) fails on any difference. This page is prose for humans and
 is the one description of the wire that a program does not check: when it disagrees with the crate,
 the crate wins.
 
-Until the cutover the server that runs is still the Go one (`server/protocol/`). The two describe the
-same bytes, and that is checked rather than hoped: see "Parity fixtures" below.
+The bytes are the ones the original Go server wrote, and that is held by test rather than by memory:
+see "Wire fixtures" below.
 
 ### The shape
 
 `ClientMsg` and `ServerMsg` are tagged unions on `type`: one variant per message, each carrying the
 fields its handler reads or the hub writes, and nothing else. The JSON is flat, `type` beside the
-fields, exactly as the Go envelope wrote it. The omission rules are Go's, mechanically:
+fields. The omission rules are fixed:
 
-- a Go `omitempty` field is skipped when zero (`#[serde(default, skip_serializing_if)]`) and
-  optional in TypeScript;
-- a Go pointer is an `Option`, skipped when `None` and optional in TypeScript, so **a zero behind it
-  is written**: seat 0, `pending_draw: 0`, `interrupt_open: false`;
+- a field that is meaningless at zero is skipped when zero (`#[serde(default,
+  skip_serializing_if)]`) and optional in TypeScript;
+- a field whose zero is a real answer is an `Option`, skipped when `None` and optional in
+  TypeScript, so **a zero behind it is written**: seat 0, `pending_draw: 0`, `interrupt_open: false`;
 - anything else is always written, zero included, and required (`turn` on the four messages that
-  carry it, `drawn_count` on `card_drawn`, every DTO field without `omitempty`).
+  carry it, `drawn_count` on `card_drawn`, every DTO field that is never skipped).
 
-One wrinkle is kept on purpose. The Go envelope never omitted `turn` or `drawn_count`, so it wrote
-`"turn":0,"drawn_count":0` on **every** message, `players_online` and `error` included. The Rust
-serializer writes the same two zeros beside every payload that does not own them (`server.rs`,
-`Wire`), so the bytes do not move; the generated TypeScript does not mention them there, and no
-client reads them. They go when the Go server does, in one place.
+One wrinkle is kept on purpose. The original server's flat envelope never omitted `turn` or
+`drawn_count`, so it wrote `"turn":0,"drawn_count":0` on **every** message, `players_online` and
+`error` included. The serializer still writes those two zeros beside every payload that does not own
+them (`server.rs`, `Wire`), so the bytes did not move at the change of server; the generated
+TypeScript does not mention them there, and no client reads them. Dropping them is one edit there
+and a recapture of the fixtures.
 
 The client reads a message by switching on `msg.type`, which narrows the union: a field is only
 readable on the messages that carry it (`client/src/hooks/serverMessages.ts`). `ServerMsgOf<'x'>`
 names one variant.
 
-Decoding a client message is a little stricter than Go's was, in one place: a `type` the server does
-not know, or an enum value outside the wire set (`chosen_color: "purple"`, an unknown emote), fails
-at decoding rather than in the handler. Case still does not matter for colours, kinds and formats,
-and an empty `chosen_color` still reads as `wild`, as Go's `parseColor` did. Stray fields are still
-ignored: Go accepted every field on every message, and so does serde.
+Decoding a client message is strict about values and lenient about everything else: a `type` the
+server does not know, or an enum value outside the wire set (`chosen_color: "purple"`, an unknown
+emote), fails at decoding rather than in the handler. Case does not matter for colours, kinds and
+formats, an empty `chosen_color` reads as `wild`, and stray fields are ignored.
 
-The refusal such a frame earns keeps Go's words, because the client maps them
-(`i18n/serverErrors.ts`): the Rust read pump (`loco-hub/src/wire.rs`, `decode_client`) answers an
-unknown type with `unknown message type`, a bad colour with `unknown color: "x"`, a bad kind with
-`unknown kind: "x"`, a bad format with `invalid match format "x": must be BO1, BO3, BO5, or BO7`, an
-unknown emote with `unknown emote`, and anything else that does not decode with `invalid message
-format`. One string moved: a bad `chosen_color` on a wild was `chosen_color required for wild:
-unknown color: "x"` in Go and is the plain `unknown color: "x"` now, since the frame never reaches
-the handler that added the prefix. Neither is mapped by the client (only a hand-built frame can
-send one), so both land on its generic refusal line.
+The refusal such a frame earns is worded for the client's map (`i18n/serverErrors.ts`): the read pump
+(`loco-hub/src/wire.rs`, `decode_client`) answers an unknown type with `unknown message type`, a bad
+colour with `unknown color: "x"`, a bad kind with `unknown kind: "x"`, a bad format with `invalid
+match format "x": must be BO1, BO3, BO5, or BO7`, an unknown emote with `unknown emote`, and anything
+else that does not decode with `invalid message format`. None is mapped by the client (only a
+hand-built frame can send one), so each lands on its generic refusal line.
 
-### Parity fixtures
+### Wire fixtures
 
-`server-rs/crates/loco-protocol/tests/fixtures/server-go.jsonl` (196 frames, every server message
-type) and `client-go.jsonl` (62 frames) are real frames from the Go server, and `tests/parity.rs`
-reads each into the Rust type and writes it back out: it must come out equal, as JSON, to what Go put
-on the wire. To recapture them (needed only if the Go wire changes before the cutover): add a
-temporary tee of every outbound frame (`Client.SendBytes`) and every inbound one (before the
-`json.Unmarshal` in `readPump`) to two files, run `go test -count=1 ./hub/`, keep one frame per
-distinct shape with `node tools/protocol/sample-frames.mjs capture.jsonl`, and do not commit the tee.
-The fixtures in the repository were captured that way from the whole hub suite (about 4,200 outbound
-and 1,400 inbound frames).
+`server/crates/loco-protocol/tests/fixtures/server-go.jsonl` (196 frames, every server message type)
+and `client-go.jsonl` (62 frames) are real frames captured from the Go server's whole hub suite before
+it was retired, one per distinct shape (`tools/protocol/sample-frames.mjs`). `tests/parity.rs` reads
+each into the Rust type and writes it back out: it must come out equal, as JSON, to the frame on
+file. They are the contract now, not a comparison: a change that moves the wire fails them, and a
+deliberate one replaces them with frames the current server writes (tee `Client::send_bytes` and the
+read pump's input to two files under the hub's tests, then sample them the same way).
 
 ## Client → Server
 
