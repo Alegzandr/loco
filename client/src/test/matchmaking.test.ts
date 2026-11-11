@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from './render'
 import { en } from '../i18n/en'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import Searching from '../components/Searching.svelte'
 import {
   searchStage,
   formatElapsed,
   SEARCH_PATIENT_MS,
   SEARCH_LONG_MS,
-} from '../components/searchStages'
+} from '../game/searchStages'
 import MatchFound from '../components/MatchFound.svelte'
 import GameOver from '../components/GameOver.svelte'
 

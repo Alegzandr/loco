@@ -78,7 +78,7 @@ export function setMotionPref(next: MotionPref): void {
   notify()
 }
 
-/** Framework-free, so Svelte reads the same answer (`hooks/uiPrefs.svelte.ts`). */
+/** Framework-free, so Svelte reads the same answer (`state/uiPrefs.svelte.ts`). */
 export function subscribeMotion(cb: () => void): () => void {
   listeners.add(cb)
   return () => {

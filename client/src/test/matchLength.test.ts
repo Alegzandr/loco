@@ -6,7 +6,7 @@ import {
   formatRounds,
   matchLength,
   matchLengthLabel,
-} from '../components/matchLengthModel'
+} from '../game/matchLengthModel'
 import { en } from '../i18n/en'
 import type { PlayerDTO } from '../types/protocol'
 

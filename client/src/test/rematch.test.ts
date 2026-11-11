@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import * as v from 'valibot'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { PlayerDTO } from '../types/protocol'
 import { serverMsgSchema } from '../types/protocolSchemas'
 

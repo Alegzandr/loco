@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import * as v from 'valibot'
 import { render, screen } from './render'
 import { en } from '../i18n/en'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import ServerUpdating from '../components/ServerUpdating.svelte'
 import { serverMsgTypeSchema } from '../types/protocolSchemas'
 

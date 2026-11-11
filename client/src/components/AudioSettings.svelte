@@ -4,7 +4,7 @@
   import { audio } from '../audio/engine'
   import { getLoop, music } from '../audio/music'
   import { sceneFor } from '../audio/gameSounds'
-  import { gameStore } from '../hooks/gameStore'
+  import { gameStore } from '../state/gameStore'
   import { playSfx, playVolumeAudition } from '../audio/sfx'
   import { i18n } from '../i18n/i18n.svelte'
 

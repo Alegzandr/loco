@@ -81,7 +81,7 @@
   import Card from './Card.svelte'
   import CardBack from './CardBack.svelte'
   import { CARD_W, CARD_H, CARD_RADIUS, EASE_OUT_CARD, radToDeg } from './cardTheme'
-  import { reducedMotion } from '../../hooks/uiPrefs.svelte'
+  import { reducedMotion } from '../../state/uiPrefs.svelte'
 
   type Props = {
     fliers: Flier[]

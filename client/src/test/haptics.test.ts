@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hapticsFor, hapticsSupported } from '../hooks/haptics'
+import { hapticsFor, hapticsSupported } from '../state/haptics'
 import { humanVariation, HUMAN_CENTS, HUMAN_GAIN_FLOOR } from '../audio/sfx'
 
 // The phone answers the same list the speakers do: one pattern per moment, the

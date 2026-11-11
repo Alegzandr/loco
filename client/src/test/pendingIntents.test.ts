@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { keepPendingIntent, PENDING_INTENT_MAX_AGE_MS } from '../hooks/webSocketPolicy'
+import { keepPendingIntent, PENDING_INTENT_MAX_AGE_MS } from '../state/webSocketPolicy'
 
 // A message queued while the socket was down is flushed when it comes back.
 // The backoff never gives up, so "back" can be a minute later against a board

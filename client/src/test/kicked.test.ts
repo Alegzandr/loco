@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as v from 'valibot'
 import { render, screen } from './render'
 import { act } from './renderHook'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { en } from '../i18n/en'
 import { serverMsgTypeSchema } from '../types/protocolSchemas'
 import { resolveServerError } from '../i18n/serverErrors'
@@ -22,14 +22,14 @@ const stableSend = (msg: ClientMsg) => {
 const stableForceClose = () => {}
 let capturedOnMessage: ((msg: ServerMsg) => void) | undefined
 
-vi.mock('../hooks/webSocket.svelte', () => ({
+vi.mock('../state/webSocket.svelte', () => ({
   webSocket: (onMessage: (msg: ServerMsg) => void) => {
     capturedOnMessage = onMessage
     return { send: stableSend, wsStatus: 'open', forceClose: stableForceClose }
   },
 }))
-vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+vi.mock('../state/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/appEffects.svelte')>()),
   gameAudio: () => {},
 }))
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PreparedScene } from './sceneCache'
   import { blinkKeyframes, routeKeyframes, cycleMs, tilePx, type Sprite } from './life'
-  import { reducedMotion } from '../../hooks/uiPrefs.svelte'
+  import { reducedMotion } from '../../state/uiPrefs.svelte'
 
   /**
    * What moves in a rendered room: one element per sprite, carried along its

@@ -1,7 +1,7 @@
 /**
  * The store's own contract, tested apart from the game that rides on it.
  *
- * `hooks/store/createStore.ts` replaced a dependency, and a dependency's
+ * `state/store/createStore.ts` replaced a dependency, and a dependency's
  * semantics are not documented by the code that used them: `gameStore.test.ts`
  * exercises 209 reads and writes against this API without ever stating what the
  * API promises, so a replacement that got one of these details wrong would fail
@@ -9,7 +9,7 @@
  * something in this client actually depends on.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { createStore, type StateCreator, type StoreApi } from '../hooks/store/createStore'
+import { createStore, type StateCreator, type StoreApi } from '../state/store/createStore'
 
 interface Counter {
   n: number

@@ -70,7 +70,7 @@ test.describe('joining on a table link', () => {
     const guest = await browser.newPage()
     await forceEnglish(guest)
     // What a previous visit would have left behind: the lobby writes it on
-    // submit (hooks/nicknameMemory.ts).
+    // submit (state/nicknameMemory.ts).
     await guest.addInitScript(() => {
       try {
         window.localStorage.setItem('loco_nickname', 'Carol')

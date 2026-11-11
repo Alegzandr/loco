@@ -53,7 +53,7 @@ export function setGraphicsPref(next: GraphicsPref): void {
   listeners.forEach((l) => l())
 }
 
-/** Framework-free, so Svelte reads the same answer (`hooks/uiPrefs.svelte.ts`). */
+/** Framework-free, so Svelte reads the same answer (`state/uiPrefs.svelte.ts`). */
 export function subscribeGraphics(cb: () => void): () => void {
   listeners.add(cb)
   return () => {

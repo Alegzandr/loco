@@ -22,8 +22,8 @@ const NOTCH = { top: 59, right: 0, bottom: 34, left: 0 }
 // only way to test the board against one is to hand it the numbers. Same seam
 // `safeArea.test.ts` uses, one level lower: this is about *when* the value is
 // known, so the accessor under test has to be the real one.
-vi.mock('../hooks/safeAreaInsets', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/safeAreaInsets')>()),
+vi.mock('../state/safeAreaInsets', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/safeAreaInsets')>()),
   readInsets: () => NOTCH,
 }))
 
@@ -31,7 +31,7 @@ const read = (p: string) => readFileSync(join(process.cwd(), 'src', p), 'utf8')
 
 describe('the felt the room is built around is the final one', () => {
   it('knows the safe areas before the first effect runs', async () => {
-    const { safeAreaInsets } = await import('../hooks/boardMetrics.svelte')
+    const { safeAreaInsets } = await import('../state/boardMetrics.svelte')
     let atSetup: unknown = null
     // Read during setup, which is when the preload solves the anchor it renders
     // the podium under. Seeded from `NO_INSETS` and filled in by an effect, this
@@ -63,7 +63,7 @@ describe('the felt is solved for the box the board fills, never for the window',
   })
 
   it('renders the gate at that same box', () => {
-    const gate = read('hooks/gamePlay.svelte.ts')
+    const gate = read('state/gamePlay.svelte.ts')
     expect(gate).not.toMatch(/renderSizeFor\(window\.inner/)
     expect(gate).toMatch(/renderSizeFor\(box\.width, box\.height\)/)
   })

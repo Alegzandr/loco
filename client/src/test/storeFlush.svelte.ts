@@ -1,5 +1,5 @@
 import { flushSync } from 'svelte'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 
 /**
  * A store write lands on screen before the next assertion.

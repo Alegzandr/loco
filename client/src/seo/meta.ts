@@ -302,7 +302,7 @@ export const INVITE_OG: OgImage = {
  *    canonical graph — `layouts/Head.svelte` emits no canonical for a noindex page, and a
  *    duplicate of the home page claiming one would be competing with it.
  *  - **It has one path in both languages.** An invitation carries no language
- *    (see `hooks/tableInvite.ts`): the reader's browser decides, exactly as it
+ *    (see `state/tableInvite.ts`): the reader's browser decides, exactly as it
  *    does at `/`. So there is no French twin to point an `hreflang` at, and the
  *    page is served with no `data-served-lang` for `initLang` to act on.
  *  - **The code is not in the built path.** `/i/` is one emitted page and the

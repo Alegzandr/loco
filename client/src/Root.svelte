@@ -1,8 +1,8 @@
 <script lang="ts">
   import App from './App.svelte'
   import TabTaken from './components/TabTaken.svelte'
-  import { tabLock } from './hooks/tabLock.svelte'
-  import { takeOverTab } from './hooks/tabLock'
+  import { tabLock } from './state/tabLock.svelte'
+  import { takeOverTab } from './state/tabLock'
 </script>
 
 <!--

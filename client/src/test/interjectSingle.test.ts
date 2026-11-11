@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from './renderHook'
-import { cardPlay } from '../hooks/gamePlay.svelte'
+import { cardPlay } from '../state/gamePlay.svelte'
 import type { CardDTO, ClientMsg, PlayCardMsg } from '../types/protocol'
 
 /**
@@ -18,7 +18,7 @@ import type { CardDTO, ClientMsg, PlayCardMsg } from '../types/protocol'
  * So an interject is one card. The copies still go out — one press each, each
  * one a window the rest of the table can win first — and the server refuses a
  * batch interject rather than trusting the tap (`an interject is one card`,
- * game.ErrInterruptBatch).
+ * `GameError::InterruptBatch`).
  */
 const WILD: CardDTO = { color: 'wild', kind: 'wild', value: 0 }
 const PLUS4: CardDTO = { color: 'wild', kind: 'wild_draw_four', value: 0 }

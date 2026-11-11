@@ -7,7 +7,7 @@ import {
   CATCH_NEAR_GRACE_MS,
   offerEnd,
   type OnHookUntil,
-} from '../../components/catchAvailability'
+} from '../../game/catchAvailability'
 
 /**
  * The clock the centre button runs on, brought up to date by what the server

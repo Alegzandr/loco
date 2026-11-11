@@ -1,4 +1,4 @@
-import { prefersReducedMotion } from '../hooks/motionPref'
+import { prefersReducedMotion } from '../state/motionPref'
 
 /**
  * A number that arrives rather than appears.

@@ -43,9 +43,9 @@
  * that cannot hold the floor, and loses its extra sheets. That is the right
  * answer for the wrong reason, and it is accepted: it asked to spend less.
  *
- * Framework-free: `hooks/uiPrefs.svelte.ts` is Svelte's window onto it.
+ * Framework-free: `state/uiPrefs.svelte.ts` is Svelte's window onto it.
  */
-import type { GraphicsTier } from '../../hooks/graphicsPref'
+import type { GraphicsTier } from '../../state/graphicsPref'
 
 /** One sample of the cadence. Long enough to hold ~70 frames at the floor. */
 export const LOAD_WINDOW_MS = 1500

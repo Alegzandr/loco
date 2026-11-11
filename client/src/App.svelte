@@ -1,22 +1,22 @@
 <script lang="ts">
-  import { gameStore } from './hooks/gameStore'
-  import { game } from './hooks/gameStore.svelte'
-  import { createServerMessageHandler, type UnoBannerTimer } from './hooks/serverMessages'
-  import { webSocket } from './hooks/webSocket.svelte'
+  import { gameStore } from './state/gameStore'
+  import { game } from './state/gameStore.svelte'
+  import { createServerMessageHandler, type UnoBannerTimer } from './state/serverMessages'
+  import { webSocket } from './state/webSocket.svelte'
   import { e2eBridge } from './dev/e2eBridge.svelte'
-  import { reconnectMessageFor } from './hooks/sessionPersistence'
+  import { reconnectMessageFor } from './state/sessionPersistence'
   import {
     gameAudio,
     sessionPersistence,
     restoreTimeout,
     hostStreamerSync,
-  } from './hooks/appEffects.svelte'
-  import { tabAlert } from './hooks/tabAlert.svelte'
-  import { setTabSeated } from './hooks/tabLock'
-  import { gameShown } from './hooks/gameShown.svelte'
-  import { peekTableInvite, takeTableInvite } from './hooks/tableInvite'
-  import { readNickname } from './hooks/nicknameMemory'
-  import { canonicalNickname, isNicknameShapeValid } from './components/nicknameRules'
+  } from './state/appEffects.svelte'
+  import { tabAlert } from './state/tabAlert.svelte'
+  import { setTabSeated } from './state/tabLock'
+  import { gameShown } from './state/gameShown.svelte'
+  import { peekTableInvite, takeTableInvite } from './state/tableInvite'
+  import { readNickname } from './state/nicknameMemory'
+  import { canonicalNickname, isNicknameShapeValid } from './game/nicknameRules'
   import { i18n } from './i18n/i18n.svelte'
   import Lobby from './components/Lobby.svelte'
   import Searching from './components/Searching.svelte'
@@ -26,19 +26,19 @@
   import GameOver from './components/GameOver.svelte'
   import Reconnecting from './components/Reconnecting.svelte'
   import type { ClientMsg } from './types/protocol'
-  import { screenIn } from './hooks/screenIn'
+  import { screenIn } from './state/screenIn'
 
   const t = $derived(i18n.t)
   const g = $derived(game.current)
   // The one field the effects below turn on, derived rather than read out of `g`
   // inside them. `g` is a single snapshot replaced on every message, so an effect
   // reading it depends on the whole match and re-runs several times a second —
-  // see `hooks/live.svelte.ts`, which is the same rule for everything under
-  // `hooks/`.
+  // see `state/live.svelte.ts`, which is the same rule for everything under
+  // `state/`.
   const screen = $derived(g.screen)
 
   // Single owner of every sound in the game: one store subscription, no
-  // per-component audio calls. See hooks/appEffects.svelte.ts.
+  // per-component audio calls. See state/appEffects.svelte.ts.
   gameAudio()
 
   // Mirrors room + seat + token into sessionStorage so a reload can reclaim the
@@ -65,7 +65,7 @@
     },
   }
 
-  // Everything the server can say lives in hooks/serverMessages.ts. Created once:
+  // Everything the server can say lives in state/serverMessages.ts. Created once:
   // it closes over the store's action functions, which the store factory makes
   // once and never replaces.
   const handleMessage = createServerMessageHandler(unoTimer)
@@ -91,7 +91,7 @@
 
   // The host's streamer mode is the table's, so it goes out on the wire. Placed
   // here rather than beside the other two effects because it is the only one
-  // that sends anything. See hooks/appEffects.svelte.ts.
+  // that sends anything. See state/appEffects.svelte.ts.
   hostStreamerSync(handleSend)
 
   // Which sub-screen the lobby opens on. Only ever moved off 'home' by the

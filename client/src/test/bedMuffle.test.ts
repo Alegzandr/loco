@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { music } from '../audio/music'
-import { muffleBedWhile } from '../hooks/bedMuffle.svelte'
+import { muffleBedWhile } from '../state/bedMuffle.svelte'
 import { renderHook } from './renderHook'
 
 describe('muffleBedWhile', () => {

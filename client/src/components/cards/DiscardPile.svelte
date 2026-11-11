@@ -12,8 +12,8 @@
     flightFor,
   } from './cardTheme'
   import SuitMark from './SuitMark.svelte'
-  import { colorAssistPref } from '../../hooks/colorAssist'
-  import { watchPref } from '../../hooks/prefs.svelte'
+  import { colorAssistPref } from '../../state/colorAssist'
+  import { watchPref } from '../../state/prefs.svelte'
   import { discardPosition, onPile, pileTransform, PILE_CHIP_REACH } from './layout'
 
   type Props = {

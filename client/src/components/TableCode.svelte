@@ -1,8 +1,8 @@
 <script lang="ts">
   import { i18n } from '../i18n/i18n.svelte'
-  import { watchPref } from '../hooks/prefs.svelte'
-  import { streamerModePref } from '../hooks/streamerMode'
-  import { game } from '../hooks/gameStore.svelte'
+  import { watchPref } from '../state/prefs.svelte'
+  import { streamerModePref } from '../state/streamerMode'
+  import { game } from '../state/gameStore.svelte'
 
   type Props = {
     code: string
@@ -43,7 +43,7 @@
    * host stopping their stream must not uncover it for a player who wanted it
    * hidden for their own.
    *
-   * `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
+   * `game.current` is replaced whole on every message. See state/live.svelte.ts.
    */
   const hidden = $derived(streamer.current || game.current.tableStreamer)
   const t = $derived(i18n.t)

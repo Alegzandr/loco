@@ -28,8 +28,8 @@
   import type { LiveStreamDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import { LIVE_PATH } from '../lang'
-  import { formatViewers, hasLiveStreams, moreLiveCount, topLiveStreams } from './liveStreams'
-  import { EXTERNAL_REL, twitchChannel } from './twitchLinks'
+  import { formatViewers, hasLiveStreams, moreLiveCount, topLiveStreams } from '../game/liveStreams'
+  import { EXTERNAL_REL, twitchChannel } from '../game/twitchLinks'
 
   interface Props {
     streams: LiveStreamDTO[]

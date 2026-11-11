@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { ClientMsg } from '../types/protocol'
-  import type { WsStatus } from '../hooks/webSocket.svelte'
+  import type { WsStatus } from '../state/webSocket.svelte'
   import { gameViewStub } from './gameViewStub'
 
   /**

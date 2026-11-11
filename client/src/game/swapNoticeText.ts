@@ -1,4 +1,4 @@
-import { type SwapNotice } from '../hooks/gameStore'
+import { type SwapNotice } from '../state/gameStore'
 import { type Translations } from '../i18n/en'
 
 /**

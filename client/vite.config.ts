@@ -17,7 +17,7 @@ import { defineConfig } from 'vite'
  * The app itself is still never server-rendered, and that is still deliberate.
  * The store is seeded from `sessionStorage` before the socket opens, the
  * language comes from `localStorage`, and the whole board is measured from the
- * viewport (layout.ts: boardSpace, hooks/boardMetrics.svelte.ts). A server
+ * viewport (layout.ts: boardSpace, state/boardMetrics.svelte.ts). A server
  * knows none of those, so the game route's prerendered HTML carries the served
  * half of `/` — the heading, the footer row, the sheet of prose, the burger —
  * and an empty `#root`, which entry.ts fills in the browser.
@@ -69,15 +69,11 @@ export default defineConfig({
         directives: { 'script-src': ['self'] },
       },
 
-      // Universal hooks default to `src/hooks`, which is a directory of ours
-      // with a different meaning entirely (the reactive half of the client).
-      // Pointed at a file that does not exist so SvelteKit never reads it as one.
-      //
       // `public/` rather than SvelteKit's `static/`: the music, the models, the
       // icons and the link-preview art have lived there since the Vite days,
       // and the tools that write into it (`make og`, `make icons`, `make
       // models`) name the directory.
-      files: { hooks: { universal: 'src/hooks.universal' }, assets: 'public' },
+      files: { assets: 'public' },
 
       // Root-relative, as Astro wrote them. The 404 is served at whatever
       // address was missed, `/a/b/c` included, and a relative `./_app/` from

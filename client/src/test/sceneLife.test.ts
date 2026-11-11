@@ -14,7 +14,7 @@ import { flushSync } from 'svelte'
 import { render } from './render'
 import LifeLayer from '../components/scene/LifeLayer.svelte'
 import type { PreparedScene } from '../components/scene/sceneCache'
-import { resetMotionPref, setMotionPref } from '../hooks/motionPref'
+import { resetMotionPref, setMotionPref } from '../state/motionPref'
 import {
   routeKeyframes,
   cycleMs,

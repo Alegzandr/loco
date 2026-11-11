@@ -466,7 +466,7 @@ describe('the app stays inside the policy', () => {
   // sub-resource. Stated here rather than left to the shape of a regular
   // expression, because the next person to add a link will read this.
   it('names an external host in one module, and never for a sub-resource', () => {
-    const LINKS = path.join(CLIENT, 'src/components/twitchLinks.ts')
+    const LINKS = path.join(CLIENT, 'src/game/twitchLinks.ts')
     const host = /twitch\.tv/
 
     const namers = sources.filter(f => host.test(readFileSync(f, 'utf8')))

@@ -1,7 +1,7 @@
 <script lang="ts">
   import SceneBackdrop from '../components/scene/SceneBackdrop.svelte'
   import { resolveScene } from '../components/cards/maps'
-  import { elementSize } from '../hooks/boardMetrics.svelte'
+  import { elementSize } from '../state/boardMetrics.svelte'
 
   /**
    * A room on its own, for the rooms page.

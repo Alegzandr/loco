@@ -47,7 +47,7 @@
   import LocoLogo from '../components/LocoLogo.svelte'
   import Card from '../components/cards/Card.svelte'
   import type { CardDTO } from '../types/protocol'
-  import { elementSize } from '../hooks/boardMetrics.svelte'
+  import { elementSize } from '../state/boardMetrics.svelte'
 
   let { variant = 'duck' }: { variant?: 'duck' | 'fan' | 'mark' } = $props()
 

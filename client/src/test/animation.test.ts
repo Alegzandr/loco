@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { handCardKeys } from '../components/cards/layout'
 import { radToDeg } from '../components/cards/cardTheme'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO, PlayerDTO } from '../types/protocol'
 
 describe('handCardKeys', () => {

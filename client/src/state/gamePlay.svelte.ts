@@ -1,5 +1,5 @@
 import type { CardDTO, CardColor, ClientMsg } from '../types/protocol'
-import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
+import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../game/interruptHelpers'
 import { type SceneSpec, sceneKey } from '../components/cards/maps'
 import { prepareScene, renderSizeFor } from '../components/scene/sceneCache'
 import { nextPaint } from '../components/scene/nextPaint'

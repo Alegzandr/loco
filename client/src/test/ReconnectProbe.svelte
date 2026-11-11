@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { reconnectAnimation } from '../hooks/viewEffects.svelte'
+  import { reconnectAnimation } from '../state/viewEffects.svelte'
 
   type Props = { reconnecting: boolean; onDone: () => void }
   let { reconnecting, onDone }: Props = $props()

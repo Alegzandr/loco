@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from './render'
 import { act } from './renderHook'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { gameViewStub } from './gameViewStub'
 
 // The match screen is built once and then left alone: it is the most expensive
@@ -19,12 +19,12 @@ import { gameViewStub } from './gameViewStub'
 // quietly prove nothing.
 const stableSend = () => {}
 const stableForceClose = () => {}
-vi.mock('../hooks/webSocket.svelte', () => ({
+vi.mock('../state/webSocket.svelte', () => ({
   webSocket: () => ({ send: stableSend, wsStatus: 'open', forceClose: stableForceClose }),
 }))
 
-vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+vi.mock('../state/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../state/appEffects.svelte')>()),
   gameAudio: () => {},
 }))
 

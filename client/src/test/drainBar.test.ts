@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from './render'
 import { act } from './renderHook'
-import { URGENT_AT } from '../hooks/drainBar.svelte'
+import { URGENT_AT } from '../state/drainBar.svelte'
 import Bar from './DrainBarProbe.svelte'
 
 // The whole point of drainBar is that a 30-second countdown costs zero

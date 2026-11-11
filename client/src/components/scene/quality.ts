@@ -16,7 +16,7 @@
  * Framework-free and pure: `sceneQuality.test.ts` reads the ladder and
  * asserts it is a ladder.
  */
-import type { GraphicsTier } from '../../hooks/graphicsPref'
+import type { GraphicsTier } from '../../state/graphicsPref'
 
 export interface PostOptions {
   /** Ambient occlusion in the creases, from the depth of the frame. */

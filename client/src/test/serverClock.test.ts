@@ -6,9 +6,9 @@ import {
   resetServerClock,
   serverOffset,
   toLocalTime,
-} from '../hooks/serverClock'
-import { createServerMessageHandler } from '../hooks/serverMessages'
-import { gameStore } from '../hooks/gameStore'
+} from '../state/serverClock'
+import { createServerMessageHandler } from '../state/serverMessages'
+import { gameStore } from '../state/gameStore'
 import type { ServerMsg } from '../types/protocol'
 
 /**

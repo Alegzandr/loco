@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createServerMessageHandler } from '../hooks/serverMessages'
-import { gameStore } from '../hooks/gameStore'
+import { createServerMessageHandler } from '../state/serverMessages'
+import { gameStore } from '../state/gameStore'
 import type { CardDTO } from '../types/protocol'
 
 /**

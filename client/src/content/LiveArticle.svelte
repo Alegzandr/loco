@@ -11,7 +11,7 @@
   // text: no `{@html}`, no `innerHTML`.
   import { onMount } from 'svelte'
   import { ui } from './ui'
-  import { EXTERNAL_REL, twitchCategory, twitchChannel } from '../components/twitchLinks'
+  import { EXTERNAL_REL, twitchCategory, twitchChannel } from '../game/twitchLinks'
   import { fetchLiveRows, type LiveRow } from './liveList'
   import { FAQ_PAGE, RULES, type Lang } from '../seo/meta'
 

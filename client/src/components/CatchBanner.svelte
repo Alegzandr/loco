@@ -1,8 +1,8 @@
 <script lang="ts">
   // Split: a `<script lang="ts">` block keeps its imports after type-stripping, so
   // a type imported as a value is asked of the bundler as a runtime binding.
-  import type { CatchFlash } from '../hooks/gameStore'
-  import { CATCH_PENALTY_CARDS } from '../hooks/gameStore'
+  import type { CatchFlash } from '../state/gameStore'
+  import { CATCH_PENALTY_CARDS } from '../state/gameStore'
   import type { Translations } from '../i18n/en'
 
   type Props = {

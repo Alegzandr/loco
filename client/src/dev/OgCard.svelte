@@ -24,7 +24,7 @@
   import LocoLogo from '../components/LocoLogo.svelte'
   import Card from '../components/cards/Card.svelte'
   import type { CardDTO } from '../types/protocol'
-  import { elementSize } from '../hooks/boardMetrics.svelte'
+  import { elementSize } from '../state/boardMetrics.svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { INVITE } from '../seo/meta'
 

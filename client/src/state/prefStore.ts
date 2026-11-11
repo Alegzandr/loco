@@ -13,7 +13,7 @@ export interface BooleanPref {
   set(next: boolean): void
   /**
    * How a component follows the preference: `watchPref` in
-   * `hooks/prefs.svelte.ts` wraps this, and every screen goes through that.
+   * `state/prefs.svelte.ts` wraps this, and every screen goes through that.
    * The store itself stays framework-free, which is what let it keep its value
    * and its listeners while the screens around it were rewritten.
    */

@@ -273,7 +273,7 @@ export interface GameState {
   // the window the server named for it. Unlike `catchWindows` it survives the
   // declaration the table hears and the window's retirement: it is the clock
   // the centre button runs on, and that clock must not know who spoke
-  // (`components/catchAvailability.ts`). Written from `catch_seats` by
+  // (`game/catchAvailability.ts`). Written from `catch_seats` by
   // `applyCardPlayed` and `applyGameState`, and read against the roster, so a
   // stale entry for a seat that is no longer on one card counts for nothing.
   onHookUntil: Record<number, number>
@@ -284,7 +284,7 @@ export interface GameState {
   // Whether the centre button is pressable at all — a much looser question than
   // `catchTarget`, which is the promise that somebody is actually on the hook.
   // **Derived** by the store itself (`store/deriveCatchMiddleware.ts` through
-  // `components/catchAvailability.ts`), never written by an action: some other
+  // `game/catchAvailability.ts`), never written by an action: some other
   // seat is on exactly two cards, or on its last card inside its window. It is
   // a read of the roster and the clock and nothing else — a declaration the
   // table heard does not lower it — and it is re-read at `catchLiveUntil`.

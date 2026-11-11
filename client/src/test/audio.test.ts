@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from './render'
-import { gameStore } from '../hooks/gameStore'
+import { gameStore } from '../state/gameStore'
 import { bedCueFor, dealFor, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
 import { sectionFor } from '../audio/music'
 import { audio, DEFAULT_SETTINGS } from '../audio/engine'
