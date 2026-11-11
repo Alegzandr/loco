@@ -17,13 +17,14 @@ pub const NUMBER_HIGH: i32 = 9;
 pub struct Deck {
     #[serde(
         rename = "Cards",
-        deserialize_with = "crate::stamp::nullable::deserialize"
+        deserialize_with = "crate::gojson::nullable::deserialize"
     )]
     pub cards: Vec<Card>,
 }
 
 impl Deck {
-    /// The 112-card deck, unshuffled. (Go: `NewDeck`.)
+    /// The 112-card deck, unshuffled. `Deck::default()` is an empty one. (Go:
+    /// `NewDeck`.)
     ///
     /// Per colour (Red, Yellow, Green, Blue):
     ///   - Numbers 1–9 ×2 (no zero)
@@ -34,7 +35,7 @@ impl Deck {
     ///   - Wild ×4, WildDrawFour ×4, GlobalSwitch ×4
     ///
     /// Per colour = 2*9 + 2 + 2 + 2 + 1 = 25; 4 colours = 100; +12 wild = 112.
-    pub fn new() -> Deck {
+    pub fn standard() -> Deck {
         let mut cards = Vec::with_capacity(DECK_SIZE);
         for col in [Color::Red, Color::Yellow, Color::Green, Color::Blue] {
             for v in NUMBER_LOW..=NUMBER_HIGH {

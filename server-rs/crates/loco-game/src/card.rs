@@ -6,33 +6,25 @@
 //! `loco-protocol`'s business, not this crate's.
 
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::fmt;
-
-/// Implements integer serde for a fieldless enum, refusing unknown values.
-macro_rules! int_enum_serde {
-    ($t:ident { $($v:ident = $n:literal),* $(,)? }) => {
-        impl ::serde::Serialize for $t {
-            fn serialize<S: ::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-                s.serialize_i64(*self as i64)
-            }
-        }
-        impl<'de> ::serde::Deserialize<'de> for $t {
-            fn deserialize<D: ::serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-                match <i64 as ::serde::Deserialize>::deserialize(d)? {
-                    $($n => Ok($t::$v),)*
-                    other => Err(<D::Error as ::serde::de::Error>::custom(format!(
-                        concat!("invalid ", stringify!($t), ": {}"), other
-                    ))),
-                }
-            }
-        }
-    };
-}
-pub(crate) use int_enum_serde;
 
 /// A card colour. `Wild` is the colour of the three wild kinds and never an
 /// active colour (`GameState::set_active_color` refuses it).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Default,
+    Serialize_repr,
+    Deserialize_repr,
+)]
+#[repr(u8)]
 pub enum Color {
     #[default]
     Red = 0,
@@ -42,7 +34,6 @@ pub enum Color {
     /// Used for wild cards that have no inherent colour.
     Wild = 4,
 }
-int_enum_serde!(Color { Red = 0, Yellow = 1, Green = 2, Blue = 3, Wild = 4 });
 
 /// The four real colours, in Go's order.
 pub const COLORS: [Color; 4] = [Color::Red, Color::Yellow, Color::Green, Color::Blue];
@@ -79,7 +70,20 @@ impl fmt::Display for Color {
 }
 
 /// The kind of a card.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Default,
+    Serialize_repr,
+    Deserialize_repr,
+)]
+#[repr(u8)]
 pub enum Kind {
     #[default]
     Number = 0,
@@ -93,16 +97,6 @@ pub enum Kind {
     /// All players rotate hands in the current game direction. Wild.
     GlobalSwitch = 7,
 }
-int_enum_serde!(Kind {
-    Number = 0,
-    Skip = 1,
-    Reverse = 2,
-    DrawTwo = 3,
-    WildCard = 4,
-    WildDrawFour = 5,
-    Swap = 6,
-    GlobalSwitch = 7,
-});
 
 /// Every kind, in Go's order.
 pub const KINDS: [Kind; 8] = [

@@ -9,12 +9,12 @@ use std::collections::HashMap;
 fn new_deck_size() {
     // 4 colours × (2×9 numbers + 2 Skip + 2 Reverse + 2 DrawTwo + 1 Swap) = 100
     // + 4 Wild + 4 WildDrawFour + 4 GlobalSwitch = 12; total 112.
-    assert_eq!(Deck::new().cards.len(), 112);
+    assert_eq!(Deck::standard().cards.len(), 112);
 }
 
 #[test]
 fn new_deck_no_zero_cards() {
-    for c in Deck::new().cards {
+    for c in Deck::standard().cards {
         assert!(
             !(c.kind == Kind::Number && c.value == 0),
             "deck should not contain a 0 number card; found {c:?}"
@@ -25,7 +25,7 @@ fn new_deck_no_zero_cards() {
 #[test]
 fn new_deck_color_distribution() {
     let mut counts: HashMap<Color, usize> = HashMap::new();
-    for c in Deck::new().cards {
+    for c in Deck::standard().cards {
         if !c.is_wild() {
             *counts.entry(c.color).or_default() += 1;
         }
@@ -38,7 +38,7 @@ fn new_deck_color_distribution() {
 #[test]
 fn new_deck_wild_and_global_counts() {
     let (mut wilds, mut w4s, mut swaps, mut gswaps) = (0, 0, 0, 0);
-    for c in Deck::new().cards {
+    for c in Deck::standard().cards {
         match c.kind {
             Kind::WildCard => wilds += 1,
             Kind::WildDrawFour => w4s += 1,
@@ -55,7 +55,7 @@ fn new_deck_wild_and_global_counts() {
 
 #[test]
 fn new_deck_swap_is_colored() {
-    for c in Deck::new().cards {
+    for c in Deck::standard().cards {
         assert!(
             !(c.kind == Kind::Swap && c.color == Color::Wild),
             "Swap should be a coloured card, found Wild-coloured {c:?}"
@@ -66,7 +66,7 @@ fn new_deck_swap_is_colored() {
 #[test]
 fn new_deck_full_composition_breakdown() {
     // Exact per-kind composition of the 112-card deck per docs/rules.md §2.
-    let d = Deck::new();
+    let d = Deck::standard();
     let mut counts: HashMap<Kind, usize> = HashMap::new();
     for c in &d.cards {
         *counts.entry(c.kind).or_default() += 1;
@@ -106,15 +106,15 @@ fn new_deck_full_composition_breakdown() {
 
 #[test]
 fn deck_shuffle() {
-    let d1 = Deck::new();
-    let mut d2 = Deck::new();
+    let d1 = Deck::standard();
+    let mut d2 = Deck::standard();
     d2.shuffle(&mut test_rng(1));
     assert_ne!(d1.cards, d2.cards, "Shuffle did not change order");
 }
 
 #[test]
 fn deck_draw() {
-    let mut d = Deck::new();
+    let mut d = Deck::standard();
     let initial = d.cards.len();
     assert!(d.draw().is_some(), "draw() on full deck returned None");
     assert_eq!(d.cards.len(), initial - 1);
@@ -131,7 +131,7 @@ fn deck_draw_empty() {
 
 #[test]
 fn deck_draw_n() {
-    let mut d = Deck::new();
+    let mut d = Deck::standard();
     let cards = d.draw_n(8).expect("draw_n(8) on full deck");
     assert_eq!(cards.len(), 8);
     assert_eq!(d.cards.len(), 104);
@@ -148,7 +148,7 @@ fn deck_draw_n_insufficient_cards() {
 #[test]
 fn deck_replenish() {
     let mut rng = test_rng(2);
-    let mut d = Deck::new();
+    let mut d = Deck::standard();
     d.shuffle(&mut rng);
     let drawn = d.draw_n(110).unwrap();
     let discard = &drawn[..109];
@@ -169,7 +169,7 @@ fn deck_replenish() {
 // room source given again gives the same one (the shuffle reads nothing but it).
 #[test]
 fn replenish_uses_the_rooms_own_source() {
-    let pile: Vec<Card> = Deck::new().cards[..60].to_vec();
+    let pile: Vec<Card> = Deck::standard().cards[..60].to_vec();
     let order_of = |seed: u64| {
         let mut r = crate::room::Room::from_u64_seed("AAAAAA", seed);
         let mut d = Deck::default();

@@ -12,39 +12,48 @@ hub's own machinery, see `server.md`.
 written against. Until the cutover deletes `server/`, read every Go name below through this table;
 [`server-rs/crates/loco-game/API.md`](../../server-rs/crates/loco-game/API.md) maps the rest one for one.
 
-- **Pure.** No clock, no I/O, no OS randomness. Every method that stamps or compares an instant
+- **Pure.** No clock, no I/O, no OS randomness. Every command that stamps or compares an instant
   takes `now: Millis` (Unix ms) last, which is the rule anyway: the server decides on the instant it
-  received the message. `time.Time` fields are `Option<Millis>` (`None` = Go's zero time).
-- **The room's source is a `ChaCha12Rng` seeded by the caller** (`Room::new(code, [u8; 32])`, the hub
-  drawing the bytes from the OS). It is never serialised, exactly as Go's unexported `rng` was not, so a
-  room restored from a snapshot is unseeded until `Room::reseed` (Go: `ensureRNG`); `Room::apply`
-  refuses it with `GameError::Unseeded` rather than deal off a source nobody chose.
+  received the message. An instant that may not exist is `Option<Millis>` (`None` = Go's zero time).
+- **One way in.** A `Room` belongs to one table task and every command is a `&mut self` method that
+  validates before it mutates, so a refusal leaves the room exactly as it was; the proptests hold every
+  command to that. A command returns only what the room cannot say afterwards (`was_host`, a
+  `CatchCharge`, a lockout's end). The first port also carried a functional `Room::apply`; nothing
+  called it and two entry points that must agree are one too many, so it went.
+- **The room's randomness cannot be missing.** `Room::new(code, [u8; 32])`, the hub drawing the bytes
+  from the OS. `Room` is not serde: the drain snapshot is `SavedRoom` (Go's JSON, field for field,
+  schema 5), and `SavedRoom::restore(seed)` is the only way back. Go seeded lazily (`ensureRNG`)
+  because a decoded room could arrive without a source; here that room cannot exist.
   `src/tests/rng_test.rs` runs the clock-seed attack against ChaCha. Bots take their source as an
   argument (`bot_think(&state, seat, &mut rng)`): nothing a bot picks is hidden state.
-- **Two ways in.** The `&mut self` methods are the Go entry points; `Room::apply(&self, Action, now)
-  -> Result<(Room, Vec<Event>), GameError>` is the `(state, action) -> state` form built on them.
-- **The JSON is Go's**: `Room`/`GameState` keep Go's field names, so the drain snapshot (schema 5)
-  restores on either server (`src/tests/serde_test.rs`).
-- **Refusals are `GameError`, Go's text byte for byte**; `errors.Is` kinds are methods
-  (`is_state_mismatch`, `is_lost_race`, `is_missed_catch`, `is_nickname_rejected`).
-
+- **A seat is `usize`, and nobody is `None`.** Go's -1 (`LastPlayBy`, `ChosenPlayer`, an event with no
+  player) is `Option<Seat>`, and survives only in JSON (`gojson::opt_seat`).
+- **What a seat owes is one record** (`GameState.seats: Vec<SeatState>`): Go's six parallel slices
+  `Retired`, `LastCardDeclared`, `LastCardAt`, `CatchPaidFor`, `CatchLockedUntil`, `NearLeftAt`. The
+  hands stay apart on purpose: a Swap or a GlobalSwitch moves the hand and leaves the obligation with
+  the chair. The JSON is still Go's struct-of-arrays.
+- **Refusals are `GameError`, Go's text byte for byte**, with one `ErrorKind` each where Go asked
+  `errors.Is` four ways: `StaleState` (`IsStateMismatch`), `LostRace`, `MissedCatch` (`IsMissedCatch`),
+  `NicknameRejected`, `Invalid`; `ErrorKind::is_honest()` is what `IsLostRace` answered.
 | Go (`server/game/`) | Rust (`server-rs/crates/loco-game/src/`) |
 | --- | --- |
 | `room.go`: `PlayCard`, `PlayCards`, `DrawCard`, `PassTurn`, `DeclareLastCard` | `room.rs`: `play_card`, `play_cards`, `draw_card`, `pass_turn`, `declare_last_card` |
 | `CatchUndeclared`, `PenalizeFailedCatch`, `CatchOffered`, `LockCatch`, `CatchLocked(At)` | `catch_undeclared`, `penalize_failed_catch`, `catch_offered`, `lock_catch`, `catch_locked(_at)` |
-| `InterruptPlay(Cards)`, `CounterDraw`, `ForfeitTo`, `RetireSeat` | `interrupt_play(_cards)`, `counter_draw`, `forfeit_to`, `retire_seat` |
+| `InterruptPlay(Cards)`, `CounterDraw`, `ForfeitTo`, `RetireSeat` | `interrupt_play` (one card, a list so a batch is refused), `counter_draw`, `forfeit_to`, `retire_seat` |
 | `Start`, `dealRound`, `BeginNextRound`, `ResetForRematch`, `endRound`, `finishRoundWin` | `start`, `deal_round`, `begin_next_round`, `reset_for_rematch`, `end_round`, `finish_round_win` |
-| `decisiveLeader`, `determineMatchWinner` (`""`), `biggestLoser` | `decisive_leader`, `determine_match_winner` (`None`), `biggest_loser` |
+| `decisiveLeader` (-1), `determineMatchWinner` (`""`), `biggestLoser` | `decisive_leader`, `determine_match_winner` (both `Option<Seat>`), `biggest_loser` |
 | `requireLocoToFinish`, `declareForFinish`, `catchOfferKey`, `noteHandGrew`, `ensureDeck` | `require_loco_to_finish`, `declare_for_finish`, `catch_offer_key`, `note_hand_grew`, `ensure_deck` |
-| `GameState.CatchableTargets`, `CatchWindowEnd` | `GameState::catchable_targets`, `catch_window_end` (`Option`) |
+| `GameState.CatchableTargets`, `CatchWindowEnd`, `LastCardDeclared[i]`… | `state.rs`: `GameState::catchable_targets`, `catch_window_end` (`Option`), `seats[i].declared`… |
+| `PenalizeFailedCatch`'s `(cards, charged)` | `CatchCharge::{Free, Charged { drawn }}` |
+| `json.Marshal(room)`, `ensureRNG` on restore | `SavedRoom::from(&room)`, `SavedRoom::restore(seed)` |
 | `Join`, `SetFormat`, `SetMaxPlayers`, `SwapLobbyPlayers`, `RemoveLobbyPlayer` | `join`, `set_format`, `set_max_players`, `swap_lobby_players`, `remove_lobby_player` |
 | `rules.go`: `CanPlay`, `ApplyEffect`, `nextTurn`, `rotateSeats` | `rules.rs`: `can_play`, `apply_effect`, `next_turn`, `rotate_seats` |
-| `deck.go`: `NewDeck`, `DrawN`, `DrawUpTo`, `Replenish` | `deck.rs`: `Deck::new`, `draw_n`, `draw_up_to`, `replenish` |
+| `deck.go`: `NewDeck`, `DrawN`, `DrawUpTo`, `Replenish` | `deck.rs`: `Deck::standard`, `draw_n`, `draw_up_to`, `replenish` |
 | `card.go`: `CardValue`, `IsWild` | `card.rs`: `card_value`, `Card::is_wild` |
 | `bot.go`: `BotThink`, `BotInterrupt`, `botSwapTarget`, `botSwapPays`, `botPreferredColor`, `botWildIsIdle`, `botBatchFor` | `bot.rs`: `bot_think`, `bot_interrupt`, `bot_swap_target`, `bot_swap_pays`, `bot_preferred_color`, `bot_wild_is_idle`, `bot_batch_for` |
 | `nickname.go`: `ValidateNickname`; `screen.go`: `ContainsBlockedTerm` | `nickname.rs`: `validate_nickname`; `screen.rs`: `contains_blocked_term` |
 | `maps.go`: `MapIDs`, `MapWeathers`, `pickMap` | `maps.rs`: `MAP_IDS`, `MAP_WEATHERS`, `Room::pick_map` |
-| `Err*` sentinels, `IsStateMismatch`, `IsLostRace`, `IsMissedCatch` | `error.rs`: `GameError::*`, `GameError::is_state_mismatch`, `is_lost_race`, `is_missed_catch` |
+| `Err*` sentinels, `IsStateMismatch`, `IsLostRace`, `IsMissedCatch` | `error.rs`: `GameError::*`, `GameError::kind()` -> `ErrorKind` |
 | the constants `initialHandSize`, `serverMaxPlayers`, `catchGrace`, `catchNearHand`, … | `room.rs`: `INITIAL_HAND_SIZE`, `SERVER_MAX_PLAYERS`, `CATCH_GRACE_MS`, `CATCH_NEAR_HAND`, … |
 
 Beyond the Go suite, `src/tests/proptests.rs` holds the invariants over random play (112 cards
@@ -54,7 +63,7 @@ with `insta`.
 
 ## LOCO deviations from original SOLO rules
 Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
-1. **GlobalSwitch (Change Cards All Round) is wild** — 4 copies, no color, plays on anything, and names the new active colour like the other two wilds. SOLO has it as colored 1-per-color. Implemented in `loco-game/src/deck.rs` `Deck::new` (Go `game/deck.go`, 4 wild copies) and `src/card.rs` `Card::is_wild` (Go `IsWild()`). Rationale: simpler, avoids dead cards.
+1. **GlobalSwitch (Change Cards All Round) is wild** — 4 copies, no color, plays on anything, and names the new active colour like the other two wilds. SOLO has it as colored 1-per-color. Implemented in `loco-game/src/deck.rs` `Deck::standard` (Go `game/deck.go`, 4 wild copies) and `src/card.rs` `Card::is_wild` (Go `IsWild()`). Rationale: simpler, avoids dead cards.
 2. **Starting card is always a Number** — `dealRound` skips action/wild cards until a Number is found (`loco-game/src/room.rs` `Room::deal_round`, Go `game/room.go`). SOLO applies the starting action's effect to the first player. Rationale: avoids first-turn ambiguity (Take 4 with no context, Swap with empty game state).
 3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`), and **the match is taken by rounds won rather than by points**. See "Rounds won take the match" below for the whole rule and the bug it closed. Rationale: predictable online game length, and a format label that is true.
 4. **Voluntary draw is allowed** — current player may draw even with a playable card in hand (still 1 draw max per turn). `Room.DrawCard` only enforces `HasDrawn` to prevent a second draw. Rationale: strategic depth; matches UNO official rules.
@@ -171,7 +180,7 @@ room's reset.
 - `PlayerDTO`: `Index`, `Nickname`, `HandSize`, `Connected` only.
 
 ## Deck
-- 112 cards (`loco-game/src/deck.rs: Deck::new`, Go `game/deck.go: NewDeck`). Per color (R/Y/G/B) 25: 1–9 ×2 (no 0), Skip ×2, Reverse ×2, DrawTwo ×2, **Swap ×1 (colored)**.
+- 112 cards (`loco-game/src/deck.rs: Deck::standard`, Go `game/deck.go: NewDeck`). Per color (R/Y/G/B) 25: 1–9 ×2 (no 0), Skip ×2, Reverse ×2, DrawTwo ×2, **Swap ×1 (colored)**.
 - Wilds (12): Wild ×4, WildDrawFour ×4, **GlobalSwitch ×4**.
 - `Card.IsWild()` true only for Wild/WildDrawFour/GlobalSwitch. **Swap is colored** — normal matching.
 - Initial hand: **8** (`INITIAL_HAND_SIZE` in `loco-game/src/room.rs`, Go `initialHandSize` in `game/room.go`).

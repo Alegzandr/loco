@@ -26,26 +26,25 @@ expression: summary
   "status": "finished",
   "transcript": [
     {
-      "action": "Join { nickname: \"alice\" }",
+      "command": "join(alice)",
       "events": [],
       "t": 0
     },
     {
-      "action": "Join { nickname: \"bob\" }",
+      "command": "join(bob)",
       "events": [],
       "t": 0
     },
     {
-      "action": "SetFormat(MatchFormat(1))",
+      "command": "set_format(Bo1)",
       "events": [],
       "t": 0
     },
     {
-      "action": "Start",
+      "command": "start",
       "events": [
         {
           "at": "2023-11-14T22:13:20Z",
-          "event": "logged",
           "kind": "game_started",
           "player_index": -1
         }
@@ -53,7 +52,7 @@ expression: summary
       "t": 0
     },
     {
-      "action": "PlayCard { seat: 0, card: Card { color: Red, kind: DrawTwo, value: 0 }, chosen_color: Red, chosen_player: -1 }",
+      "command": "play_card(alice, R+2)",
       "events": [
         {
           "at": "2023-11-14T22:13:20Z",
@@ -62,7 +61,6 @@ expression: summary
             "Kind": 3,
             "Value": 0
           },
-          "event": "logged",
           "kind": "card_played",
           "player_index": 0
         }
@@ -70,7 +68,7 @@ expression: summary
       "t": 0
     },
     {
-      "action": "CounterDraw { seat: 1, card: Card { color: Red, kind: DrawTwo, value: 0 }, chosen_color: Red }",
+      "command": "counter_draw(bob, R+2)",
       "events": [
         {
           "at": "2023-11-14T22:13:21Z",
@@ -79,7 +77,6 @@ expression: summary
             "Kind": 3,
             "Value": 0
           },
-          "event": "logged",
           "kind": "counter_draw",
           "player_index": 1
         }
@@ -87,63 +84,48 @@ expression: summary
       "t": 1000
     },
     {
-      "action": "PenalizeFailedCatch { catcher: 0 }",
+      "command": "penalize_failed_catch(alice)",
       "events": [
         {
           "at": "2023-11-14T22:13:21.5Z",
-          "event": "logged",
           "kind": "catch_failed",
           "player_index": 0
-        },
-        {
-          "cards": [
-            {
-              "Color": 4,
-              "Kind": 7,
-              "Value": 0
-            }
-          ],
-          "catcher": 0,
-          "charged": true,
-          "event": "failed_catch"
         }
       ],
+      "returned": {
+        "charged": [
+          {
+            "Color": 4,
+            "Kind": 7,
+            "Value": 0
+          }
+        ]
+      },
       "t": 1500
     },
     {
-      "action": "LockCatch { catcher: 0 }",
-      "events": [
-        {
-          "catcher": 0,
-          "event": "catch_locked",
-          "until": 1700000003500
-        }
-      ],
+      "command": "lock_catch(alice)",
+      "events": [],
+      "returned": 1700000003500,
       "t": 1500
     },
     {
-      "action": "PenalizeFailedCatch { catcher: 0 }",
-      "events": [
-        {
-          "cards": [],
-          "catcher": 0,
-          "charged": false,
-          "event": "failed_catch"
-        }
-      ],
+      "command": "penalize_failed_catch(alice)",
+      "events": [],
+      "returned": "free",
       "t": 1600
     },
     {
-      "action": "CatchUndeclared { catcher: 0, target: 1 }",
+      "command": "catch_undeclared(alice, bob)",
+      "events": [],
       "refused": "catch is locked after a failed call",
       "t": 2000
     },
     {
-      "action": "DrawCard { seat: 0 }",
+      "command": "draw_card(alice)",
       "events": [
         {
           "at": "2023-11-14T22:13:22.5Z",
-          "event": "logged",
           "kind": "card_drawn",
           "player_index": 0
         }
@@ -151,7 +133,7 @@ expression: summary
       "t": 2500
     },
     {
-      "action": "PlayCard { seat: 0, card: Card { color: Red, kind: Number, value: 7 }, chosen_color: Red, chosen_player: -1 }",
+      "command": "play_card(alice, R7)",
       "events": [
         {
           "at": "2023-11-14T22:13:23Z",
@@ -160,7 +142,6 @@ expression: summary
             "Kind": 0,
             "Value": 7
           },
-          "event": "logged",
           "kind": "card_played",
           "player_index": 0
         }
@@ -168,7 +149,7 @@ expression: summary
       "t": 3000
     },
     {
-      "action": "InterruptPlayCards { seat: 0, cards: [Card { color: Red, kind: Number, value: 7 }], chosen_color: Red, chosen_player: -1 }",
+      "command": "interrupt_play(alice, [R7])",
       "events": [
         {
           "at": "2023-11-14T22:13:23.2Z",
@@ -177,7 +158,6 @@ expression: summary
             "Kind": 0,
             "Value": 7
           },
-          "event": "logged",
           "kind": "card_played",
           "player_index": 0
         }
@@ -185,16 +165,16 @@ expression: summary
       "t": 3200
     },
     {
-      "action": "PlayCards { seat: 1, cards: [Card { color: Red, kind: Number, value: 3 }, Card { color: Red, kind: Number, value: 3 }], chosen_color: Red, chosen_player: -1, declare_loco: false }",
+      "command": "play_cards(bob, [R3, R3], no call)",
+      "events": [],
       "refused": "must call LOCO! before playing your last card",
       "t": 4000
     },
     {
-      "action": "PlayCards { seat: 1, cards: [Card { color: Red, kind: Number, value: 3 }, Card { color: Red, kind: Number, value: 3 }], chosen_color: Red, chosen_player: -1, declare_loco: true }",
+      "command": "play_cards(bob, [R3, R3], LOCO!)",
       "events": [
         {
           "at": "2023-11-14T22:13:24.1Z",
-          "event": "logged",
           "kind": "uno_declared",
           "player_index": 1
         },
@@ -205,7 +185,6 @@ expression: summary
             "Kind": 0,
             "Value": 3
           },
-          "event": "logged",
           "kind": "card_played",
           "player_index": 1
         },
@@ -216,25 +195,21 @@ expression: summary
             "Kind": 0,
             "Value": 3
           },
-          "event": "logged",
           "kind": "card_played",
           "player_index": 1
         },
         {
           "at": "2023-11-14T22:13:24.1Z",
-          "event": "logged",
           "kind": "game_finished",
           "player_index": 1
         },
         {
           "at": "2023-11-14T22:13:24.1Z",
-          "event": "logged",
           "kind": "round_end",
           "player_index": 1
         },
         {
           "at": "2023-11-14T22:13:24.1Z",
-          "event": "logged",
           "kind": "match_end",
           "player_index": -1
         }
@@ -242,7 +217,8 @@ expression: summary
       "t": 4100
     },
     {
-      "action": "BeginNextRound",
+      "command": "begin_next_round",
+      "events": [],
       "refused": "BeginNextRound called after match over",
       "t": 5000
     }

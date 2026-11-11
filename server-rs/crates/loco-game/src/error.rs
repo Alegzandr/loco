@@ -4,10 +4,9 @@
 //! for byte: the client maps refusals to copy by regex
 //! (`client/src/i18n/serverErrors.ts`), so a reworded message is a refusal the
 //! player reads as raw English. Where Go wrapped a sentinel to give it a kind
-//! (`staleState`, `errors.Is`), the kind is a method here: [`GameError::is_state_mismatch`],
-//! [`GameError::is_lost_race`], [`GameError::is_missed_catch`],
-//! [`GameError::is_nickname_rejected`].
+//! (`staleState`, `errors.Is`), each refusal has one [`ErrorKind`] here.
 
+use crate::Seat;
 use std::fmt;
 
 /// The one nickname refusal that reaches a player (Go: `ErrNicknameRejected`).
@@ -60,10 +59,10 @@ pub enum GameError {
     CatchLocked,
     /// Go: `fmt.Errorf("invalid target %d")`.
     #[error("invalid target {0}")]
-    InvalidTarget(i32),
+    InvalidTarget(Seat),
     /// Go: `fmt.Errorf("invalid catcher %d")`.
     #[error("invalid catcher {0}")]
-    InvalidCatcher(i32),
+    InvalidCatcher(Seat),
     /// Go: `"cannot catch yourself"`.
     #[error("cannot catch yourself")]
     CannotCatchYourself,
@@ -98,8 +97,8 @@ pub enum GameError {
     #[error("must choose a color for a wild card")]
     MustChooseColor,
     /// Go: `fmt.Errorf("invalid chosen_player %d for swap")`.
-    #[error("invalid chosen_player {0} for swap")]
-    InvalidSwapTarget(i32),
+    #[error("invalid chosen_player {} for swap", go_seat(.0))]
+    InvalidSwapTarget(Option<Seat>),
     /// Go: `"cannot swap with yourself"`.
     #[error("cannot swap with yourself")]
     CannotSwapWithYourself,
@@ -134,7 +133,7 @@ pub enum GameError {
     GameAlreadyInProgress,
     /// Go: `fmt.Errorf("room is full (max %d players)")`.
     #[error("room is full (max {0} players)")]
-    RoomFull(i32),
+    RoomFull(usize),
     /// Go: `fmt.Errorf("nickname %q already taken")`.
     #[error("nickname {} already taken", go_quote(.0))]
     NicknameTaken(String),
@@ -143,25 +142,25 @@ pub enum GameError {
     GameAlreadyStarted,
     /// Go: `fmt.Errorf("need at least %d players to start")`.
     #[error("need at least {0} players to start")]
-    NotEnoughPlayers(i32),
+    NotEnoughPlayers(usize),
     /// Go: `"cannot change format after game starts"`.
     #[error("cannot change format after game starts")]
     FormatLocked,
     /// Go: `fmt.Errorf("invalid match format: %d")`.
     #[error("invalid match format: {0}")]
-    InvalidMatchFormat(i32),
+    InvalidMatchFormat(i64),
     /// Go: `"cannot change max players after game starts"`.
     #[error("cannot change max players after game starts")]
     MaxPlayersLocked,
     /// Go: `fmt.Errorf("max players cannot be less than %d")`.
     #[error("max players cannot be less than {0}")]
-    MaxPlayersTooLow(i32),
+    MaxPlayersTooLow(usize),
     /// Go: `fmt.Errorf("max players cannot exceed %d")`.
     #[error("max players cannot exceed {0}")]
-    MaxPlayersTooHigh(i32),
+    MaxPlayersTooHigh(usize),
     /// Go: `fmt.Errorf("cannot set max players to %d: %d players already in room")`.
     #[error("cannot set max players to {n}: {seated} players already in room")]
-    MaxPlayersBelowRoster { n: i32, seated: usize },
+    MaxPlayersBelowRoster { n: usize, seated: usize },
     /// Go: `"can only reorder seats in the lobby"`.
     #[error("can only reorder seats in the lobby")]
     ReorderOnlyInLobby,
@@ -173,7 +172,7 @@ pub enum GameError {
     RemoveOnlyInLobby,
     /// Go: `fmt.Errorf("invalid player index %d")`.
     #[error("invalid player index {0}")]
-    InvalidPlayerIndex(i32),
+    InvalidPlayerIndex(Seat),
 
     // --- Match lifecycle ---
     /// Go: `"forfeit is only possible during a match"`.
@@ -202,82 +201,80 @@ pub enum GameError {
     /// Go: `ErrNicknameBlocked`.
     #[error("nickname not allowed (blocked term)")]
     NicknameBlocked,
+}
 
-    // --- Rust only ---
-    /// A room restored from a snapshot has no source of randomness until the
-    /// hub reseeds it (`Room::reseed`): Go's `ensureRNG` read the OS on the
-    /// spot, which a pure crate cannot do. `Room::apply` refuses rather than
-    /// deal off a source nobody chose.
-    #[error("room has no source of randomness: reseed it after a restore")]
-    Unseeded,
+/// What a refusal says about the client that sent it. Go answered these with
+/// four `errors.Is` predicates over wrapped sentinels; here a refusal has
+/// exactly one kind and the hub matches on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ErrorKind {
+    /// The client acted on a board the server no longer has: worth answering
+    /// with a fresh snapshot (Go: `IsStateMismatch`).
+    StaleState,
+    /// What a correct client produces all match long by pressing the right
+    /// button at the wrong millisecond: never suspicious (Go: `IsLostRace`).
+    LostRace,
+    /// A Contre-LOCO! that came too late or found the hand already moved: a
+    /// wager lost, charged a card, and a lost race too (Go: `IsMissedCatch`).
+    MissedCatch,
+    /// A nickname refused; the wire says only [`NICKNAME_REJECTED`].
+    NicknameRejected,
+    /// Anything else: a message a correct client does not compose.
+    Invalid,
+}
+
+impl ErrorKind {
+    /// Whether an honest client produces this in ordinary play, so the hub
+    /// must not count it as suspicious (Go: `IsLostRace`, which also covered
+    /// the one missed catch it could be handed).
+    pub const fn is_honest(self) -> bool {
+        matches!(self, ErrorKind::LostRace | ErrorKind::MissedCatch)
+    }
 }
 
 impl GameError {
-    /// Whether the refusal proves the client's board had drifted from the
-    /// server's, i.e. whether it is worth re-sending the state. (Go:
-    /// `IsStateMismatch`.)
-    pub const fn is_state_mismatch(&self) -> bool {
-        matches!(
-            self,
-            GameError::NotYourTurn
-                | GameError::IllegalPlay
-                | GameError::CardNotInHand
-                | GameError::MustAnswerPenalty
-                | GameError::NotEnoughCopies { .. }
-        )
-    }
-
-    /// Whether the refusal is one this game produces against correct clients
-    /// all match long, rather than a sign of a tampered one. (Go: `IsLostRace`.)
-    pub const fn is_lost_race(&self) -> bool {
-        matches!(
-            self,
-            GameError::AlreadyDrawn
-                | GameError::MustDrawBeforePass
-                | GameError::InterruptWindowClosed
-                | GameError::InterruptMismatch
-                | GameError::InterruptNotADrawCard
-                | GameError::AlreadyDeclared
-                | GameError::CatchLocked
-                | GameError::MustDeclareLoco
-        )
-    }
-
-    /// Whether a catch refusal is a lost race — the only class of rejection
-    /// that costs the caller a card. (Go: `IsMissedCatch`.)
-    pub const fn is_missed_catch(&self) -> bool {
-        matches!(
-            self,
-            GameError::AlreadyDeclared
-                | GameError::CatchWindowExpired
-                | GameError::TargetNotSingleCard
-        )
-    }
-
-    /// Whether this is a nickname refusal, which the hub sends as
-    /// [`NICKNAME_REJECTED`] and nothing more specific. (Go:
-    /// `errors.Is(err, ErrNicknameRejected)`.)
-    pub const fn is_nickname_rejected(&self) -> bool {
-        matches!(
-            self,
-            GameError::NicknameLength | GameError::NicknameCharset | GameError::NicknameBlocked
-        )
+    /// The refusal's kind.
+    pub const fn kind(&self) -> ErrorKind {
+        use GameError as E;
+        match self {
+            E::NotYourTurn
+            | E::IllegalPlay
+            | E::CardNotInHand
+            | E::MustAnswerPenalty
+            | E::NotEnoughCopies { .. } => ErrorKind::StaleState,
+            E::AlreadyDrawn
+            | E::MustDrawBeforePass
+            | E::InterruptWindowClosed
+            | E::InterruptMismatch
+            | E::InterruptNotADrawCard
+            | E::CatchLocked
+            | E::MustDeclareLoco => ErrorKind::LostRace,
+            E::AlreadyDeclared | E::CatchWindowExpired | E::TargetNotSingleCard => {
+                ErrorKind::MissedCatch
+            }
+            E::NicknameLength | E::NicknameCharset | E::NicknameBlocked => {
+                ErrorKind::NicknameRejected
+            }
+            _ => ErrorKind::Invalid,
+        }
     }
 }
 
-/// Free-function forms, for call sites ported from Go.
-pub fn is_state_mismatch(err: &GameError) -> bool {
-    err.is_state_mismatch()
-}
-/// See [`GameError::is_lost_race`].
-pub fn is_lost_race(err: &GameError) -> bool {
-    err.is_lost_race()
-}
-/// See [`GameError::is_missed_catch`].
-pub fn is_missed_catch(err: &GameError) -> bool {
-    err.is_missed_catch()
+/// A seat as Go printed it with `%d`: -1 for nobody.
+struct GoSeat(Option<Seat>);
+
+impl fmt::Display for GoSeat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(s) => write!(f, "{s}"),
+            None => f.write_str("-1"),
+        }
+    }
 }
 
+fn go_seat(s: &Option<Seat>) -> GoSeat {
+    GoSeat(*s)
+}
 /// Go's `%q` for the strings this crate quotes: double quotes, with `"`, `\`
 /// and control characters escaped.
 struct GoQuoted<'a>(&'a str);

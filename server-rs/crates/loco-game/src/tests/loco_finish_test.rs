@@ -12,7 +12,7 @@
 
 use super::support::*;
 use crate::card::{Color, Kind};
-use crate::error::GameError;
+use crate::error::{ErrorKind, GameError};
 use crate::event::EventKind;
 
 // --- The batch that empties a hand, on the actor's own turn ---
@@ -30,7 +30,7 @@ fn play_cards_finishing_batch_without_the_call_is_refused() {
         s.hands[0].cards = vec![pair, pair];
     }
 
-    let err = r.play_cards(0, &[pair, pair], Color::Red, -1, false, NOW);
+    let err = r.play_cards(0, &[pair, pair], Color::Red, None, false, NOW);
     assert_eq!(
         err,
         Err(GameError::MustDeclareLoco),
@@ -38,7 +38,7 @@ fn play_cards_finishing_batch_without_the_call_is_refused() {
     );
     // A refusal mutates nothing: the hand, the pile and the round are untouched.
     let s = st_ref(&r);
-    assert_eq!(s.hands[0].size(), 2, "hand size after refusal");
+    assert_eq!(s.hands[0].len(), 2, "hand size after refusal");
     assert_eq!(
         s.discard.len(),
         1,
@@ -61,7 +61,7 @@ fn play_cards_finishing_batch_carrying_the_call_wins() {
         s.hands[0].cards = vec![pair, pair];
     }
 
-    if let Err(e) = r.play_cards(0, &[pair, pair], Color::Red, -1, true, NOW) {
+    if let Err(e) = r.play_cards(0, &[pair, pair], Color::Red, None, true, NOW) {
         panic!("finishing batch carrying the call: {e}");
     }
     assert!(
@@ -72,7 +72,7 @@ fn play_cards_finishing_batch_carrying_the_call_wins() {
     // The call is recorded, not merely accepted: the log and the broadcast both
     // read the state rather than the message that carried it.
     assert!(
-        st_ref(&r).last_card_declared[0],
+        st_ref(&r).seats[0].declared,
         "the call the batch carried was not recorded on the seat"
     );
     assert!(
@@ -96,19 +96,19 @@ fn play_cards_non_finishing_batch_ignores_the_flag() {
         s.hands[0].cards = vec![pair, pair, num(Color::Blue, 8)];
     }
 
-    if let Err(e) = r.play_cards(0, &[pair, pair], Color::Red, -1, false, NOW) {
+    if let Err(e) = r.play_cards(0, &[pair, pair], Color::Red, None, false, NOW) {
         panic!("non-finishing batch without the flag: {e}");
     }
     let s = st_ref(&r);
-    assert_eq!(s.hands[0].size(), 1, "hand size");
+    assert_eq!(s.hands[0].len(), 1, "hand size");
     // Down to one card the ordinary way: the seat owes a call and is catchable,
     // which is precisely what the batch rule must not hand out for free.
     assert!(
-        !s.last_card_declared[0],
+        !s.seats[0].declared,
         "a non-finishing batch declared on the seat's behalf"
     );
     assert!(
-        s.last_card_at[0].is_some(),
+        s.seats[0].last_card_at.is_some(),
         "no catch window opened on a seat left holding one card"
     );
 }
@@ -133,10 +133,10 @@ fn interrupt_play_cards_batch_is_refused() {
     let pair = num(Color::Red, 6);
     st(&mut r).hands[2].cards = vec![pair, pair];
 
-    let err = r.interrupt_play_cards(2, &[pair, pair], Color::Red, -1, NOW);
+    let err = r.interrupt_play(2, &[pair, pair], Color::Red, None, NOW);
     assert_eq!(err, Err(GameError::InterruptBatch), "batch interject");
     let s = st_ref(&r);
-    assert_eq!(s.hands[2].size(), 2, "hand size after refusal");
+    assert_eq!(s.hands[2].len(), 2, "hand size after refusal");
     assert!(!r.round_ended, "a refused interject ended the round");
     assert_eq!(s.current_turn, 1, "turn moved on a refused interject");
 }
@@ -160,11 +160,11 @@ fn interrupt_play_cards_two_copies_take_two_presses() {
     let pair = num(Color::Red, 6);
     st(&mut r).hands[2].cards = vec![pair, pair];
 
-    if let Err(e) = r.interrupt_play_cards(2, &[pair], Color::Red, -1, NOW) {
+    if let Err(e) = r.interrupt_play(2, &[pair], Color::Red, None, NOW) {
         panic!("first interject: {e}");
     }
     assert_eq!(
-        st_ref(&r).hands[2].size(),
+        st_ref(&r).hands[2].len(),
         1,
         "hand size after the first press"
     );
@@ -172,16 +172,16 @@ fn interrupt_play_cards_two_copies_take_two_presses() {
     // The seat is on the hook exactly as it would be after any other play down
     // to one card: nothing declared on its behalf, and a window open on it.
     assert!(
-        !st_ref(&r).last_card_declared[2],
+        !st_ref(&r).seats[2].declared,
         "an interject declared on the seat's behalf"
     );
     assert!(
-        st_ref(&r).last_card_at[2].is_some(),
+        st_ref(&r).seats[2].last_card_at.is_some(),
         "no catch window opened on a seat left holding one card"
     );
 
     // Second press, and the round is refused until the call is made.
-    let err = r.interrupt_play_cards(2, &[pair], Color::Red, -1, NOW);
+    let err = r.interrupt_play(2, &[pair], Color::Red, None, NOW);
     assert_eq!(
         err,
         Err(GameError::MustDeclareLoco),
@@ -190,7 +190,7 @@ fn interrupt_play_cards_two_copies_take_two_presses() {
     if let Err(e) = r.declare_last_card(2, NOW) {
         panic!("a late call must still be accepted: {e}");
     }
-    if let Err(e) = r.interrupt_play_cards(2, &[pair], Color::Red, -1, NOW) {
+    if let Err(e) = r.interrupt_play(2, &[pair], Color::Red, None, NOW) {
         panic!("the winning interject after the call: {e}");
     }
     assert!(
@@ -219,7 +219,7 @@ fn play_card_last_card_without_the_call_is_refused() {
         s.hands[0].cards = vec![win];
     }
 
-    let err = r.play_card(0, win, Color::Red, -1, NOW);
+    let err = r.play_card(0, win, Color::Red, None, NOW);
     assert_eq!(
         err,
         Err(GameError::MustDeclareLoco),
@@ -233,7 +233,7 @@ fn play_card_last_card_without_the_call_is_refused() {
     if let Err(e) = r.declare_last_card(0, NOW) {
         panic!("a late call must still be accepted: {e}");
     }
-    if let Err(e) = r.play_card(0, win, Color::Red, -1, NOW) {
+    if let Err(e) = r.play_card(0, win, Color::Red, None, NOW) {
         panic!("play after the late call: {e}");
     }
     assert!(
@@ -294,7 +294,7 @@ fn play_card_declared_seat_finishes_freely() {
     }
     declare_last(&mut r, 0);
 
-    if let Err(e) = r.play_card(0, win, Color::Red, -1, NOW) {
+    if let Err(e) = r.play_card(0, win, Color::Red, None, NOW) {
         panic!("a declared seat was refused its own last card: {e}");
     }
     assert!(r.round_ended, "the round did not end");
@@ -306,11 +306,11 @@ fn play_card_declared_seat_finishes_freely() {
 #[test]
 fn must_declare_loco_is_a_lost_race_and_not_a_mismatch() {
     assert!(
-        GameError::MustDeclareLoco.is_lost_race(),
+        GameError::MustDeclareLoco.kind().is_honest(),
         "ErrMustDeclareLoco must be a lost race: forgetting is not cheating"
     );
     assert!(
-        !GameError::MustDeclareLoco.is_state_mismatch(),
+        GameError::MustDeclareLoco.kind() != ErrorKind::StaleState,
         "ErrMustDeclareLoco must not read as drift: the client's board is correct"
     );
 }

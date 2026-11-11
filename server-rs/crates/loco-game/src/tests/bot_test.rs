@@ -8,11 +8,12 @@ use super::support::*;
 use crate::bot::{BotActionKind, bot_think};
 use crate::card::{Card, Color, Kind};
 use crate::hand::Hand;
-use crate::room::GameState;
 use crate::rules::can_play;
+use crate::state::{GameState, SeatState};
 
-fn state_with(hands: Vec<Hand>, top: Card, pending_draw: i32) -> GameState {
+fn state_with(hands: Vec<Hand>, top: Card, pending_draw: u32) -> GameState {
     GameState {
+        seats: vec![SeatState::default(); hands.len()],
         hands,
         discard: vec![top],
         active_color: Color::Red,
@@ -154,9 +155,10 @@ fn bot_think_swap_targets_the_smallest_hand() {
         "action = {action:?}, want the Swap played"
     );
     assert_eq!(
-        action.chosen_player, 2,
-        "ChosenPlayer = {}, want 2 (the one-card hand)",
-        action.chosen_player
+        action.target,
+        Some(2),
+        "ChosenPlayer = {:?}, want 2 (the one-card hand)",
+        action.target
     );
 }
 
@@ -179,16 +181,17 @@ fn bot_think_swap_skips_a_retired_seat() {
         num(Color::Red, 3),
         0,
     );
-    state.retired = vec![false, false, true];
+    state.seats[2].retired = true;
     let action = bot_think(&state, 0, &mut test_rng(7));
     assert!(
         action.kind == BotActionKind::Play && action.card.kind == Kind::Swap,
         "action = {action:?}, want the Swap played"
     );
     assert_eq!(
-        action.chosen_player, 1,
-        "ChosenPlayer = {}, want 1, never the retired seat",
-        action.chosen_player
+        action.target,
+        Some(1),
+        "ChosenPlayer = {:?}, want 1, never the retired seat",
+        action.target
     );
 }
 

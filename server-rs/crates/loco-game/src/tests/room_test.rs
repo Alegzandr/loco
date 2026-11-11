@@ -87,7 +87,7 @@ fn room_start_deals_cards() {
     let _ = r.join("bob");
     let _ = r.start(NOW);
     for p in &r.players {
-        let n = st_ref(&r).hands[p.index as usize].cards.len();
+        let n = st_ref(&r).hands[p.index].cards.len();
         assert_eq!(n, 8, "Player {:?} hand size", p.nickname);
     }
 }
@@ -98,7 +98,7 @@ fn room_play_card_not_your_turn() {
     // bob (index 1) tries to play on alice's turn (index 0)
     let card = st(&mut r).hands[1].cards[0];
     assert!(
-        r.play_card(1, card, Color::Red, -1, NOW).is_err(),
+        r.play_card(1, card, Color::Red, None, NOW).is_err(),
         "Playing out of turn should return error"
     );
 }
@@ -113,7 +113,7 @@ fn room_play_card_illegal_card() {
     s.active_color = Color::Red;
 
     assert!(
-        r.play_card(0, num(Color::Blue, 3), Color::Red, -1, NOW)
+        r.play_card(0, num(Color::Blue, 3), Color::Red, None, NOW)
             .is_err(),
         "Playing an illegal card should return error"
     );
@@ -127,7 +127,7 @@ fn room_play_card_success() {
     let match_card = num(top.color, 0);
     st(&mut r).hands[0].cards.insert(0, match_card);
 
-    r.play_card(0, match_card, match_card.color, -1, NOW)
+    r.play_card(0, match_card, match_card.color, None, NOW)
         .expect("PlayCard() error");
     // Turn should advance to bob (index 1)
     assert_eq!(st_ref(&r).current_turn, 1, "After play, CurrentTurn");
@@ -140,7 +140,7 @@ fn room_play_card_not_in_hand() {
     // Make sure it's not in hand
     st(&mut r).hands[0].cards = vec![num(Color::Red, 1)];
     assert!(
-        r.play_card(0, fake_card, Color::Red, -1, NOW).is_err(),
+        r.play_card(0, fake_card, Color::Red, None, NOW).is_err(),
         "Playing a card not in hand should return error"
     );
 }
@@ -225,7 +225,7 @@ fn room_play_card_resets_has_drawn() {
     st(&mut r).hands[0].cards.insert(0, match_card);
     st(&mut r).has_drawn = true; // simulate having drawn
 
-    r.play_card(0, match_card, match_card.color, -1, NOW)
+    r.play_card(0, match_card, match_card.color, None, NOW)
         .expect("PlayCard error");
     assert!(
         !st_ref(&r).has_drawn,
@@ -240,9 +240,9 @@ fn room_win_detection() {
     let top = st(&mut r).top_card();
     let win_card = num(top.color, 1);
     st(&mut r).hands[0].cards = vec![win_card];
-    st(&mut r).last_card_declared[0] = true; // alice has declared
+    st(&mut r).seats[0].declared = true; // alice has declared
 
-    r.play_card(0, win_card, win_card.color, -1, NOW)
+    r.play_card(0, win_card, win_card.color, None, NOW)
         .expect("PlayCard() error");
     assert_eq!(r.status, Status::Finished, "Game should be finished");
     assert_eq!(r.winner, "alice", "Winner");
@@ -256,7 +256,7 @@ fn room_last_card_declaration() {
     r.declare_last_card(0, NOW)
         .expect("DeclareLastCard() error");
     assert!(
-        st_ref(&r).last_card_declared[0],
+        st_ref(&r).seats[0].declared,
         "LastCardDeclared[0] should be true"
     );
 }
@@ -299,7 +299,7 @@ fn room_last_card_declaration_penalty_if_forgot() {
     st(&mut r).hands[0].cards = vec![win_card, second_card];
 
     // Play one card leaving 1 in hand, but don't declare
-    r.play_card(0, second_card, second_card.color, -1, NOW)
+    r.play_card(0, second_card, second_card.color, None, NOW)
         .expect("PlayCard() error");
 
     // Bob catches alice for not declaring
@@ -324,10 +324,10 @@ fn room_catch_undeclared_window_expired() {
     st(&mut r).hands[0].cards = vec![leave_card, play_card];
 
     // Alice plays leaveCard → now at 1 card (playCard remains), catch window opens
-    r.play_card(0, leave_card, leave_card.color, -1, NOW)
+    r.play_card(0, leave_card, leave_card.color, None, NOW)
         .expect("PlayCard");
     assert!(
-        st_ref(&r).last_card_at[0].is_some(),
+        st_ref(&r).seats[0].last_card_at.is_some(),
         "expected LastCardAt to be set after playing to 1 card"
     );
 
@@ -350,11 +350,11 @@ fn room_catch_undeclared_after_declared() {
     let leave_card = num(top.color, 2);
     st(&mut r).hands[0].cards = vec![leave_card, play_card];
 
-    r.play_card(0, leave_card, leave_card.color, -1, NOW)
+    r.play_card(0, leave_card, leave_card.color, None, NOW)
         .expect("PlayCard");
     r.declare_last_card(0, NOW).expect("DeclareLastCard");
     assert!(
-        st_ref(&r).last_card_declared[0],
+        st_ref(&r).seats[0].declared,
         "expected LastCardDeclared[0] = true after declaration"
     );
 
@@ -384,14 +384,14 @@ fn room_catch_undeclared_not_reopened_by_later_play() {
 
     let alice_play = num(Color::Red, 3);
     st(&mut r).hands[0].cards = vec![alice_play, num(Color::Blue, 9)];
-    r.play_card(0, alice_play, Color::Red, -1, NOW)
+    r.play_card(0, alice_play, Color::Red, None, NOW)
         .expect("alice PlayCard");
     r.declare_last_card(0, NOW).expect("DeclareLastCard");
 
     // Bob plays immediately after — this must not void alice's declaration.
     let bob_play = num(Color::Red, 6);
     st(&mut r).hands[1].cards.insert(0, bob_play);
-    r.play_card(1, bob_play, Color::Red, -1, NOW)
+    r.play_card(1, bob_play, Color::Red, None, NOW)
         .expect("bob PlayCard");
 
     assert!(
@@ -412,7 +412,7 @@ fn room_catch_undeclared_not_reopened_by_later_play() {
 #[test]
 fn room_uno_state_clean_on_new_round() {
     let mut r = setup_two_player_game();
-    r.format = MatchFormat::BO3; // multi-round match so ending round 1 starts round 2
+    r.format = MatchFormat::Bo3; // multi-round match so ending round 1 starts round 2
 
     let top = st(&mut r).top_card();
     let match_color = top.color;
@@ -425,14 +425,14 @@ fn room_uno_state_clean_on_new_round() {
     st(&mut r).hands[1].cards = vec![bob_card];
 
     // Alice plays aliceCard1 → drops to 1 card. Catch window opens.
-    r.play_card(0, alice_card1, match_color, -1, NOW)
+    r.play_card(0, alice_card1, match_color, None, NOW)
         .expect("alice play");
     assert!(
-        st_ref(&r).last_card_at[0].is_some(),
+        st_ref(&r).seats[0].last_card_at.is_some(),
         "round 1: expected LastCardAt set after alice plays to 1 card"
     );
     assert!(
-        !st_ref(&r).last_card_declared[0],
+        !st_ref(&r).seats[0].declared,
         "round 1: expected LastCardDeclared[0] = false (no declaration)"
     );
 
@@ -441,7 +441,7 @@ fn room_uno_state_clean_on_new_round() {
     // round_end) so the card_played broadcast for the round-winning play sees the
     // pre-deal state instead of the new round's freshly-flipped first card.
     declare_last(&mut r, 1);
-    r.play_card(1, bob_card, match_color, -1, NOW)
+    r.play_card(1, bob_card, match_color, None, NOW)
         .expect("bob play");
     assert!(r.round_ended, "expected RoundEnded after bob empties hand");
     assert_eq!(
@@ -453,11 +453,11 @@ fn room_uno_state_clean_on_new_round() {
 
     // New round must have clean UNO state
     assert!(
-        !st_ref(&r).last_card_declared[0],
+        !st_ref(&r).seats[0].declared,
         "round 2: LastCardDeclared[0] should be false (fresh slice from dealRound)"
     );
     assert_eq!(
-        st_ref(&r).last_card_at[0],
+        st_ref(&r).seats[0].last_card_at,
         None,
         "round 2: LastCardAt should be zero (fresh deal)"
     );
@@ -477,7 +477,7 @@ fn room_counter_draw_two() {
     let draw_card = act(top.color, Kind::DrawTwo);
     st(&mut r).hands[0].cards.insert(0, draw_card);
 
-    r.play_card(0, draw_card, draw_card.color, -1, NOW)
+    r.play_card(0, draw_card, draw_card.color, None, NOW)
         .expect("PlayCard with DrawTwo error");
     assert_eq!(st_ref(&r).pending_draw, 2, "PendingDraw");
 
@@ -515,7 +515,7 @@ fn room_card_value_scoring() {
     st(&mut r).hands[0].cards = vec![win_card];
 
     declare_last(&mut r, 0);
-    r.play_card(0, win_card, win_card.color, -1, NOW)
+    r.play_card(0, win_card, win_card.color, None, NOW)
         .expect("PlayCard error");
 
     assert_eq!(r.scores[0], 67, "alice score");
@@ -531,7 +531,7 @@ fn room_round_history_one_row_per_round() {
     let mut r = new_room("HIST");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO3;
+    r.format = MatchFormat::Bo3;
     let _ = r.start(NOW);
 
     assert!(
@@ -574,7 +574,7 @@ fn room_round_end_match_not_over_bo3() {
     let mut r = new_room("BO3T");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO3;
+    r.format = MatchFormat::Bo3;
     let _ = r.start(NOW);
     st(&mut r).current_turn = 0;
     st(&mut r).pending_draw = 0;
@@ -586,7 +586,7 @@ fn room_round_end_match_not_over_bo3() {
     st(&mut r).hands[1].cards = vec![num(Color::Red, 5)];
 
     declare_last(&mut r, 0);
-    r.play_card(0, win_card, win_card.color, -1, NOW)
+    r.play_card(0, win_card, win_card.color, None, NOW)
         .expect("round 1 PlayCard error");
 
     // Match should NOT be over; round 1 ended but the next round is dealt
@@ -607,7 +607,7 @@ fn room_bo1_match_over() {
     let mut r = new_room("BO1T");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO1;
+    r.format = MatchFormat::Bo1;
     let _ = r.start(NOW);
     st(&mut r).current_turn = 0;
     st(&mut r).pending_draw = 0;
@@ -618,7 +618,7 @@ fn room_bo1_match_over() {
     st(&mut r).hands[1].cards = vec![act(Color::Red, Kind::Skip)];
 
     declare_last(&mut r, 0);
-    r.play_card(0, win_card, win_card.color, -1, NOW)
+    r.play_card(0, win_card, win_card.color, None, NOW)
         .expect("PlayCard error");
 
     assert!(r.match_over, "match should be over after BO1");
@@ -632,15 +632,15 @@ fn win_round(r: &mut Room, winner_idx: usize, loser_idx: usize, loser_cards: Vec
     let win_card = num(Color::Red, 1);
     {
         let s = st(r);
-        s.current_turn = winner_idx as i32;
+        s.current_turn = winner_idx;
         s.pending_draw = 0;
         s.active_color = Color::Red;
         s.discard = vec![top];
         s.hands[winner_idx].cards = vec![win_card];
         s.hands[loser_idx].cards = loser_cards;
     }
-    declare_last(r, winner_idx as i32);
-    r.play_card(winner_idx as i32, win_card, win_card.color, -1, NOW)
+    declare_last(r, winner_idx);
+    r.play_card(winner_idx, win_card, win_card.color, None, NOW)
         .expect("PlayCard error");
     // Simulate the hub: clear RoundEnded and deal the next round
     // (only if the match isn't already decided).
@@ -656,7 +656,7 @@ fn room_match_score_accumulation() {
     let mut r = new_room("ACC");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO3;
+    r.format = MatchFormat::Bo3;
     let _ = r.start(NOW);
 
     // Round 1: alice wins, bob has 10 points worth
@@ -680,7 +680,7 @@ fn room_tiebreaker_rounds_won() {
     let mut r = new_room("TIE1");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO3;
+    r.format = MatchFormat::Bo3;
     let _ = r.start(NOW);
 
     // Manually set state to simulate after 2 rounds:
@@ -696,11 +696,13 @@ fn room_tiebreaker_rounds_won() {
     let mut r2 = new_room("TIE2");
     let _ = r2.join("alice");
     let _ = r2.join("bob");
-    r2.format = MatchFormat::BO3;
+    r2.format = MatchFormat::Bo3;
     r2.scores = vec![50, 50];
     r2.rounds_won = vec![2, 1];
     r2.lost_hand_total = vec![25, 60];
-    let winner = r2.determine_match_winner();
+    let winner = r2
+        .determine_match_winner()
+        .map(|i| r2.players[i].nickname.clone());
     assert_eq!(winner.as_deref(), Some("alice"), "tiebreaker by rounds won");
 }
 
@@ -709,12 +711,14 @@ fn room_tiebreaker_lost_hand_total() {
     let mut r = new_room("TIE3");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO3;
+    r.format = MatchFormat::Bo3;
     // Same score, same rounds won → tiebreak by lowest lost hand total
     r.scores = vec![50, 50];
     r.rounds_won = vec![1, 1];
     r.lost_hand_total = vec![10, 30]; // alice has lower loss total
-    let winner = r.determine_match_winner();
+    let winner = r
+        .determine_match_winner()
+        .map(|i| r.players[i].nickname.clone());
     assert_eq!(
         winner.as_deref(),
         Some("alice"),
@@ -727,12 +731,14 @@ fn room_sudden_death() {
     let mut r = new_room("TIE4");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.format = MatchFormat::BO1;
+    r.format = MatchFormat::Bo1;
     // All tiebreakers exhausted: sudden death
     r.scores = vec![50, 50];
     r.rounds_won = vec![1, 1];
     r.lost_hand_total = vec![10, 10];
-    let winner = r.determine_match_winner();
+    let winner = r
+        .determine_match_winner()
+        .map(|i| r.players[i].nickname.clone());
     assert_eq!(winner, None, "perfectly tied: determineMatchWinner()");
 }
 
@@ -741,12 +747,12 @@ fn room_set_format() {
     let mut r = new_room("FMT");
     let _ = r.join("alice");
     let _ = r.join("bob");
-    r.set_format(MatchFormat::BO5)
+    r.set_format(MatchFormat::Bo5)
         .expect("SetFormat(BO5) error");
-    assert_eq!(r.format, MatchFormat::BO5, "Format");
+    assert_eq!(r.format, MatchFormat::Bo5, "Format");
     let _ = r.start(NOW);
     assert!(
-        r.set_format(MatchFormat::BO3).is_err(),
+        r.set_format(MatchFormat::Bo3).is_err(),
         "SetFormat after game start should return error"
     );
 }
@@ -806,7 +812,7 @@ fn room_round_ends_immediately_first_finisher() {
     }
 
     declare_last(&mut r, 0);
-    r.play_card(0, num(Color::Red, 1), Color::Red, -1, NOW)
+    r.play_card(0, num(Color::Red, 1), Color::Red, None, NOW)
         .expect("alice play");
     assert!(
         r.round_ended,
@@ -830,7 +836,7 @@ fn room_biggest_loser_starts_next_round() {
     for n in ["alice", "bob", "carol"] {
         r.join(n).unwrap();
     }
-    r.format = MatchFormat::BO3;
+    r.format = MatchFormat::Bo3;
     r.start(NOW).unwrap();
     // Force a deterministic round 1 win for bob (so alice has 0 score, bob wins big).
     {
@@ -846,7 +852,7 @@ fn room_biggest_loser_starts_next_round() {
     }
 
     declare_last(&mut r, 1);
-    r.play_card(1, num(Color::Red, 1), Color::Red, -1, NOW)
+    r.play_card(1, num(Color::Red, 1), Color::Red, None, NOW)
         .expect("bob play");
     assert!(r.round_ended, "expected RoundEnded after bob finishes");
     r.round_ended = false;
@@ -871,7 +877,7 @@ fn room_swap_with_self_rejected() {
         s.active_color = Color::Red;
     }
     assert!(
-        r.play_card(0, swap, Color::Red, 0, NOW).is_err(),
+        r.play_card(0, swap, Color::Red, Some(0), NOW).is_err(),
         "swap with self should fail"
     );
 }
@@ -892,7 +898,7 @@ fn room_swap_card_swaps_hands() {
         s.active_color = Color::Red;
     }
 
-    r.play_card(0, swap_card, Color::Red, 1, NOW) // swap with bob (index 1)
+    r.play_card(0, swap_card, Color::Red, Some(1), NOW) // swap with bob (index 1)
         .expect("PlayCard Swap error");
 
     let s = st_ref(&r);
@@ -921,11 +927,12 @@ fn room_swap_card_invalid_target() {
     }
 
     assert!(
-        r.play_card(0, swap_card, Color::Red, 0, NOW).is_err(),
+        r.play_card(0, swap_card, Color::Red, Some(0), NOW).is_err(),
         "swapping with self should return error"
     );
     assert!(
-        r.play_card(0, swap_card, Color::Red, 99, NOW).is_err(),
+        r.play_card(0, swap_card, Color::Red, Some(99), NOW)
+            .is_err(),
         "swap with out-of-range index should return error"
     );
 }
@@ -953,7 +960,7 @@ fn room_global_switch_rotates_hands_clockwise() {
         s.direction = 1; // clockwise: 0→1→2
     }
 
-    r.play_card(0, gs_card, Color::Blue, -1, NOW)
+    r.play_card(0, gs_card, Color::Blue, None, NOW)
         .expect("PlayCard GlobalSwitch error");
 
     // With direction=1 (clockwise), rotation means each player gets the hand of
@@ -1002,7 +1009,7 @@ fn room_global_switch_rotates_by_direction_counter_clockwise() {
         s.direction = -1; // counter-clockwise: each hand passes to (i+1)→(i)
     }
 
-    r.play_card(0, gs_card, Color::Blue, -1, NOW)
+    r.play_card(0, gs_card, Color::Blue, None, NOW)
         .expect("PlayCard GlobalSwitch");
     // With direction=-1, rotation: newHands[i] = Hands[(i+1)%n]
     // → p0 gets old hand1 (2), p1 gets old hand2 (3), p2 gets old hand0 minus gsCard (1)
@@ -1061,11 +1068,11 @@ fn room_global_switch_sets_chosen_color_playable() {
         s.direction = 1;
     }
 
-    r.play_card(0, gs_card, Color::Red, -1, NOW)
+    r.play_card(0, gs_card, Color::Red, None, NOW)
         .expect("PlayCard GlobalSwitch");
     let s = st_ref(&r);
     assert_eq!(s.active_color, Color::Red, "ActiveColor (chosen)");
-    let next = s.current_turn as usize;
+    let next = s.current_turn;
     let playable = s.hands[next]
         .cards
         .iter()
@@ -1097,7 +1104,7 @@ fn room_interrupt_play_global_switch_sets_chosen_color() {
         s.hands[2].cards = vec![gs, num(Color::Red, 3)];
     }
 
-    r.interrupt_play(2, gs, Color::Green, -1, NOW)
+    r.interrupt_play(2, &[gs], Color::Green, None, NOW)
         .expect("GlobalSwitch interject");
     assert_eq!(
         st_ref(&r).active_color,
@@ -1121,7 +1128,7 @@ fn room_global_switch_requires_chosen_color() {
     }
 
     assert!(
-        r.play_card(0, gs, Color::Wild, -1, NOW).is_err(),
+        r.play_card(0, gs, Color::Wild, None, NOW).is_err(),
         "a GlobalSwitch play must name a real colour"
     );
     assert_eq!(
@@ -1146,7 +1153,7 @@ fn room_interrupt_play_global_switch_requires_chosen_color() {
     st(&mut r).hands[2].cards = vec![gs, num(Color::Red, 3)];
 
     assert!(
-        r.interrupt_play(2, gs, Color::Wild, -1, NOW).is_err(),
+        r.interrupt_play(2, &[gs], Color::Wild, None, NOW).is_err(),
         "a GlobalSwitch interject must name a real colour"
     );
     assert_eq!(
@@ -1170,7 +1177,7 @@ fn room_global_switch_as_last_card_does_not_leave_wild_active() {
     }
 
     declare_last(&mut r, 0);
-    r.play_card(0, gs_card, Color::Green, -1, NOW)
+    r.play_card(0, gs_card, Color::Green, None, NOW)
         .expect("PlayCard GlobalSwitch as last card");
     assert_ne!(
         st_ref(&r).active_color,
@@ -1195,7 +1202,7 @@ fn room_swap_as_last_card_ends_round_without_swapping() {
     }
 
     declare_last(&mut r, 0);
-    r.play_card(0, swap_card, Color::Red, 1, NOW)
+    r.play_card(0, swap_card, Color::Red, Some(1), NOW)
         .expect("PlayCard Swap as last card");
     assert!(r.round_ended, "playing last card (Swap) must end the round");
     assert_eq!(r.winner, r.players[0].nickname, "Winner");
@@ -1229,7 +1236,7 @@ fn room_global_switch_as_last_card_ends_round_without_rotating() {
     }
 
     declare_last(&mut r, 0);
-    r.play_card(0, gs_card, Color::Green, -1, NOW)
+    r.play_card(0, gs_card, Color::Green, None, NOW)
         .expect("PlayCard GlobalSwitch as last card");
     assert!(
         r.round_ended,
@@ -1315,7 +1322,7 @@ fn counter_draw_stack_continues() {
     let top = st(&mut r).top_card();
     let alice_draw_two = act(top.color, Kind::DrawTwo);
     st(&mut r).hands[0].cards.insert(0, alice_draw_two);
-    r.play_card(0, alice_draw_two, alice_draw_two.color, -1, NOW)
+    r.play_card(0, alice_draw_two, alice_draw_two.color, None, NOW)
         .expect("alice PlayCard DrawTwo");
     assert_eq!(st_ref(&r).pending_draw, 2, "PendingDraw after +2");
     assert_eq!(st_ref(&r).current_turn, 1, "turn (bob)");
@@ -1380,8 +1387,8 @@ fn counter_draw_win_closes_the_interrupt_window() {
         "emptying the hand with a counter did not end the round"
     );
     assert!(
-        st_ref(&r).last_play_by < 0,
-        "LastPlayBy = {} after a round-winning counter, want the window closed",
+        st_ref(&r).last_play_by.is_none(),
+        "LastPlayBy = {:?} after a round-winning counter, want the window closed",
         st_ref(&r).last_play_by
     );
 }
@@ -1422,7 +1429,7 @@ fn counter_draw_requires_same_color() {
         1,
         "turn after forced draw (bob keeps the turn)"
     );
-    r.play_card(1, blue_draw_two, Color::Blue, -1, NOW)
+    r.play_card(1, blue_draw_two, Color::Blue, None, NOW)
         .expect("blue +2 on a red +2 after the forced draw");
     assert_eq!(
         st_ref(&r).pending_draw,
@@ -1478,7 +1485,7 @@ fn play_card_rejected_during_pending_draw() {
     let hand_before = st_ref(&r).hands[1].cards.len();
 
     assert!(
-        r.play_card(1, illegal, Color::Red, -1, NOW).is_err(),
+        r.play_card(1, illegal, Color::Red, None, NOW).is_err(),
         "expected PlayCard to fail during pending draw"
     );
     assert_eq!(
@@ -1508,7 +1515,7 @@ fn room_skip_end_to_end() {
         s.hands[0].cards.insert(0, skip_card);
     }
 
-    r.play_card(0, skip_card, Color::Red, -1, NOW)
+    r.play_card(0, skip_card, Color::Red, None, NOW)
         .expect("PlayCard Skip");
     assert_eq!(
         st_ref(&r).current_turn,

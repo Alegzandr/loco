@@ -5,7 +5,7 @@ use super::support::*;
 use crate::bot::bot_interrupt;
 use crate::card::{Card, Color, Kind};
 use crate::hand::Hand;
-use crate::room::GameState;
+use crate::state::GameState;
 
 fn blue(v: i32) -> Card {
     num(Color::Blue, v)
@@ -69,7 +69,7 @@ fn bot_interrupt_leaves_the_opening_discard_alone() {
     let top = num(Color::Red, 5);
     let mut s = interrupt_state(top, Color::Red, &[top]);
     // What dealRound produces: window open, nobody played the card on the pile.
-    s.last_play_by = -1;
+    s.last_play_by = None;
 
     assert!(
         s.interrupt_open,
@@ -159,9 +159,10 @@ fn bot_interrupt_swap_picks_a_real_target() {
 
     let action = bot_interrupt(&s, 1).expect("BotInterrupt = nil");
     assert_eq!(
-        action.chosen_player, 0,
-        "ChosenPlayer = {}, want 0",
-        action.chosen_player
+        action.target,
+        Some(0),
+        "ChosenPlayer = {:?}, want 0",
+        action.target
     );
 }
 
@@ -193,7 +194,9 @@ fn bot_interrupt_out_of_range_seat() {
         got.is_none(),
         "BotInterrupt(empty state) = {got:?}, want nil"
     );
-    let got = bot_interrupt(&s, -1);
+    // Go's -1 is unrepresentable in a `Seat`; the nearest thing is the seat a
+    // -1 would wrap to.
+    let got = bot_interrupt(&s, usize::MAX);
     assert!(got.is_none(), "BotInterrupt(seat -1) = {got:?}, want nil");
 }
 
