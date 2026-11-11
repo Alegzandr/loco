@@ -51,6 +51,120 @@ pub struct Timings {
     pub players_online_period: Duration,
     /// How old a snapshot may be and still be worth restoring.
     pub snapshot_max_age: Duration,
+    /// How long the table waits for every client to load the map before it
+    /// opens without the stragglers.
+    pub map_load_timeout: Duration,
+    /// The span `Limits::max_failed_joins` is counted over.
+    pub failed_join_window: Duration,
+    /// A stale-state correction is throttled to one per socket per this.
+    pub resync_period: Duration,
+    /// The 1v1 queue's own clocks.
+    pub matchmaking: MatchmakingTimings,
+    /// Every bot delay. Only think and jitter are tunable from the
+    /// environment, and only with `LOCO_E2E=1`: every other one is a reaction
+    /// window somebody is meant to be able to win.
+    pub bots: BotTimings,
+}
+
+/// What a matchmade table runs on: a stranger will not wait for you.
+#[derive(Clone, Debug)]
+pub struct MatchmakingTimings {
+    /// The versus reveal, between the pairing and the deal.
+    pub reveal_delay: Duration,
+    /// The reveal's deal is armed a second time this long after the first:
+    /// every other dropped job is lossy, that one is unbounded.
+    pub reveal_backstop: Duration,
+    pub reconnect_timeout: Duration,
+    pub afk_threshold: u32,
+}
+
+impl Default for MatchmakingTimings {
+    fn default() -> Self {
+        MatchmakingTimings {
+            reveal_delay: Duration::from_millis(2500),
+            reveal_backstop: Duration::from_secs(3),
+            reconnect_timeout: Duration::from_secs(15),
+            afk_threshold: 2,
+        }
+    }
+}
+
+/// The bots' clocks and odds, as Go declared them in `hub/bots.go`.
+#[derive(Clone, Debug)]
+pub struct BotTimings {
+    pub think: Duration,
+    pub jitter_max: Duration,
+    pub uno_delay: Duration,
+    pub uno_jitter_max: Duration,
+    pub catch_delay: Duration,
+    pub catch_jitter_max: Duration,
+    pub catch_prob: f32,
+    pub interrupt_delay: Duration,
+    pub interrupt_jitter_max: Duration,
+    pub interrupt_prob: f32,
+    pub finish_delay: Duration,
+    pub finish_jitter_max: Duration,
+}
+
+impl Default for BotTimings {
+    fn default() -> Self {
+        BotTimings {
+            think: Duration::from_millis(1200),
+            jitter_max: Duration::from_millis(1000),
+            uno_delay: Duration::from_millis(1600),
+            uno_jitter_max: Duration::from_millis(1200),
+            catch_delay: Duration::from_millis(3200),
+            catch_jitter_max: Duration::from_millis(1200),
+            catch_prob: 0.8,
+            interrupt_delay: Duration::from_millis(700),
+            interrupt_jitter_max: Duration::from_millis(800),
+            interrupt_prob: 0.40,
+            finish_delay: Duration::from_millis(1800),
+            finish_jitter_max: Duration::from_millis(800),
+        }
+    }
+}
+
+impl BotTimings {
+    /// `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`, read only when
+    /// `LOCO_E2E=1`. Returns whether either was applied. Go's
+    /// `botTimingOverride` + `ApplyBotTimingEnv`.
+    pub fn apply_env(&mut self, getenv: &dyn Fn(&str) -> String) -> bool {
+        if getenv("LOCO_E2E") != "1" {
+            return false;
+        }
+        let mut ok = false;
+        if let Some(d) = millis_env(getenv, "LOCO_BOT_THINK_MS") {
+            self.think = d;
+            ok = true;
+        }
+        if let Some(d) = millis_env(getenv, "LOCO_BOT_JITTER_MS") {
+            self.jitter_max = d;
+            ok = true;
+        }
+        if ok {
+            tracing::warn!(
+                "bot think delay overridden think_ms={} jitter_ms={} (LOCO_E2E=1; test builds only)",
+                self.think.as_millis(),
+                self.jitter_max.as_millis()
+            );
+        }
+        ok
+    }
+}
+
+fn millis_env(getenv: &dyn Fn(&str) -> String, name: &str) -> Option<Duration> {
+    let raw = getenv(name);
+    if raw.is_empty() {
+        return None;
+    }
+    match raw.parse::<u64>() {
+        Ok(ms) => Some(Duration::from_millis(ms)),
+        Err(_) => {
+            tracing::warn!("ignoring {name}={raw:?} (want a non-negative integer of milliseconds)");
+            None
+        }
+    }
 }
 
 impl Default for Timings {
@@ -67,6 +181,11 @@ impl Default for Timings {
             latency_broadcast_period: Duration::from_secs(3),
             players_online_period: Duration::from_secs(5),
             snapshot_max_age: Duration::from_secs(2 * 60),
+            map_load_timeout: Duration::from_secs(20),
+            failed_join_window: Duration::from_secs(60),
+            resync_period: Duration::from_secs(1),
+            matchmaking: MatchmakingTimings::default(),
+            bots: BotTimings::default(),
         }
     }
 }
@@ -96,6 +215,11 @@ impl HubConfig {
                 &getenv("LOCO_TRUSTED_PROXIES"),
             ),
             debug_mode: getenv("LOCO_E2E") == "1",
+            timings: {
+                let mut t = Timings::default();
+                t.bots.apply_env(getenv);
+                t
+            },
             ..HubConfig::default()
         }
     }

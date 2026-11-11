@@ -159,6 +159,7 @@ impl Hub {
             tables: HashMap::new(),
             clients: HashMap::new(),
             queue: Vec::new(),
+            join_budgets: HashMap::new(),
             live_bytes: None,
             live_version: 0,
             drained_closed: false,
@@ -378,9 +379,9 @@ pub struct HubCore {
     /// The 1v1 queue, oldest wait first. Its length is a metric and nothing
     /// else.
     ///
-    /// TODO(handler port): Go's `[]queuedPlayer`; the drain only needs the
-    /// client, so that is all this holds until matchmaking.rs lands.
-    pub queue: Vec<Arc<Client>>,
+    pub queue: Vec<crate::matchmaking::QueuedPlayer>,
+    /// How many table codes each network has got wrong recently.
+    pub(crate) join_budgets: HashMap<String, crate::rooms::JoinBudget>,
     pub(crate) live_bytes: Option<Utf8Bytes>,
     pub(crate) live_version: u64,
     pub(crate) drained_closed: bool,
@@ -447,7 +448,7 @@ impl HubCore {
                     if self.clients.remove(&client.key).is_some() {
                         self.hub.metrics().clients.fetch_sub(1, Ordering::Relaxed);
                         client.close();
-                        crate::dispatch::handle_disconnect(&mut self, &client);
+                        self.handle_disconnect(&client);
                     }
                 }
                 Event::Inbound(Inbound { client, msg }) => {
@@ -485,12 +486,20 @@ impl HubCore {
     /// construction path does all of its own writing before this — a task
     /// reading fields somebody is still writing is the race the split between
     /// building and starting exists to make impossible.
-    pub fn open_table(&mut self, table: crate::table::Table) -> &TableHandle {
+    pub fn open_table(&mut self, mut table: crate::table::Table) -> &TableHandle {
+        table.timings = Arc::new(self.hub.config().timings.clone());
         let code = table.code.clone();
         let handle = TableHandle::start(table, self.hub.clone());
         self.hub.metrics().rooms.fetch_add(1, Ordering::Relaxed);
         self.tables.insert(code.clone(), handle);
         &self.tables[&code]
+    }
+
+    /// A table built on this hub's clocks, not yet started.
+    pub fn new_table(&self, code: &str, room: crate::room::Room) -> crate::table::Table {
+        let mut t = crate::table::Table::new(code, room);
+        t.timings = Arc::new(self.hub.config().timings.clone());
+        t
     }
 
     /// Forgets a table and stops its task. The map entry goes first, so nothing

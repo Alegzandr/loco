@@ -25,17 +25,14 @@ impl Outgoing for ServerMsg {
 
 /// Unix milliseconds now: what `server_now` carries.
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    crate::clock::now_ms()
 }
 
 /// The messages the hub writes on its own account.
 pub mod msg {
     use super::*;
 
-    /// A refusal. Only `Client::send_error` builds one: it is the funnel the
+    /// A refusal. Only `Client::refuse` builds one: it is the funnel the
     /// AFK counter's refusal check counts.
     pub(crate) fn error(text: &str) -> ServerMsg {
         ServerMsg::Error(ErrorMsg {
@@ -75,26 +72,43 @@ pub mod msg {
 }
 
 /// Decodes a client frame, or names the refusal Go would have answered it
-/// with. Decoding is stricter than Go's was — an unknown `type` fails here
-/// rather than in the dispatch switch — so the two refusals are told apart by
-/// what failed: a type this server does not know is `unknown message type`,
-/// exactly Go's string; anything else that does not decode is `invalid message
-/// format`. Either way it is one `send_error`, counted as a refusal.
-pub fn decode_client(data: &[u8]) -> Result<ClientMsg, &'static str> {
-    match serde_json::from_slice::<ClientMsg>(data) {
-        Ok(m) => Ok(m),
-        Err(e) => {
-            let typ = serde_json::from_slice::<serde_json::Value>(data)
-                .ok()
-                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_owned));
-            match typ {
-                Some(t) if e.to_string().contains(&format!("unknown variant `{t}`")) => {
-                    Err("unknown message type")
-                }
-                _ => Err("invalid message format"),
-            }
-        }
+/// with. Decoding is stricter than Go's was: an unknown `type`, colour, kind,
+/// format or emote fails here rather than in a handler, so the failure is
+/// mapped back onto the string the Go handler used — `unknown message type`,
+/// `unknown color: "x"`, `unknown kind: "x"`, `invalid match format …`,
+/// `unknown emote` — and anything else that does not decode is `invalid
+/// message format`. Either way it is one `Client::refuse`, counted as a refusal.
+pub fn decode_client(data: &[u8]) -> Result<ClientMsg, String> {
+    let e = match serde_json::from_slice::<ClientMsg>(data) {
+        Ok(m) => return Ok(m),
+        Err(e) => e,
+    };
+    let typ = serde_json::from_slice::<serde_json::Value>(data)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_owned));
+    let Some(typ) = typ else {
+        return Err("invalid message format".into());
+    };
+    let text = e.to_string();
+    let text = text.split(" at line ").next().unwrap_or("").to_owned();
+    if text.contains(&format!("unknown variant `{typ}`")) {
+        return Err("unknown message type".into());
     }
+    if typ == "send_emote" && text.starts_with("unknown variant") {
+        return Err("unknown emote".into());
+    }
+    if let Some(v) = text.strip_prefix("unknown CardColor: ") {
+        return Err(format!("unknown color: {v}"));
+    }
+    if let Some(v) = text.strip_prefix("unknown CardKind: ") {
+        return Err(format!("unknown kind: {v}"));
+    }
+    if let Some(v) = text.strip_prefix("unknown MatchFormat: ") {
+        return Err(format!(
+            "invalid match format {v}: must be BO1, BO3, BO5, or BO7"
+        ));
+    }
+    Err("invalid message format".into())
 }
 
 #[cfg(test)]
@@ -116,6 +130,21 @@ mod tests {
             "invalid message format"
         );
         assert!(decode_client(br#"{"type":"draw_card"}"#).is_ok());
+        assert_eq!(
+            decode_client(br#"{"type":"send_emote","emote":"rude"}"#).unwrap_err(),
+            "unknown emote"
+        );
+        assert_eq!(
+            decode_client(
+                br#"{"type":"play_card","card":{"color":"purple","kind":"number","value":1}}"#
+            )
+            .unwrap_err(),
+            r#"unknown color: "purple""#
+        );
+        assert_eq!(
+            decode_client(br#"{"type":"set_match_format","match_format":"BO2"}"#).unwrap_err(),
+            r#"invalid match format "BO2": must be BO1, BO3, BO5, or BO7"#
+        );
     }
 
     #[test]

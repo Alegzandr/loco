@@ -33,6 +33,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use tracing::Instrument;
 
 /// How many jobs may wait for one table: how far one table may fall behind
 /// before its own players are told to retry. It says nothing about anybody
@@ -87,6 +88,22 @@ pub struct TableCtx {
     pub me: TableSender,
 }
 
+impl TableCtx {
+    /// A context for driving a `Table` by hand, with no task behind it: what
+    /// it posts to itself goes nowhere. The white-box tests and the benches
+    /// drive tables this way.
+    pub fn detached(hub: &Hub, code: &str) -> TableCtx {
+        let (tx, _rx) = mpsc::channel(TABLE_BOX_DEPTH);
+        TableCtx {
+            hub: hub.clone(),
+            me: TableSender {
+                code: Arc::from(code),
+                tx,
+            },
+        }
+    }
+}
+
 /// Whether a shutdown would interrupt something here: a match being played, or
 /// a matchmade pair whose reveal is running and whose deal is already
 /// scheduled. An ordinary lobby is not, because a drain refuses `start_game`.
@@ -108,7 +125,7 @@ pub(crate) struct Published {
 impl Published {
     fn publish(&self, t: &Table) {
         self.phase.store(t.phase() as u8, Ordering::Release);
-        self.bots.store(t.bots.len() as i32, Ordering::Release);
+        self.bots.store(t.bot_count() as i32, Ordering::Release);
     }
 }
 
@@ -215,7 +232,10 @@ impl TableHandle {
             hub,
             me: sender.clone(),
         };
-        let join = tokio::spawn(run(table, rx, quit_rx, ctx, published.clone()));
+        // Every line the table writes carries `code=`, from this span rather
+        // than from each call site.
+        let span = tracing::info_span!("table", code = %table.code);
+        let join = tokio::spawn(run(table, rx, quit_rx, ctx, published.clone()).instrument(span));
         TableHandle {
             sender,
             published,
@@ -304,9 +324,19 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
+    // A player's message is logged under its connection, like the pumps' lines.
+    let span = client
+        .as_ref()
+        .map(|c| tracing::info_span!("job", conn = %c.conn_id))
+        .unwrap_or_else(tracing::Span::none);
+    let _entered = span.enter();
     let result = catch_unwind(AssertUnwindSafe(|| {
+        // Go fired its probe at the top of a message's handler, never a
+        // timer's: a client job is that.
         #[cfg(any(test, feature = "testkit"))]
-        if let Some(p) = probe {
+        if let Some(p) = probe
+            && client.is_some()
+        {
             p(&table.code);
         }
         run(table, ctx);
@@ -316,20 +346,18 @@ pub(crate) fn run_job(table: &mut Table, ctx: &TableCtx, job: TableJob) {
             .metrics()
             .handler_panics
             .fetch_add(1, Ordering::Relaxed);
-        let (conn, player) = match &client {
-            Some(c) => (c.conn_id.clone(), c.seat().map_or(-1, |s| s.id as i64)),
-            None => (String::new(), -1),
-        };
+        let player = client
+            .as_ref()
+            .and_then(|c| c.seat())
+            .map_or(-1, |s| s.id as i64);
         tracing::warn!(
             job = %what,
-            conn = %conn,
-            code = %table.code,
             player,
             panic = %panic_message(p.as_ref()),
             "handler panic recovered"
         );
         if let Some(c) = client {
-            c.send_error("server error");
+            c.refuse(crate::refusal::Refusal::ServerError);
         }
     }
 }

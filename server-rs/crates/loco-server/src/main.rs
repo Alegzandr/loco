@@ -4,6 +4,8 @@
 //! asks a running one for `/health` and exits 0 or 1 — the distroless image
 //! has no `wget`, so this is what the container's healthcheck calls.
 
+mod http;
+
 use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, Uri, header};
@@ -203,7 +205,8 @@ async fn serve(sink: &AsyncLog) -> std::process::ExitCode {
             "debug mode enabled (LOCO_E2E=1) — debug_set_state is unauthenticated; do NOT use in production"
         );
     }
-    // TODO(handler port): hub::apply_bot_timing_env(), before the hub starts.
+    // The bot timing override (LOCO_E2E only) is read by HubConfig::from_env,
+    // before the hub starts, so no bot is armed on the shipped timing first.
     let hub = Hub::start(cfg);
     hub.set_log_sink(sink.clone());
 
@@ -252,14 +255,19 @@ async fn serve(sink: &AsyncLog) -> std::process::ExitCode {
     tracing::info!("loco server listening on :{}", addr.port());
 
     let (close_http, http_closing) = tokio::sync::oneshot::channel::<()>();
-    let app = app(hub.clone(), poller).into_make_service_with_connect_info::<SocketAddr>();
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = http_closing.await;
-            })
-            .await
-    });
+    // Our own accept loop rather than axum::serve: Go's ReadHeaderTimeout has
+    // to be reproduced, and axum::serve exposes no such knob. See http.rs.
+    let server = tokio::spawn(http::serve(
+        listener,
+        app(hub.clone(), poller),
+        http::ServeOpts {
+            shutdown_grace: SHUTDOWN_GRACE,
+            ..Default::default()
+        },
+        async move {
+            let _ = http_closing.await;
+        },
+    ));
 
     shutdown_signal().await;
     // A second signal from here on ends the process the old way: the escape
@@ -280,12 +288,8 @@ async fn serve(sink: &AsyncLog) -> std::process::ExitCode {
     .await;
 
     let _ = close_http.send(());
-    if tokio::time::timeout(SHUTDOWN_GRACE, server).await.is_err() {
-        tracing::warn!(
-            "http shutdown did not finish in {}s",
-            SHUTDOWN_GRACE.as_secs()
-        );
-    }
+    // http::serve bounds its own drain by SHUTDOWN_GRACE.
+    let _ = server.await;
     hub.stop().await;
     tracing::info!("loco server stopped");
     std::process::ExitCode::SUCCESS

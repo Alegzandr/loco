@@ -116,6 +116,8 @@ pub struct Client {
     /// dispatch boundary to tell an action taken from one turned down.
     refusals: AtomicI64,
     suspect: Mutex<(u32, Option<Instant>)>,
+    /// When this socket was last handed a stale-state correction.
+    last_resync_at: Mutex<Option<Instant>>,
     slot: Option<crate::serve::AdmissionSlot>,
 }
 
@@ -153,6 +155,7 @@ impl Client {
             ping_sent_at: AtomicU64::new(0),
             refusals: AtomicI64::new(0),
             suspect: Mutex::new((0, None)),
+            last_resync_at: Mutex::new(None),
             slot,
         });
         (c, rx)
@@ -244,9 +247,9 @@ impl Client {
 
     /// Refuses something. The single funnel every refusal goes through, which
     /// is what lets the dispatch boundary count them.
-    pub fn send_error(&self, text: &str) {
+    pub fn refuse(&self, r: impl Into<crate::refusal::Refusal>) {
         self.refusals.fetch_add(1, Ordering::Relaxed);
-        self.send(msg::error(text));
+        self.send(msg::error(&r.into().to_string()));
     }
 
     /// Counts a refusal the server deliberately does not answer (a Contre-LOCO!
@@ -312,11 +315,34 @@ impl Client {
 
     // ── suspicion ───────────────────────────────────────────────────────────
 
+    /// The gameplay path's entry point: records a refused action unless it is
+    /// one a correct client produces in ordinary play (a lost race, a double
+    /// tap). Counting those made `suspected_cheats` rise fastest at the
+    /// busiest tables, which is exactly backwards.
+    pub fn note_rejection(&self, err: &loco_game::GameError) {
+        if err.is_lost_race() {
+            return;
+        }
+        self.note_suspect(&err.to_string());
+    }
+
+    /// Whether a correction may be sent now, and if so records that it was:
+    /// one per `period`.
+    pub fn claim_resync(&self, period: Duration) -> bool {
+        let now = Instant::now();
+        let mut last = self
+            .last_resync_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if last.is_some_and(|at| now.saturating_duration_since(at) < period) {
+            return false;
+        }
+        *last = Some(now);
+        true
+    }
+
     /// Tags a refused gameplay action. One WARN per burst of
     /// [`SUSPECT_THRESHOLD`] inside [`SUSPECT_WINDOW`].
-    ///
-    /// TODO(after loco-game merges): `note_rejection(&GameError)` goes in front
-    /// of this and returns early on `is_lost_race`, exactly as Go's did.
     pub fn note_suspect(&self, reason: &str) {
         let now = Instant::now();
         let count = {
@@ -404,14 +430,17 @@ impl Client {
                     .messages_rate_limited
                     .fetch_add(1, Ordering::Relaxed);
                 if limiter.should_notify(now) {
-                    self.send_error("rate limit exceeded");
+                    self.refuse(crate::refusal::Refusal::RateLimited);
                 }
                 continue;
             }
             let parsed = match decode_client(data) {
                 Ok(m) => m,
                 Err(refusal) => {
-                    self.send_error(refusal);
+                    if refusal == "unknown emote" {
+                        self.note_suspect("unknown emote");
+                    }
+                    self.refuse(crate::refusal::Refusal::Other(refusal));
                     continue;
                 }
             };
@@ -428,7 +457,7 @@ impl Client {
                         .messages_dropped_busy
                         .fetch_add(1, Ordering::Relaxed);
                     tracing::info!("inbound channel full, dropping message");
-                    self.send_error("server busy, please retry");
+                    self.refuse(crate::refusal::Refusal::ServerBusy);
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => break "hub stopped".into(),
             }
@@ -607,7 +636,7 @@ mod tests {
     async fn every_refusal_is_counted_and_stamped() {
         let hub = crate::Hub::start(Default::default());
         let (c, mut rx) = Client::detached(&hub);
-        c.send_error("nope");
+        c.refuse(crate::refusal::Refusal::Other("nope".into()));
         c.refuse_silently();
         assert_eq!(c.refusals(), 2);
         let got: serde_json::Value =

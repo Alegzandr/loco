@@ -40,85 +40,107 @@ rather than as an index of everything the server can do.
 ## Rust port
 
 The Rust server is a workspace in `server-rs/` (renamed `server/` at the cutover, `docs/migration.md`).
-Until step 6 is green the Go server is the one that ships; the Rust one is tested and linted beside
-it (`backend_test_rs`, `backend_lint_rs`). **One module per Go file**, so every section of this note
-still names the right place:
+Until the cutover the Go server is the one that ships; the Rust one is tested and linted beside it
+(`backend_test_rs`, `backend_lint_rs`) and passes the full Playwright suite. **One module per Go file
+under `crates/loco-hub/src/`**, so every section of this note still names the right place:
 
 | Go | Rust |
 | --- | --- |
-| `server/main.go` | `crates/loco-server/src/main.rs` (+ the `healthcheck` subcommand) |
+| `server/main.go` | `crates/loco-server/src/main.rs` (+ `healthcheck`) and `http.rs` (the listener) |
 | `server/janus/client.go` | `crates/loco-janus/src/lib.rs` |
 | `server/twitch/{config,helix,thumbs,poller}.go` | `crates/loco-twitch/src/{config,helix,thumbs,poller}.rs` |
-| `hub/hub.go` | `crates/loco-hub/src/hub.rs` (`Hub` the handle, `HubCore` the loop's state) + `config.rs` (the tunables) |
-| `hub/actor.go` | `actor.rs` (`TableHandle`, `TableSender`, `TableJob`, `Deadlines`) |
-| `hub/table.go` | `table.rs` |
-| `hub/client.go` | `client.rs` |
-| `hub/serve.go` | `serve.rs` (+ `/health`, `/metrics`, which `main.go` served) |
-| `hub/privacy.go` | `privacy.rs` (+ the `ClientNet` extractor) |
-| `hub/tokens.go` | `tokens.rs` |
-| `hub/metrics.go` | `metrics.rs` |
-| `hub/logsink.go` | `logsink.rs` (+ the `tracing` formatter) |
-| `hub/drain.go`, `hub/snapshot.go` | `drain.rs`, `snapshot.rs` (+ `gotime.rs`, Go's `time.Time` JSON) |
-| `hub/online.go`, `hub/live.go` | `online.rs`, `live.rs` |
-| `hub/dispatch.go` | `dispatch.rs` — the floor only, so far |
-| `hub_test.go`'s helpers | `testkit.rs` (feature `testkit`), used by `tests/foundation.rs` |
+| `hub/hub.go` | `hub.rs` (`Hub` the handle, `HubCore` the loop's state) + `config.rs` (every tunable) |
+| `hub/actor.go` | `actor.rs` (`TableHandle`, `TableSender`, `TableJob`, `TableCtx`, `Deadlines`) |
+| `hub/table.go` | `table.rs` (`Table`, `Seat`, `Occupant`) |
+| `hub/dispatch.go` | `dispatch.rs` (+ `refusal.rs`, every refusal string) |
+| `hub/rooms.go`, `rematch.go`, `gameplay.go`, `presence.go` | `rooms.rs`, `rematch.rs`, `gameplay.rs`, `presence.rs` |
+| `hub/bots.go`, `turntimer.go`, `maploading.go` | `bots.rs`, `turntimer.rs`, `maploading.rs` |
+| `hub/matchmaking.go`, `solo.go`, `emotes.go`, `debug.go` | `matchmaking.rs`, `solo.rs`, `emotes.rs`, `debug.rs` |
+| `hub/broadcast.go`, `statedto.go`, `converter.go` | `broadcast.rs`, `statedto.rs`, `convert.rs` |
+| `hub/client.go`, `serve.go`, `privacy.go`, `tokens.go` | `client.rs`, `serve.rs`, `privacy.rs` (+ `ClientNet`), `tokens.rs` |
+| `hub/metrics.go`, `logsink.go` | `metrics.rs`, `logsink.rs` (+ the `tracing` formatter) |
+| `hub/drain.go`, `snapshot.go` | `drain.rs`, `snapshot.rs` (+ `gotime.rs`, Go's `time.Time` JSON) |
+| `hub/online.go`, `live.go` | `online.rs`, `live.rs` |
+| — | `clock.rs` (one timeline for the domain's `Millis` and tokio's instants), `wire.rs` (decode, the hub's own messages) |
+| `hub/*_test.go` (package `hub_test`) | `tests/<same name>.rs` on `testkit.rs`, one test per Go test, Go's name in snake_case |
+| `hub/*_internal_test.go` (package `hub`) | `src/internal_tests/<same name>.rs` |
+| `hub/loop_bench_test.go` | `benches/hub.rs` (criterion) |
 
-**What changed in the shape, and why.** Every rule above still holds; these are the places it is kept
-differently.
+**What changed in the shape, and why.** Every rule in this note still holds; these are the places it
+is kept differently, most of them because Go's shape was what Go made convenient.
 
 - **A table is a tokio task that owns its `Table` outright**, behind an `mpsc(64)`. Nothing else can
   read it, which the compiler checks: the `-race` rule becomes a type error. Stopping a table hands
   its state back (`TableHandle::stop`), which is how `save_snapshot` reads every table at one instant
-  without a lock.
+  without a lock. Jobs are boxed closures (`TableJob`) rather than a command enum: the job set is
+  open-ended (every handler, every deadline), and a closure carries exactly the arguments its
+  handler takes.
+- **A seat is one value** (`table::Seat`: `occupant`, `token`, `afk`, `wants_rematch`, in one
+  `Vec`). Go kept seven structures keyed by seat number and re-based all seven by hand on every
+  removal (`shiftSeatKeys`, "one list on purpose"); here removing a seat is `Vec::remove` and a host
+  transfer is `Vec::swap`, so nothing can be forgotten, and the rematch asks above a departed seat
+  move with their seats. **Who is in a chair is an `Occupant`** — `Human(client)`, `Held { since }`,
+  `Gone`, `Bot`, `Vacant` — so a seat cannot be held and seated at once (Go's `awayAt` + `members` +
+  `gone` triple), and `connected` in the roster is `!Held && !Gone` by construction.
 - **Deadlines live in the table's state** (`Table::deadlines`, keyed by `DeadlineKey`), and the task
-  sleeps until the next one inside the same `select!` that reads its mailbox. Go armed
-  `time.AfterFunc` callbacks that posted back and re-checked a stamp to find out whether they had
-  gone stale; here **arming a key replaces what was armed under it**, so a stale callback does not
-  exist to be filtered. `reset_for_next_match` clears them all.
+  sleeps until the next one inside the same `select!` that reads its mailbox. Go's `time.AfterFunc`
+  could not be cancelled, so each fire compared a stamp (`emptyAt`, the gate's `startedAt`, the
+  pairing instant, the turn's start) against the table's; **here arming a key replaces what was armed
+  under it and the paths that end a wait disarm it**, so those stamps are gone: `Table::seat` disarms
+  the cleanup, opening the gate disarms its timeout, a rematch re-arms the reveal. What the fires
+  still check is state that can move without a re-arm (the match ending, a fixture rewriting the
+  turn, a one-card window closing). Reconnect holds take unique keys, because their seat numbers can
+  be re-based under them, and are matched by the instant the hold began (`held_seat_at`).
+- **One clock** (`clock.rs`): the domain's `Millis` are derived from tokio's clock, anchored once, so a
+  test under `tokio::time::pause` moves catch windows and deadlines together. Sub-millisecond
+  precision is kept (`system_now`): a match opened and won in one millisecond must still measure 1 ms.
+- **Every refusal is a variant of `refusal::Refusal`** (thiserror, Go's text byte for byte, a domain
+  refusal by `From<GameError>`), and `Client::refuse` is the single funnel the AFK check counts.
+  `client/src/i18n/serverErrors.ts` maps those strings; a new one goes in both places.
 - **Both crossings are `try_send`**, and a full box hands the job back, so `post_critical` and
   `post_to_router` retry the very job once (Go reposted the same closure) after a spawned sleep.
 - **A panic is caught by `catch_unwind` around each job** (`actor::run_job`, `dispatch::dispatch`),
-  with `panic = "unwind"` in the release profile. `handler_panics` and the `server error` refusal are
-  unchanged.
-- **The tunables are a value, not package variables** (`HubConfig`: `Limits`, `Timings`, origins,
-  `NetPolicy`, debug mode). A test narrows a ceiling by passing a config, so tests can run in parallel
-  without restoring anything.
-- **The pumps start only once the hub has registered the client** (the register carries a `oneshot`
-  the loop fires), the same ordering Go got from calling `c.start()` in the register case.
+  with `panic = "unwind"` in the release profile. `handler_panics` and `server error` are unchanged.
+- **The tunables are a value, not package variables** (`HubConfig`: `Limits`, `Timings` with
+  `MatchmakingTimings` and `BotTimings`, origins, `NetPolicy`, debug mode). A test narrows a knob by
+  passing a config, so tests run in parallel with nothing to restore. `BotTimings::apply_env` is Go's
+  `ApplyBotTimingEnv`, still gated on `LOCO_E2E=1`.
+- **Spans, not repeated fields**: a table's task runs in a span carrying `code=`, a player's job and a
+  connection's pumps in one carrying `conn=` (and `addr=`), so the Go line shape is kept without each
+  call site repeating them.
+- **The pumps start only once the hub has registered the client** (the register carries a `oneshot`),
+  the ordering Go got from calling `c.start()` in the register case.
 - **The admission slot is a value** (`serve::AdmissionSlot`): given back exactly once, by the
   unregister or by being dropped when the upgrade never completed.
 - **The peer address never leaves `privacy.rs`**: `serve_ws` takes the `ClientNet` extractor, already
   truncated. `client/src/test/serverSource.ts` checks that `remote_addr` / `peer_addr()` appear
   nowhere else.
-- **`/metrics` is Prometheus text** through the `metrics` crate, one recorder per hub (two hubs in a
-  test process never add up), **under the Go names**. `goroutine_count` reports the runtime's live
-  tasks. `/health` stays JSON.
-- **The log** is `tracing` through `AsyncLog`: a bounded `sync_channel` drained by one thread,
-  overflow dropped, counted and admitted, and the `GoStyle` formatter writes Go's
-  `2006/01/02 15:04:05 [WARN ]message key=value` line. A connection's pumps run in a span carrying
-  `conn=` and `addr=`, so every line they write has both. Use `%` at a call site for Go's unquoted
-  `key=value`.
-- **The wire** is `loco-protocol`. Decoding a client frame is stricter than Go's was, so
-  `wire::decode_client` maps a failure back onto Go's two strings: `unknown message type` for a type
-  the server does not know, `invalid message format` for everything else, both through `send_error`.
+- **`/metrics` is Prometheus text** through the `metrics` crate, one recorder per hub, under the Go
+  names; `goroutine_count` reports the runtime's live tasks. `/health` stays JSON. The E2E helpers
+  read either format (`e2e/helpers/metrics.ts`).
+- **The wire** is `loco-protocol`. Decoding a client frame is stricter than Go's was (an unknown type,
+  colour, kind, format or emote fails in the read pump), so `wire::decode_client` maps the failure back
+  onto the string the Go handler used — `unknown message type`, `unknown color: "x"`, `unknown kind:
+  "x"`, `invalid match format …`, `unknown emote` — and anything else is `invalid message format`.
 - **A room is `loco_game::Room`**, made by `room::new_room` with 32 bytes from the OS. Its RNG never
-  travels: a restored room is reseeded before its table starts.
-- **The table code's alphabet** is `ROOM_CODE_CHARS` / `ROOM_CODE_LEN`, and `generate_code` spells it
-  out too, because `serverSource.ts` reads it off that body; a test holds the two together.
+  travels: a restored room is reseeded before its table starts. A match record's winner is
+  `Option<usize>`, still written as Go's `-1`, so `SnapshotSchemaVersion` stays 5 and a Go file loads.
+- **The listener is ours** (`loco-server/src/http.rs`): hyper's HTTP/1 builder with
+  `header_read_timeout` at 10s, Go's `ReadHeaderTimeout`. Hyper runs that clock whenever a connection
+  waits for a request head, so an idle keep-alive connection is closed by it too — inside Go's 60s
+  `IdleTimeout`, which therefore has no separate knob. An upgraded WebSocket is past HTTP and untouched.
+- **The table code's alphabet** is `rooms::ROOM_CODE_CHARS` / `ROOM_CODE_LEN` (what `join_room`
+  validates), and `tokens::generate_code` spells it out too; `serverSource.ts` reads both off the
+  source, and tests hold the spellings together.
 
-**Seams left for the handler port** (each marked `TODO(handler port)` in the source):
-`dispatch::route` (the type switch, `dispatch_at_table`, the gameplay gate), `dispatch::handle_disconnect`
-(the table's half of a departure), `snapshot::HubCore::restore_room` (arming each seat's reconnect
-expiry, then the turn clock, the bot and the cleanup as the table's first job), `HubCore::queue`
-(Go's `queuedPlayer`), `Client::note_suspect` (`note_rejection` in front of it, on
-`GameError::is_lost_race`), `Table::reset_for_next_match` (the map gate), and `apply_bot_timing_env`
-in `main`. `dispatch::post_to_table` is the hand-off every table-scoped handler goes through.
+**Considered and not done.** `loco-game`'s `Seat = i32` with `-1` for nobody, and its paired `&mut`
+methods + `Room::apply`: the hub converts at its edges (`usize` seats inside, `i32` on the wire and in
+the domain), and reshaping the domain's public API under its proptests and wasm build is its own
+change. A command enum for the table's mailbox (see above). Newtypes for the room code and the session
+token: both are opaque strings the hub only compares and forwards.
 
-**Not carried over.** `ReadHeaderTimeout` / `IdleTimeout`: `axum::serve` exposes neither, and nginx
-sits in front of this server in every deployed environment. Measured cost so far
-(`make bench-server-rs`, release profile, a Windows dev box rather than the container): a log line through the sink
-~37 ns, `Client::send` (marshal, stamp, queue) ~0.2 µs, a four-seat `broadcast_all` ~0.35 µs, a
-deadline armed and taken ~65 ns. The whole-card-play figure comes with the handlers.
+**Measured** (`make bench-server-rs`, criterion, release, on the same Windows box as Go's `go test
+./hub/ -run '^$' -bench .`): see the table in "What the loop actually costs" below.
 
 ## A table is one object (`table.go`)
 The Hub used to carry eleven maps all keyed by the same room code: `rooms`, `roomMembers`,
@@ -274,6 +296,25 @@ was measured when a table seated ten; the cap is 7 now, so it stands as an upper
 | `broadcastCardPlayed` alone | 0.84 µs | 1.04 µs | 1.71 µs |
 | `broadcastPersonalizedGameState` (Swap / GlobalSwitch) | 3.4 µs | 7.9 µs | 28.8 µs |
 | `playerGameStateUsing`, one recipient | 0.29 µs | | |
+
+**Go and Rust on one machine** (2026-11-11, a Windows dev box, 16 threads; Go 1.26.5 `go test ./hub/
+-run '^$' -bench .`, Rust `make bench-server-rs`, criterion, release profile; same cases, the Rust
+ones in `server-rs/crates/loco-hub/benches/hub.rs`). Go's numbers here are lower than the table above
+because this is a faster box than the container that table was taken in; compare the two columns of
+one row, not across tables.
+
+| One pass of the loop | Go 2 / 4 / 10 seats | Rust 2 / 4 / 10 seats |
+| --- | --- | --- |
+| `dispatch(play_card)` end to end | 2.63 / 3.51 / 5.24 µs | 0.81 / 1.30 / 1.70 µs |
+| `broadcastCardPlayed` alone | 1.12 / 1.70 / 2.73 µs | 0.60 / 1.01 / 1.45 µs |
+| `broadcastPersonalizedGameState` | 5.68 / 9.44 / 46.8 µs | 2.69 / 6.08 / 21.9 µs |
+| `playerGameStateUsing`, one recipient (10 seats) | 0.32 µs | 0.82 µs |
+| a log line through the async sink | 0.16 µs | 0.04 µs |
+
+The Rust card play is about three times cheaper. The one row where it is slower is one recipient's
+state: the Rust bench clones the player list into the call each time, which Go's slice did not, and
+it is the row that only matters inside the personalised fan-out, where Rust is still ahead. Neither
+column changes the argument below: both are three orders of magnitude under the network.
 
 Two things fall out of that table, and both are load-bearing.
 

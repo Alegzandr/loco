@@ -213,3 +213,70 @@ pub async fn eventually(within: Duration, mut cond: impl FnMut() -> bool) -> boo
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
+
+// ── the game, as hub_test.go drove it ───────────────────────────────────────
+
+/// Takes every connection through the map-loading handshake between
+/// `game_started` and the first legal move. Go's `completeMapLoad`: the real
+/// handshake, never a disabled gate.
+pub async fn complete_map_load(conns: &mut [&mut Ws]) {
+    for c in conns.iter_mut() {
+        send_msg(c, serde_json::json!({"type": "map_ready"})).await;
+    }
+    for c in conns.iter_mut() {
+        read_msg_of_type(c, "match_ready").await;
+    }
+}
+
+/// The LOCO! call a seat owes before the card that takes the round. Go's
+/// `declareBeforeWinning`.
+pub async fn declare_before_winning(ws: &mut Ws) {
+    send_msg(ws, serde_json::json!({"type": "declare_uno"})).await;
+}
+
+/// Two players at a dealt, loaded table. Go's
+/// `setupTwoPlayerGameWithTokens`.
+pub struct TwoPlayers {
+    pub alice: Ws,
+    pub bob: Ws,
+    pub code: String,
+    pub tokens: [String; 2],
+}
+
+pub async fn setup_two_player_game(th: &TestHub) -> TwoPlayers {
+    let mut alice = dial_ws(th).await;
+    send_msg(
+        &mut alice,
+        serde_json::json!({"type": "create_room", "nickname": "Alice"}),
+    )
+    .await;
+    let created = read_msg_of_type(&mut alice, "room_created").await;
+    let code = created["room_code"].as_str().expect("room_code").to_owned();
+    let tok_a = created["session_token"].as_str().unwrap_or("").to_owned();
+
+    let mut bob = dial_ws(th).await;
+    send_msg(
+        &mut bob,
+        serde_json::json!({"type": "join_room", "nickname": "Bob", "room_code": code}),
+    )
+    .await;
+    let joined = read_msg_of_type(&mut bob, "room_joined").await;
+    let tok_b = joined["session_token"].as_str().unwrap_or("").to_owned();
+    read_msg_of_type(&mut alice, "player_joined").await;
+
+    send_msg(&mut alice, serde_json::json!({"type": "start_game"})).await;
+    read_msg_of_type(&mut alice, "game_started").await;
+    read_msg_of_type(&mut bob, "game_started").await;
+    complete_map_load(&mut [&mut alice, &mut bob]).await;
+    TwoPlayers {
+        alice,
+        bob,
+        code,
+        tokens: [tok_a, tok_b],
+    }
+}
+
+/// A seat's integer field, -1 when absent: Go's `Seat()` / `OwnSeat()`.
+pub fn seat_of(m: &Value, field: &str) -> i64 {
+    m.get(field).and_then(Value::as_i64).unwrap_or(-1)
+}
