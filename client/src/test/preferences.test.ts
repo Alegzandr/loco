@@ -107,43 +107,37 @@ describe('Preferences panel', () => {
 
   /**
    * The half of the page the app does not own. A language picked at the entry
-   * screen has to reach the footer, the drawer and the prose Astro served, or
-   * the document goes back to being half English — and the address bar has to
-   * name the URL a reload would need.
+   * screen has to reach the bar, the drawer and the prose around the game, or
+   * the document goes back to being half English — so on a home page the pick
+   * moves the router to the same page in that language, which re-renders all of
+   * it around a game the root layout keeps, and is the URL a reload would need.
+   * In place of the history entry: Back must not point at the page just left.
    */
-  it('takes the served markup and the address bar with it', () => {
+  it('takes the page around the game, and the address bar, with it', async () => {
+    const { goto } = await import('$app/navigation')
     document.documentElement.dataset.servedLang = 'en'
-    const footer = document.createElement('a')
-    footer.href = '/rules/'
-    footer.textContent = 'Rules'
-    footer.dataset.altHref = '/fr/regles/'
-    footer.dataset.alt = 'Règles'
-    document.body.appendChild(footer)
-
     try {
       render(Preferences, { defaultOpen: true })
       pickLang('Français')
+      expect(vi.mocked(goto)).toHaveBeenCalledWith('/fr/', { replace: true, reset: false })
 
-      expect(footer.textContent).toBe('Règles')
-      expect(footer.getAttribute('href')).toBe('/fr/regles/')
-      expect(window.location.pathname).toBe('/fr/')
-
-      // And back. The document was *built* as English and is now showing
-      // French, so those two disagree: a URL computed against `data-served-lang`
-      // would decide there was nothing to do and leave the address bar at
-      // `/fr/` over an English page, which a shared link would then hand over
-      // as the French one.
+      // And back, from the French page: what decides is the page on screen.
+      document.documentElement.dataset.servedLang = 'fr'
+      vi.mocked(goto).mockClear()
       pickLang('English')
-      expect(footer.textContent).toBe('Rules')
-      expect(footer.getAttribute('href')).toBe('/rules/')
-      expect(window.location.pathname).toBe('/')
+      expect(vi.mocked(goto)).toHaveBeenCalledWith('/', { replace: true, reset: false })
     } finally {
-      footer.remove()
       delete document.documentElement.dataset.servedLang
-      history.replaceState(history.state, '', '/')
     }
   })
 
+  it('moves nothing on the invitation, which is built as no language', async () => {
+    const { goto } = await import('$app/navigation')
+    delete document.documentElement.dataset.servedLang
+    render(Preferences, { defaultOpen: true })
+    pickLang('Français')
+    expect(vi.mocked(goto)).not.toHaveBeenCalled()
+  })
   it('closes on Escape', () => {
     render(Preferences, { defaultOpen: true })
     fireEvent.keyDown(document, { key: 'Escape' })

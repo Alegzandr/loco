@@ -42,7 +42,7 @@ export function getMotionPref(): MotionPref {
  * This attribute is the single source of truth in CSS: the reduced-motion rules
  * are scoped to it rather than to `@media (prefers-reduced-motion: reduce)`,
  * because a media query cannot be overridden by a preference and the `full`
- * setting has to be able to win. `initMotion()` runs in entry.ts before the
+ * setting has to be able to win. `initMotion()` runs in boot.ts before the
  * first render, so the OS setting still lands before the first paint.
  */
 function apply(): void {

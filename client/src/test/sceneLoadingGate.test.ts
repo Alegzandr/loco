@@ -47,6 +47,28 @@ describe('the felt the room is built around is the final one', () => {
   })
 })
 
+describe('the felt is solved for the box the board fills, never for the window', () => {
+  // The backdrop stretches its frame to its own element and the board lays the
+  // CSS felt and the inlay out in that same element. On iOS Safari the page is
+  // `100dvh` and `innerHeight` is a toolbar off it, so a felt solved for the
+  // window drew the rendered table ~50px above the felt on every iPhone, the
+  // inlay running across the rail — and `tableFits` agreed, comparing the
+  // window's felt with itself.
+  it('measures the container before it falls back on the window', () => {
+    const view = read('components/GameView.svelte')
+    expect(view).toMatch(/const box = elementSize\(\(\) => containerEl\)/)
+    expect(view).toMatch(/feltInViewport\(frame\.width, frame\.height,/)
+    expect(view).not.toMatch(/feltInViewport\(viewport\.current/)
+    expect(view).toMatch(/send, \(\) => anchor, \(\) => frame\)/)
+  })
+
+  it('renders the gate at that same box', () => {
+    const gate = read('hooks/gamePlay.svelte.ts')
+    expect(gate).not.toMatch(/renderSizeFor\(window\.inner/)
+    expect(gate).toMatch(/renderSizeFor\(box\.width, box\.height\)/)
+  })
+})
+
 describe('a frame near enough the size asked for is stretched, not re-rendered', () => {
   const size = (width: number, height: number) => ({ width, height, pixelRatio: 1 })
 

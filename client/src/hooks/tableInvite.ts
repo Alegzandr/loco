@@ -22,7 +22,7 @@ import { clearSession, readSession } from './sessionPersistence'
  *  - **The code is a query parameter on that page, never a path segment.** Every
  *    URL here is a page the build emitted, and `/i/ABC234` is not one: a static
  *    build cannot emit a page per table, so resolving a path form would need a
- *    fallback in whoever serves the request. nginx can do that; `astro dev`
+ *    fallback in whoever serves the request. nginx can do that; `astro dev` (the dev server then)
  *    cannot be made to — Astro 7 routes ahead of the connect stack, so a Vite
  *    plugin's middleware never sees the URL, `astro:server:setup` at the head of
  *    the stack never sees it either, and a dynamic entry in `redirects` refuses
@@ -53,7 +53,7 @@ export const INVITE_PARAM = 't'
 
 /**
  * The code this page was opened on, until something claims it. Module state
- * rather than the store: it is read before the first render, by `entry.ts`,
+ * rather than the store: it is read before the first render, by `boot.ts`,
  * next to the theme and the session record and for the same reason.
  */
 let pending = ''
@@ -74,7 +74,7 @@ export function tableInviteUrl(code: string, origin = window.location.origin): s
 
 /**
  * Reads the invite off the URL and takes it back out of the address bar. Called
- * once from `entry.ts`, before the store is seeded from the stored session.
+ * once from `boot.ts`, before the store is seeded from the stored session.
  */
 export function initTableInvite(): void {
   let url: URL
@@ -101,7 +101,7 @@ export function initTableInvite(): void {
   //
   // The parameter is dropped by string surgery, not by `searchParams.delete` +
   // `url.search`: re-encoding the query rewrites every other parameter on the
-  // way out, and `?showcase` (the dev-only gallery flag `entry.ts` reads) comes
+  // way out, and `?showcase` (the dev-only gallery flag `boot.ts` reads) comes
   // back as `?showcase=`. Nothing here has any business editing a parameter it
   // was not asked about.
   //

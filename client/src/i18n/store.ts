@@ -17,7 +17,7 @@
  * because the content pages take part in that decision and mount nothing at all.
  * This module owns what is on screen right now, which is a different question.
  */
-import { en, Translations } from './en'
+import { en, type Translations } from './en'
 import { fr } from './fr'
 import { chooseLang, readStoredLang, rememberLang, type Lang } from '../lang'
 
@@ -82,7 +82,7 @@ export function resetI18n(): void {
 /**
  * Detection is lazy, and that is what makes it happen at the right moment.
  *
- * `entry.ts` calls `initI18n()` before the first render, so in the app this has
+ * `boot.ts` calls `initI18n()` before the first render, so in the app this has
  * always already run. What it buys is the boundary a test needs: reading the
  * language for the first time after a reset decides it, which is exactly when
  * the provider used to decide it — on mount, against whatever storage says now.
@@ -111,6 +111,29 @@ export function initI18n(): Lang {
   // A screen reader still needs to be told.
   document.documentElement.lang = current
   return current
+}
+
+/**
+ * Decides again, against the document now on screen, and renders the answer.
+ *
+ * `initI18n()` is once per boot, and under the router a boot no longer lasts one
+ * document: the game is kept mounted while a content page is read, and the page
+ * it comes back to may be the other language's (`/fr/` after `/rules/`, or the
+ * other way round with a choice recorded on the content page's globe). This is
+ * the same detection, applied to the page the game has just been put back into
+ * — and it notifies, because unlike the first read the app is already
+ * subscribed. Like every detection, it persists nothing.
+ */
+export function redetectLang(): Lang {
+  let lang: Lang
+  try {
+    lang = detectLang()
+  } catch {
+    lang = 'en'
+  }
+  detected = true
+  apply(lang)
+  return lang
 }
 
 export function getLang(): Lang {

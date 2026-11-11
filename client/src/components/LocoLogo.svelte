@@ -5,7 +5,7 @@
   // A type alias rather than an interface, and it stays one: TypeScript gives an
   // object type an implicit index signature and an interface none, which is what
   // lets these props satisfy a `Record<string, unknown>`. The bridge that needed
-  // that is gone; `Base.astro` still hands the logo through as loose props.
+  // that is gone; a layout still hands the logo through as loose props.
   type Props = {
     /**
      * Type size the whole logo is built from, as a CSS length. The card, the gaps,

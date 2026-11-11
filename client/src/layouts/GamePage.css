@@ -1,0 +1,449 @@
+/* The game page's document rules: what Astro called `<style is:global>`.
+
+   Global on purpose and by necessity. Half of what is styled here is markup no
+   component owns at compile time — the app's mounted child under `#root` is
+   rendered there by the root layout — and Svelte would prune a scoped selector it
+   cannot see in this component's markup, silently.
+
+   And because a stylesheet the router has loaded stays loaded for the life of
+   the document, nothing here may style an element by type alone: a content
+   page reached from `/` by a client-side navigation would inherit it. The body
+   rules hang off `body.game`, which `seo/document.ts` puts on this page only. */
+
+/* The page is exactly one viewport, always: the game takes what is left after
+   the footer, and neither of them is reached by scrolling. Colour is left to
+   tokens.css so the dark theme is not overridden. */
+html:has(body.game),
+body.game {
+  width: 100%;
+}
+
+body.game {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#root {
+  flex: 1 1 auto;
+  /* Without this a tall board would push the footer off-screen instead of
+     scrolling inside its own stage. */
+  min-height: 0;
+  width: 100%;
+}
+
+/* Once a seat is taken there is nothing on this page but the game, and a board
+   that can be dragged off-screen mid-match is a bug. The bar and the burger are
+   the site's; at a seat the board is the board. */
+:root[data-seated] .siteFooter.onHome,
+:root[data-seated] .homeBurger {
+  display: none;
+}
+
+/* One arrival, not two.
+
+   The bar is prerendered markup and the game is mounted from a bundle, so
+   with nothing holding them together this page came up in pieces: the canvas
+   and the links on a wide screen, the canvas and the burger on a phone, then
+   the lobby a few hundred milliseconds later when the bundle landed. Both
+   halves now wait for the mount and fade in together — `data-booted` is
+   written on <html> by boot.ts once the game has painted.
+
+   Gated on `scripting: enabled`, because with no script there is no mount to
+   wait for and the prose behind the sheet is the only thing on `/` a crawler
+   reads: it may never be hidden behind a reveal that cannot fire. The delay on
+   the same animation below is the other half of that promise — a bundle that
+   fails to load shows the page anyway rather than leaving a blank screen.
+
+   **Nothing that paints the page's background is ever what fades.** `#root`
+   and the bar (`.siteFooter`) are both filled with `--color-canvas`, and the body under
+   them carries the candy gradient — which those two flat fills are the reason
+   nobody ever sees. Fading either of them let it through for a third of a
+   second, so the load flashed a gradient that is not part of any screen. The
+   animation is therefore on what arrives — the app's mounted child, the
+   bar's row (`.footerRow`), the phone's burger — and never on the surfaces they
+   arrive onto. The canvas is painted on the first frame and does not move
+   again.
+
+   Opacity only, deliberately: a transform here would make each of these a
+   containing block for the fixed burger and for every panel the app renders,
+   for as long as the animation runs.
+
+   `data-booted="in"` is the reveal and it is spent: boot.ts blanks the value
+   once the fade is over. Every screen is a fresh child of #root, so a reveal
+   rule left standing would replay on every screen change for the rest of the
+   match. The bare attribute is what lifts the hold, and it stays.
+
+   Reduced motion keeps the wait and loses the fade — the blanket rule in
+   tokens.css cuts every animation's duration and leaves its delay alone. */
+@media (scripting: enabled) {
+  :root:not([data-booted]) #root > *,
+  :root:not([data-booted]) .onHome .footerRow,
+  :root:not([data-booted]) .homeBurger {
+    animation: homeBootIn 0.34s var(--ease-out) 3s both;
+  }
+}
+
+:root[data-booted='in'] #root > *,
+:root[data-booted='in'] .onHome .footerRow,
+:root[data-booted='in'] .homeBurger {
+  animation: homeBootIn 0.34s var(--ease-out) both;
+}
+
+@keyframes homeBootIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* The bar itself is the site's (`.siteFooter` in content.css): same height,
+   same type, same place as on every content page, and the router holds it still
+   across a navigation between the two. Nothing here styles it, nor the drawer,
+   nor the burger's look — a rule added here is a divergence by definition. What
+   this file owns is what only `/` has: the bar in the flow of a one-viewport
+   page (content.css, `.onHome`), the hold above, and the sheet below.
+
+   The sheet's own button wears the bar's link type, so the left-hand end of
+   the bar reads the same whether it says "Play" or "What is LOCO!". */
+/* Closed, the <details> is a block holding an inline summary, which gives it
+   the body's line box — 24px for 16px of text — and made this bar 8px taller
+   than the same bar on a content page. As a flex box it is exactly its
+   button's height, so the two bars are one height and the router's hold on
+   the bar has nothing to jump. */
+.homeSheet:not([open]) {
+  display: flex;
+}
+
+.homeSheetBtn {
+  color: var(--color-muted);
+  font: 600 12px/1.3 var(--font-body);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.homeSheetBtn:hover,
+.homeSheet[open] .homeSheetBtn,
+.homeSheetBtn:focus-visible {
+  color: var(--color-ink);
+}
+
+.homeSheetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  list-style: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.homeSheetBtn::-webkit-details-marker {
+  display: none;
+}
+
+/* Open, the sheet *is* the rules modal, measurement for measurement: the card,
+   the headed title with its ✕, the prose scrolling between them and one button
+   at the foot. `components/RulesModal.svelte` is where all of it comes from —
+   the two surfaces say the same kind of thing about the same game, so they may
+   not be two different objects.
+
+   The card is the <details> element itself, and the <summary> is the footer
+   button, put there by `order` because a summary must come first in the
+   markup. That is the whole reason this shape works with no script: a native
+   disclosure has exactly one control, and it is the one thing on this card a
+   player without a bundle can press. */
+.homeSheetShut {
+  display: none;
+}
+.homeSheet[open] .homeSheetLabel {
+  display: none;
+}
+
+.homeSheet[open] {
+  position: fixed;
+  z-index: 61;
+  /* Centred without a transform on the way in: the entry animation owns that
+     property, and `inset: 0` + `margin: auto` needs neither. */
+  inset: 0;
+  margin: auto;
+  width: min(680px, calc(100% - 2rem));
+  height: fit-content;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface-card);
+  border: 4px solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font-body);
+  animation: homeSheetIn 0.32s var(--ease-bounce) both;
+}
+
+.homeSheetScrim {
+  display: none;
+}
+
+.homeSheet[open] ~ .homeSheetScrim {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--color-scrim);
+  backdrop-filter: blur(5px);
+  animation: homeSheetFade 0.16s ease-out;
+}
+
+/* The bar's links are behind the scrim while the sheet is up: dimmed text
+   under a close button reads as a misfire. They come back with it. */
+.homeSheet[open] ~ .footerNav,
+.homeSheet[open] ~ .footerEnd {
+  visibility: hidden;
+}
+
+:root[data-motion='reduce'] .homeSheet[open],
+:root[data-motion='reduce'] .homeSheet[open] ~ .homeSheetScrim {
+  animation: none;
+}
+
+@keyframes homeSheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes homeSheetFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.homeSheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-shrink: 0;
+  padding: var(--space-lg) var(--space-lg) var(--space-base);
+  border-bottom: var(--stroke-thin) solid var(--color-hairline);
+}
+
+.homeSheetTitle {
+  margin: 0;
+  font: 700 24px/1.2 var(--font-display);
+  color: var(--color-ink);
+}
+
+/* `hidden` in the markup and revealed once a script runs: the summary below
+   closes this with no script, this one cannot, and a control that does nothing
+   is worse than one that is not there. The explicit rule is load-bearing —
+   `display: flex` would otherwise win over the attribute. */
+.homeSheetX[hidden] {
+  display: none;
+}
+
+.homeSheetX {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.homeSheetX:hover {
+  background: var(--color-surface-strong);
+}
+
+.homeSheet[open] .homeSheetBtn {
+  /* Last in the flex column, first in the markup, because a <summary> has no
+     choice about the second one. */
+  order: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: var(--space-base) var(--space-lg);
+  border-top: var(--stroke-thin) solid var(--color-hairline);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.homeSheet[open] .homeSheetShut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 26px;
+  min-height: 48px;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
+  font: 600 16px/1.2 var(--font-display);
+  box-shadow: 0 4px 0 var(--color-stroke-soft);
+  transition:
+    transform 0.12s var(--ease-bounce),
+    box-shadow 0.12s var(--ease-out);
+  touch-action: manipulation;
+}
+
+.homeSheet[open] .homeSheetBtn:hover .homeSheetShut {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 var(--color-stroke-soft);
+}
+.homeSheet[open] .homeSheetBtn:active .homeSheetShut {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--color-stroke-soft);
+}
+
+/* The prose, and the only part of this card that moves: the title and the way
+   out stay put above and below it. */
+.homeSheetCard {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: grid;
+  gap: 1.6rem;
+  padding: var(--space-lg);
+}
+
+.homeSheetCard h3 {
+  font: 700 17px/1.25 var(--font-display);
+  color: var(--color-ink);
+  margin-bottom: 0.6rem;
+}
+
+/* The modal's list typography, to the declaration. */
+.homeSheetCard p,
+.homeSheetCard li {
+  font: 500 15px/1.55 var(--font-body);
+  color: var(--color-body);
+}
+
+.homeSheetCard ul {
+  list-style: none;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.homeSheetCard li {
+  position: relative;
+  padding-inline-start: 1.25rem;
+}
+.homeSheetCard li::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 4px;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+/* The phone. The bar's row goes here as it does on every content page
+   (content.css), and the burger stands in for it, opening the same drawer. The
+   bar then costs the board no height at all. What the row could open does not
+   go: the drawer's first line opens the same sheet at this width, so only the
+   *closed* sheet's button is taken away. The sheet and its scrim are both
+   `position: fixed` once open, so nothing here re-enters the layout. */
+@media (max-width: 46rem) {
+  .homeSheet:not([open]) {
+    display: none;
+  }
+
+  /* Top left, over the board rather than in a bar: `/` has no header to put
+     it in. The offsets are the ones `<Lobby />` gives its own `.topBar`, so it
+     lands on the line the gear, the speaker and the "?" already sit on. */
+  .homeBurger {
+    position: fixed;
+    z-index: 61;
+    top: calc(var(--space-base) + var(--safe-top));
+    left: calc(var(--space-base) + var(--safe-left));
+  }
+
+  /* The burger is what opened this, and it opens nothing while it is up: at
+     the same z-index as the card and later in the document it was painted
+     *over* the card's own top-left corner, a floating control on a panel that
+     already carries its ✕. It comes back with the sheet. */
+  :root:has(.homeSheet[open]) .homeBurger {
+    display: none;
+  }
+
+  /* Open, the sheet is the rules modal — which below this width is the game's
+     one sheet: up from the bottom edge, the top two corners rounded, the title
+     and the ✕ pinned over prose that scrolls, and the footer button across the
+     full width above the home indicator. `RulesModal.svelte`,
+     `Preferences.svelte` and `AudioSettings.svelte` all become that at this
+     breakpoint, and this is the fourth. It was the only one of the four that
+     stayed a centred desktop card on a phone, so the two surfaces that carry
+     the same kind of prose about the same game — this and the rulebook — were
+     two different panels on the one screen where the difference is a whole
+     viewport wide. */
+  .homeSheet[open] {
+    inset: auto 0 0 0;
+    margin: 0;
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    /* Arriving from the edge it is anchored to, so no scale to punch in
+       from: the same entry the other three sheets carry. */
+    animation: homeSheetUp 0.26s var(--ease-bounce) both;
+  }
+
+  @keyframes homeSheetUp {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .homeSheetHead {
+    padding: var(--space-base) var(--space-lg);
+  }
+
+  /* The sheet's own heading, not a shrunken desktop one, and a ✕ a thumb can
+     land on: 32px is a pointer's target. */
+  .homeSheetTitle {
+    font-size: 20px;
+  }
+
+  .homeSheetX {
+    width: 40px;
+    height: 40px;
+  }
+
+  .homeSheetX svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .homeSheetCard {
+    padding: var(--space-base) var(--space-lg);
+    gap: 1.2rem;
+  }
+
+  /* The home indicator is under this button, not beside it. */
+  .homeSheet[open] .homeSheetBtn {
+    padding: var(--space-md) var(--space-lg) calc(var(--space-md) + var(--safe-bottom));
+  }
+
+  .homeSheet[open] .homeSheetShut {
+    width: 100%;
+  }
+}

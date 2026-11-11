@@ -119,7 +119,7 @@
   <!-- What the screen says and the two ways out of it, in one box: sideways
        this is the column that stands beside the radar. -->
   <div class="panel">
-    <!-- An h2: the document's top-level heading is served by GamePage.astro and
+    <!-- An h2: the document's top-level heading is served by the game's layout and
          describes the page itself. A screen inside the game heads its own section. -->
     <h2 class="title">{t.searchTitle}</h2>
 

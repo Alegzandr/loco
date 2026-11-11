@@ -31,7 +31,7 @@ describe('the rooms page', () => {
   })
 
   it('shoots each still at the hour the page says it was shot at', () => {
-    const article = read('content/TablesArticle.astro')
+    const article = read('content/TablesArticle.svelte')
     const scenes = read('dev/scenes.ts')
     const sig = pairs(article, article.indexOf('SIGNATURE: Record'), article.indexOf('}', article.indexOf('SIGNATURE: Record')))
     const shot = pairs(scenes, scenes.indexOf('The stills the rooms page'), scenes.indexOf('as const', scenes.indexOf('The stills the rooms page')))
@@ -45,7 +45,7 @@ describe('the rooms page', () => {
     // where the last two are shown, and it used to show them as one flat run of
     // ten words told apart by a border colour. The labels come from `ui()` so
     // the French page is not left with the English words.
-    const article = read('content/TablesArticle.astro')
+    const article = read('content/TablesArticle.svelte')
     expect(article).toMatch(/ui\('tablesHours', lang\)/)
     expect(article).toMatch(/ui\('tablesSkies', lang\)/)
     for (const key of ['tablesHours', 'tablesSkies'] as const) {
@@ -75,10 +75,9 @@ describe('the rooms page', () => {
     // colour on top of the one in the photograph. The CSS table is the
     // stand-in for a missing still, on exactly the ellipse the render builds
     // its own under (`src/dev/RoomStill.svelte`), and never has a plinth.
-    const article = read('content/TablesArticle.astro')
-    expect(article).toMatch(/class="roomStill"/)
-    expect(article).toMatch(/\{!still && <div class="roomTable"/)
-    expect(article).toMatch(/\{!still && <div class="roomGlow"/)
+    const article = read('content/TablesArticle.svelte')
+    expect(article).toMatch(/\{#if still\}\s*<enhanced:img\s+class="roomStill"/)
+    expect(article).toMatch(/\{:else\}\s*<div class="roomGlow"[^>]*><\/div>\s*<div class="roomTable"/)
     expect(article.match(/class="roomTable"/g)).toHaveLength(1)
     expect(article).not.toMatch(/roomPlinth/)
     const still = read('dev/RoomStill.svelte')

@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { LEGAL, LEGAL_UPDATED } from '../content/legal'
 import { LEGAL as LEGAL_PAGE, PAGES, LANGS, type Lang } from '../seo/meta'
 import { UI } from '../content/ui'
+import { contentSlugs, routeFor } from '../seo/document'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
+import { FULL_ADDRESS_READ, serverHubSources } from './serverSource'
 
 const CLIENT = path.resolve(__dirname, '../..')
-const ROOT = path.resolve(CLIENT, '..')
 
 /** Every string of every document, flattened, for one language. */
 function allCopy(lang: Lang): string {
@@ -107,11 +108,17 @@ describe('required disclosures', () => {
  */
 describe('reaching it', () => {
   it('is a real page in both languages', () => {
+    // Built by the content route in each language (its `entries` are the
+    // registry's slugs), and the article it renders for this page is the
+    // legal one.
     for (const lang of LANGS) {
-      const clean = LEGAL_PAGE.path[lang].replace(/^\/|\/$/g, '')
-      const file = path.join(CLIENT, 'src', 'pages', `${clean}.astro`)
-      expect(readFileSync(file, 'utf8')).toContain('LegalArticle')
+      const prefix = lang === 'en' ? '/' : '/fr/'
+      const slug = LEGAL_PAGE.path[lang].slice(prefix.length, -1)
+      expect(contentSlugs(lang), lang).toContain(slug)
+      expect(routeFor(LEGAL_PAGE.path[lang]).page).toBe(LEGAL_PAGE)
     }
+    const article = readFileSync(path.join(CLIENT, 'src', 'content', 'Article.svelte'), 'utf8')
+    expect(article).toMatch(new RegExp(`${LEGAL_PAGE.id}: LegalArticle`))
   })
 
   // The jump list is what the modal's tab strip became, and its anchors are the
@@ -140,24 +147,34 @@ describe('reaching it', () => {
   })
 
   it('is linked from the footer of the game and of every content page', () => {
+    // One bar and one drawer since the site's chrome was unified, and both
+    // page layouts render them.
     const layouts = path.join(CLIENT, 'src', 'layouts')
-    for (const file of ['GamePage.astro', 'ContentPage.astro']) {
+    for (const file of ['SiteFooter.svelte', 'SiteDrawer.svelte']) {
       const src = readFileSync(path.join(layouts, file), 'utf8')
       expect(src, file).toMatch(/LEGAL\.path\[lang\]/)
       expect(src, file).toMatch(/legalNav/)
     }
+    for (const group of ['(game)', '(content)']) {
+      const layout = path.join(CLIENT, 'src', 'routes', group, '+layout.svelte')
+      expect(readFileSync(layout, 'utf8'), group).toMatch(/<SiteFooter\b/)
+    }
   })
 
   // The whole point of a page over a modal: no name typed, no seat taken, and
-  // nothing to run. A `client:` directive here would put the policy behind a
-  // script, and `nginx.conf` refuses those anyway (see csp.test.ts).
-  it('renders without shipping any JavaScript of its own', () => {
+  // nothing to run. The page is prerendered, so the policy is in the served
+  // HTML: an effect here would draw nothing on the server, and the policy would
+  // be behind a script for a reader who has none.
+  it('renders without needing any JavaScript of its own', () => {
     const article = readFileSync(
-      path.join(CLIENT, 'src', 'content', 'LegalArticle.astro'),
+      path.join(CLIENT, 'src', 'content', 'LegalArticle.svelte'),
       'utf8',
     )
-    expect(article).not.toMatch(/client:/)
-    expect(article).not.toMatch(/is:inline/)
+    const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(article)?.[1] ?? ''
+    // Built rather than written out: a rune spelled in a plain .ts file is what
+    // runeScope.test.ts exists to refuse, even inside a pattern.
+    expect(script).not.toMatch(new RegExp(['\\$' + 'effect', 'onMount', '\\$' + 'state'].join('|')))
+    expect(article.slice(article.indexOf('</script>'))).not.toMatch(/<script|\{@html/)
   })
 
   it('keeps the copy out of the bundle every player downloads', () => {
@@ -186,12 +203,11 @@ describe('the promises the copy makes about the stack', () => {
     for (const fmt of logFormats) expect(fmt).not.toMatch(/\$remote_addr/)
   })
 
-  it('truncates it in the Go server too', () => {
-    const dir = path.join(ROOT, 'server', 'hub')
-    const offenders = readdirSync(dir)
-      .filter((f) => f.endsWith('.go') && !f.endsWith('_test.go') && f !== 'privacy.go')
-      .filter((f) => statSync(path.join(dir, f)).isFile())
-      .filter((f) => /RemoteAddr\(\)|[^(]r\.RemoteAddr/.test(readFileSync(path.join(dir, f), 'utf8')))
+  it('truncates it in the server too', () => {
+    // Every hub file but privacy's, the one that does the truncating.
+    const offenders = serverHubSources()
+      .filter(({ src }) => FULL_ADDRESS_READ.test(src))
+      .map(({ file }) => file)
 
     expect(offenders).toEqual([])
   })

@@ -9,6 +9,9 @@ interface ImportMetaEnv {
    * production build folds the branch away whatever the environment says.
    */
   readonly VITE_E2E_NO_SCENE?: string
+  /** The absolute origin the canonical, hreflang and link-preview tags name. */
+  readonly VITE_PUBLIC_ORIGIN?: string
+  readonly VITE_WS_ORIGIN?: string
 }
 
 interface ImportMeta {

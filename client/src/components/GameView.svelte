@@ -42,7 +42,7 @@
   import GameBoard, { type GameBoardHandle } from './cards/GameBoard.svelte'
   import { resolveScene } from './cards/maps'
   import { feltInViewport } from './cards/layout'
-  import { viewportSize, safeAreaInsets } from '../hooks/boardMetrics.svelte'
+  import { elementSize, viewportSize, safeAreaInsets } from '../hooks/boardMetrics.svelte'
   import MapLoadingScreen from './MapLoadingScreen.svelte'
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
@@ -367,15 +367,24 @@
   // Where the felt lands on screen, solved from the viewport and the roster the
   // way the board solves it: the room is rendered with the table's podium under
   // exactly this ellipse, before the board has measured anything.
+  //
+  // Solved for the box the board fills, never for the window: the backdrop
+  // stretches its frame to that box, and on iOS Safari `innerHeight` and the
+  // `100dvh` the page is laid out in differ by the toolbar, so a felt solved
+  // for the window put the rendered table a toolbar away from the CSS one and
+  // the inlay ran off the rail. The window stands in only until the box has
+  // been measured, which is before the first effect that reads this.
   const viewport = viewportSize()
+  const box = elementSize(() => containerEl)
+  const frame = $derived(box.current.width > 0 && box.current.height > 0 ? box.current : viewport.current)
   const insets = safeAreaInsets()
   const anchor = $derived(
-    feltInViewport(viewport.current.width, viewport.current.height, Math.max(0, g.players.length - 1), insets.current),
+    feltInViewport(frame.width, frame.height, Math.max(0, g.players.length - 1), insets.current),
   )
 
   // Render the room while the table is shut, and tell the server the moment we
   // are in. See hooks/gamePlay.svelte.ts.
-  const preload = mapGate(() => scene, () => gateOpen, send, () => anchor)
+  const preload = mapGate(() => scene, () => gateOpen, send, () => anchor, () => frame)
 
   // Past the format: the server's tiebreak chain separated nobody, so it dealt
   // one more round. The chip says which round it is, and there is no honest

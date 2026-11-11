@@ -63,7 +63,7 @@
     matchLengthLabel(f, players.length, t.matchLengthUnit),
   )
 
-  // Mirrors the server's serverMinPlayers / serverMaxPlayers (game/room.go). A cap
+  // Mirrors the server's SERVER_MIN_PLAYERS / SERVER_MAX_PLAYERS (loco-game/src/room.rs). A cap
   // of 1 is a room that can never start, so the field must not even offer it.
   const MIN_PLAYERS = 2
   const MAX_PLAYERS = 7

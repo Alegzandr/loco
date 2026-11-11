@@ -20,7 +20,7 @@ import { initMotion, setMotionPref, resetMotionPref } from '../hooks/motionPref'
  * standing between the player's answer and the stylesheet.
  */
 
-const ENTRY = readFileSync(path.resolve(__dirname, '..', 'entry.ts'), 'utf8')
+const ENTRY = readFileSync(path.resolve(__dirname, '..', 'boot.ts'), 'utf8')
 
 const motion = () => document.documentElement.getAttribute('data-motion')
 
@@ -52,7 +52,7 @@ describe('the reduced-motion wiring', () => {
   it('writes data-motion before the first render', () => {
     // The attribute is the single source of truth for every reduced-motion rule
     // in the CSS. Nothing else in the app calls this, so without the call in
-    // entry.ts the whole stylesheet half is dead on arrival.
+    // boot.ts the whole stylesheet half is dead on arrival.
     expect(ENTRY).toMatch(/^import \{ initMotion \}/m)
     expect(ENTRY).toMatch(/\binitMotion\(\)/)
   })

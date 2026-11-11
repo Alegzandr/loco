@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import { describe, it, expect } from 'vitest'
+import { readServer, serverInt, serverLabel } from './serverSource'
 import {
   seatLayout,
   tableRect,
@@ -32,10 +31,9 @@ import {
 } from '../components/cards/cardTheme'
 
 // The fullest table the server seats, us not counted: read off
-// `serverMaxPlayers` in server/game/room.go, so the loops below cover exactly
-// the tables that can exist and not ones the server refuses.
-const ROOM_GO = readFileSync(path.resolve(__dirname, '..', '..', '..', 'server', 'game', 'room.go'), 'utf8')
-const MAX_OPPONENTS = Number(ROOM_GO.match(/serverMaxPlayers\s*=\s*(\d+)/)?.[1]) - 1
+// `serverMaxPlayers` in the server's room module, so the loops below cover
+// exactly the tables that can exist and not ones the server refuses.
+const MAX_OPPONENTS = serverInt(readServer('game', 'room'), 'serverMaxPlayers') - 1
 
 const DESKTOP = { w: 1440, h: 900 }
 const DESIGN = { w: 1240, h: 790 }
@@ -112,7 +110,7 @@ const onEllipse = (felt: Rect, x: number, y: number) => {
 
 describe('seatLayout: a place on the rim', () => {
   it('is tested up to the fullest table the server seats', () => {
-    expect(MAX_OPPONENTS, 'serverMaxPlayers not found in server/game/room.go').toBe(6)
+    expect(MAX_OPPONENTS, `serverMaxPlayers not found in ${serverLabel('game', 'room')}`).toBe(6)
   })
 
   it('returns nothing for a table with no opponents', () => {

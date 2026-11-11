@@ -23,11 +23,12 @@
  * https, or ends anywhere but a page that exists. The reasoning, the
  * measurements and the alternative that was rejected are in `docs/notes/seo.md`.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 
 import { PAGES, INVITE, LANGS } from '../seo/meta'
+import { contentSlugs } from '../seo/document'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 const conf = readFileSync(path.join(CLIENT, 'nginx.conf'), 'utf8')
@@ -64,23 +65,31 @@ const site = blocks.find((b) => /\btry_files\b/.test(b))!
 
 /**
  * Every URL the build emits, derived from the pages themselves rather than from
- * `PAGES`: a chain has to be replayed against what nginx will actually find on
- * disk. `index.astro` is the directory itself, `rules.astro` is `/rules/`, and
- * `404.astro` is an error document rather than a URL anybody is sent to.
+ * `PAGES` alone: a chain has to be replayed against what nginx will actually
+ * find on disk. The game's three pages are a `+page.svelte` each under
+ * `routes/(game)/` (a group adds nothing to the URL); every content page is one
+ * of two parameterised routes, prerendered once per slug its `entries` gives —
+ * which are the registry's — so those are read through the same function the
+ * build calls. `routes/404/` is the error document nginx serves on a miss, not
+ * a URL anybody is sent to; it builds to `404.html`.
  */
-function emittedRoutes(dir: string, prefix = '/', out = new Set<string>()): Set<string> {
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry)
-    if (statSync(full).isDirectory()) emittedRoutes(full, `${prefix}${entry}/`, out)
-    else if (entry.endsWith('.astro')) {
-      if (entry === '404.astro') continue
-      out.add(entry === 'index.astro' ? prefix : `${prefix}${entry.replace(/\.astro$/, '')}/`)
-    }
+function emittedRoutes(): Set<string> {
+  const out = new Set<string>()
+  const game = path.join(CLIENT, 'src', 'routes', '(game)')
+  for (const [dir, url] of [['', '/'], ['fr', '/fr/'], ['i', '/i/']] as const) {
+    if (existsSync(path.join(game, dir, '+page.svelte'))) out.add(url)
+  }
+  const content = path.join(CLIENT, 'src', 'routes', '(content)')
+  if (existsSync(path.join(content, '[slug=pageEn]', '+page.ts'))) {
+    for (const slug of contentSlugs('en')) out.add(`/${slug}/`)
+  }
+  if (existsSync(path.join(content, 'fr', '[slug=pageFr]', '+page.ts'))) {
+    for (const slug of contentSlugs('fr')) out.add(`/fr/${slug}/`)
   }
   return out
 }
 
-const routes = emittedRoutes(path.join(CLIENT, 'src', 'pages'))
+const routes = emittedRoutes()
 
 const HOST = 'ohloco.com'
 /** Whether nginx builds its own `Location` out of `$scheme://$host`. */

@@ -1,5 +1,5 @@
-import { SwapNotice } from '../hooks/gameStore'
-import { Translations } from '../i18n/en'
+import { type SwapNotice } from '../hooks/gameStore'
+import { type Translations } from '../i18n/en'
 
 /**
  * The line a Swap or a GlobalSwitch puts on screen.

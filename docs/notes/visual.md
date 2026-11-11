@@ -23,7 +23,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
 3. Type is display-weight and large — a spectator reads it at 720p, not a designer at arm's length.
 
 - Fonts: **Fredoka Variable** (display) + **Nunito Variable** (body), self-hosted via
-  `@fontsource-variable/*` and imported in `layouts/Base.astro`, not from the game's entry: the
+  `@fontsource-variable/*` and imported by the root layout (`routes/+layout.svelte`), not from the game's entry: the
   content pages mount no application at all and still have to be typeset. No CDN — the CSP stays closed.
 - Press feedback (hover lifts, active travels *into* the ledge) is written per component. `tokens.css`
   used to carry a `.btn-chunky` for it, plus a family of `.t-*` type classes, both described as what
@@ -39,7 +39,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   the LOCO mark — and it is the one part of the UI that does **not** follow the app's chunky-sticker
   language. A card is an object, not a control.
 - `--ease-bounce` for anything that should feel physical; `--ease-out` for travel.
-- **Reduced motion is applied by `initMotion()` in `entry.ts`, before first render**: every
+- **Reduced motion is applied by `initMotion()` in `boot.ts`, before first render**: every
   reduced-motion rule in the CSS hangs off `:root[data-motion="reduce"]` instead of a media query,
   so the attribute has to be on `<html>` before the first paint. See `docs/notes/client.md`.
 
@@ -664,10 +664,10 @@ seen from the table, and the table is CSS drawn from the room's own materials. A
 in the rain and one at noon in the same room are two rooms, which is what "the maps dictate the
 mood" asks for.
 
-- **The draw is server-side and per match, and it is three ids.** `game/maps.go` (`MapID`,
-  `TimeOfDay`, `Weather`, `MapWeathers`; `Room.pickMap` / `pickTime` / `pickWeather`); `Room.Start()`
-  writes `MapID`, `MapTime` and `MapWeather`, `BeginNextRound` keeps all three (rain does not stop
-  between two rounds), `ResetForRematch` clears them so the next match gets a new room. Exported as
+- **The draw is server-side and per match, and it is three ids.** `loco-game/src/maps.rs` (`MapId`,
+  `TimeOfDay`, `Weather`, `MAP_IDS`, `MAP_WEATHERS`; the room's `pick_map` / `pick_time` /
+  `pick_weather`); `Room::start` writes `map_id`, `map_time` and `map_weather`, `begin_next_round`
+  keeps all three (rain does not stop between two rounds), `reset_for_rematch` clears them so the next match gets a new room. Exported as
   `GameStateDTO.map_id` / `time_of_day` / `weather` on **every** snapshot, not just `game_started`,
   so a reconnecting player rebuilds the same room as everybody else. All three are bare strings on
   the wire, for the reason `map_id` always was: a value this client does not know degrades to a
@@ -677,8 +677,8 @@ mood" asks for.
     describing two different tables to a viewer is a table that does not exist, and a clip cut
     between two seats would jump between two rooms. Hashing the room code client-side would agree
     just as well but would freeze a room's map forever, and a rematch is meant to feel new.
-  - **`maps.test.ts` pins the client's three lists and every per-map weather list to the Go source**,
-    in order. A map, an hour or a sky on one side and not the other is a match dealt into a room this
+  - **`maps.test.ts` pins the client's three lists and every per-map weather list to the domain's source**
+    (`loco-game/src/maps.rs`, read through `src/test/serverSource.ts`), in order. A map, an hour or a sky on one side and not the other is a match dealt into a room this
     client cannot draw, and it fails as a plain felt, silently.
 - **`tableRect()` remains the single authority on the board's geometry.** A scene replaces how the
   felt is *painted*, never where anything is: piles, seats, direction ring and every animation
@@ -748,7 +748,7 @@ replaced was the same numbers written at their call sites, where finding the one
 read as night meant reading four files.
 
 The dev panel is lil-gui over exactly this object: `?look=1` on any page in dev mounts it
-(`entry.ts`, behind `import.meta.env.DEV`, so neither the panel nor lil-gui reaches a build), a
+(`boot.ts`, behind `import.meta.env.DEV`, so neither the panel nor lil-gui reaches a build), a
 move edits `LOOK` in place and calls `bumpLook()` after 180 ms of quiet, the backdrop hears it
 (`subscribeLook`) and asks for the room again — `lookVersion()` is part of the cache key
 (`sceneCache.entryKey`) and of the entry (`PreparedScene.look`), so a frame rendered with the old
@@ -1056,10 +1056,16 @@ Each builder's header names its three grounds.
   under a second of build and draw on a laptop; a skyline is what costs, which is why a far band
   draws fewer of its panes (`SkylineOptions.windows`) and none of its floors' glass (`ribbons`). **And
   it is built exactly once**, which took four separate guarantees:
-  - **`viewportSize()` reads the window synchronously.** Solved from 0 × 0, the preload built a
-    whole room round a felt with no size, which the real size then threw away — every match paid
-    for its room twice, the second after the gate opened. `<SceneBackdrop />` refuses a felt with no
-    size for the same reason.
+  - **The felt is solved for the box the board fills, and the window only stands in for it**
+    (`GameView`'s `frame`: the measured `.container`, else `viewportSize()`, which reads the window
+    synchronously). Solved from 0 × 0, the preload built a whole room round a felt with no size,
+    which the real size then threw away — every match paid for its room twice, the second after the
+    gate opened. `<SceneBackdrop />` refuses a felt with no size for the same reason. **Solved from
+    the window, it put the table in the wrong place on every iPhone** (2026-11-11): the page is
+    `100dvh` and Safari's `innerHeight` is a toolbar off it, the backdrop stretches its frame to its
+    element, so the rendered table sat ~50px above the CSS felt, the inlay ran across the rail, and
+    `tableFits` agreed because it compared the window's felt with itself. The gate renders at that
+    same box (`mapPreload`'s `frame`), never at `innerWidth × innerHeight`.
   - **`safeAreaInsets()` reads them synchronously too**: the felt is solved from the viewport *and*
     the insets, and an inset filled in by an effect was a second render on every notched phone.
   - **A frame within four per cent of the size asked for is stretched, not re-rendered**
@@ -1342,7 +1348,7 @@ near-black table.
 - **In a room the render carries what is under the felt**, including its real shadow, so the CSS
   draws neither a thickness band nor a cast shadow over it: either hid the one thing the render
   adds.
-- **The rooms page shows a photograph of the render, and nothing over it** (`content/TablesArticle.astro`,
+- **The rooms page shows a photograph of the render, and nothing over it** (`content/TablesArticle.svelte`,
   `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make rooms` opens the
   `room-still-<id>` scene for each room — the room alone at its signature hour under a clear sky,
   16:9, at `?gfx=force` — and writes `src/assets/rooms/<id>.webp`. The hour is written twice —
@@ -1892,7 +1898,7 @@ of 2026-09 found five of them, every one on the surfaces a reaction is aimed at:
   The pickers and the rules modal keep their blur: up for a decision, not held open over a read.
 
 ### Card rarity & the throw (`cardTheme.ts`)
-Presentation-only tiering, invented here and never consulted by `game/`. `cardRarity(card)` follows
+Presentation-only tiering, invented here and never consulted by the domain (`loco-game`). `cardRarity(card)` follows
 scarcity in the deck: number = `common` (72 cards), coloured action = `rare` (28), any wild =
 `legendary` (12). A number is two thirds of every hand — dressing up the routine play leaves nothing
 to escalate to when a wild drops, which is the whole reason the tiers exist.
@@ -2365,7 +2371,7 @@ is a board the player cannot act on.
 ## Visual showcase & screenshot harness
 `client/src/dev/scenes.ts` registers every screen/state as pure data; `?showcase` renders the index,
 `?showcase=<id>` renders one scene full-screen with no server, no WebSocket and no second player.
-Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup drops the chunk in prod.
+Gated behind `import.meta.env.DEV` (dynamic import in `boot.ts`), so Rollup drops the chunk in prod.
 
 `tools/visual/shoot.mjs` (`make visual`) boots the dev server through
 `tools/lib/devserver.mjs`, walks the registry and writes
@@ -2428,7 +2434,7 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
 - **Absolute URLs are mandatory** (crawlers resolve `og:image` against nothing) and the tags must be
   in the served HTML, since neither Discord nor X runs JS. `src/seo/meta.ts` holds `ORIGIN` (default
   = prod, override with `VITE_PUBLIC_ORIGIN`) and builds every URL through `absolute()`;
-  `layouts/Base.astro` renders the tags. The tags are data rather than markup so `ogCard.test.ts`
+  `layouts/Head.svelte` renders the tags. The tags are data rather than markup so `ogCard.test.ts`
   can assert the values instead of running a regex over a template.
 - Both platforms **cache the image by URL** for days: bump `OG_VERSION` in `src/seo/meta.ts` after
   regenerating. `twitter:card` must stay `summary_large_image` or X shows a 120px thumbnail.

@@ -39,7 +39,7 @@ describe('the context menu is refused at a taken seat and nowhere else', () => {
   it('is installed at boot, beside the pinch guard', async () => {
     const { readFileSync } = await import('node:fs')
     const path = await import('node:path')
-    const entry = readFileSync(path.resolve(__dirname, '..', 'entry.ts'), 'utf8')
+    const entry = readFileSync(path.resolve(__dirname, '..', 'boot.ts'), 'utf8')
     expect(entry).toMatch(/initContextGuard\(\)/)
   })
 })

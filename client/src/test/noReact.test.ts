@@ -21,7 +21,7 @@ function sources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     if (statSync(full).isDirectory()) sources(full, out)
-    else if (/\.(tsx?|jsx?|svelte|astro)$/.test(entry)) out.push(full)
+    else if (/\.(tsx?|jsx?|svelte)$/.test(entry)) out.push(full)
   }
   return out
 }
@@ -40,10 +40,10 @@ describe('the client carries no React', () => {
     // The integration and the Fast Refresh preamble were the two hooks React had
     // into the build, and the preamble in particular was custom code that would
     // survive a dependency removal without a word.
-    for (const file of ['astro.config.mjs', 'eslint.config.js', 'vitest.config.ts']) {
+    for (const file of ['vite.config.ts', 'eslint.config.js', 'vitest.config.ts']) {
       const src = readFileSync(path.join(CLIENT, file), 'utf8')
       expect(src, `${file} still wires React in`).not.toMatch(
-        /@astrojs\/react|react-refresh|eslint-plugin-react|'react'/i,
+        /@astrojs\/react|@vitejs\/plugin-react|react-refresh|eslint-plugin-react|'react'/i,
       )
     }
   })

@@ -28,13 +28,23 @@ Production ignores it entirely: `deploy_prod` keys on `$CI_COMMIT_TAG =~ /^v.*/`
 
 ### Test jobs
 
-- `backend_test` (`golang:1.26.5-alpine`): `cd server && go test ./...` and builds the static Linux binary `e2e_test` runs.
+- `backend_test` (`rust:1.97-bookworm`): `cd server && cargo test --workspace --locked`, the
+  `wasm32-unknown-unknown` build of `loco-game` (the domain must keep building for the browser), and
+  the static musl `loco-server` that `e2e_test` runs (`server-bin`).
 - `frontend_test` (`node:24-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
 - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs the server binary, runs
   Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
-- `backend_lint` (`golangci/golangci-lint:v2.12-alpine`): `cd server && golangci-lint run ./...`.
+- `backend_lint` (`rust:1.97-bookworm`): `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings` and `cargo deny check` (`server/deny.toml`: permissive licences only,
+  no open advisory, crates.io only).
+- `protocol_check` (`rust:1.97-bookworm` plus the distribution's `nodejs`): the converter's refusal
+  tests, `cargo test -p loco-protocol` (the wire fixtures among them) and `protocolgen --check`,
+  which fails if `client/src/types/` has drifted from `server/crates/loco-protocol/`.
 
-`build` **needs all four**. `needs` is what actually gates a deploy: naming only `backend_test` and
+Each Cargo job caches `.cargo/registry/` and `server/target/` under its own key prefix, keyed on
+`server/Cargo.lock`: two jobs pushing one key race on the upload.
+
+`build` **needs every test job**, lint and `protocol_check` included. `needs` is what actually gates a deploy: naming only `backend_test` and
 `frontend_test` let the build start as soon as those two finished, which made the lint and the whole
 Playwright suite advisory — red on `develop` still shipped to dev, and a version tag still shipped to
 prod.
@@ -49,9 +59,9 @@ nothing is skipped, no gate is loosened, no reaction window is shortened.
 | Change | Why |
 |---|---|
 | `parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL` | The suite is stateful, so `workers` stays at 1 *inside* a job; sharding is what parallelises it. `fullyParallel: true` is what makes the split even — left false, Playwright shards whole spec files and 87 tests came out 27/39/0/21. |
-| `server-bin` built once by `backend_test`, handed over by cache | `e2e_test` used to download a 70 MB Go toolchain onto an image with no Go and rebuild the same binary, once per shard. Cache rather than artifact: see below. |
+| `server-bin` built once by `backend_test`, handed over by cache | `e2e_test` runs on the Playwright image, which has no Rust: it used to download a toolchain and rebuild the same binary once per shard. Static (musl), so it runs on that image's older glibc as-is. Cache rather than artifact: see below. |
 | No `playwright install` | The image ships the browsers, and only the ones its own Playwright needs. `PLAYWRIGHT_VERSION` is declared once, interpolated into the image tag, and asserted against the installed version before the suite runs; `@playwright/test` is pinned exactly. Bump the two together and commit the lockfile. |
-| Go + npm caches under `$CI_PROJECT_DIR` | GitLab only caches paths inside the project. Keys are per job family; the shards key on `$CI_NODE_INDEX` so four jobs don't race on one cache upload. |
+| Cargo + npm caches under `$CI_PROJECT_DIR` | GitLab only caches paths inside the project. Keys are per job family; the shards key on `$CI_NODE_INDEX` so four jobs don't race on one cache upload. |
 | `e2e_test needs: [backend_test]` only | It consumes nothing from `frontend_test`, so naming it just parked the longest job behind the second-longest. `build` still needs every test job, so nothing red ships. |
 | `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` | Bot think time is dead time nothing races. Catch, LOCO! declaration and interrupt delays keep their shipped values — tests are meant to be able to win those races. |
 
@@ -72,7 +82,7 @@ FATAL: invalid argument       →  ERROR: Job failed: exit code 1
 ```
 
 A failed upload **fails the job**, so a single `artifacts:` line turns a run where all 87 E2E tests
-passed into a red pipeline. The limitation predates the speed work: `e2e_test` rebuilt the Go
+passed into a red pipeline. The limitation predates the speed work: `e2e_test` rebuilt the server
 binary in-job under a comment reading "no artifact transfer needed", and it only surfaced when a job
 first tried to publish one.
 
@@ -215,19 +225,19 @@ belongs in the hub, not in nginx — nginx is not the thing timing out.
 Browser (HTTPS, ohloco.com)     → Cloudflare → Traefik (:443, entrypoint websecure)
 Browser (WSS, ws.ohloco.com)    →   DNS-only → Traefik (:443, entrypoint websecure)
   → client nginx (:80, networks: traefik + internal)
-    → /ws          → Go server (:8080, internal only)       [WebSocket, both hostnames]
-    → /live.json   → Go server                              [the live-streams list]
-    → /live-thumb/ → Go server                              [previews, from its memory]
+    → /ws          → loco-server (:8080, internal only)     [WebSocket, both hostnames]
+    → /live.json   → loco-server                            [the live-streams list]
+    → /live-thumb/ → loco-server                            [previews, from its memory]
     → /            → nginx serves static SPA files directly [site hostname only;
                                                              ws.* answers 404]
 
-Go server (:8080, internal only)
+loco-server (:8080, internal only)
   → /health, /metrics                                        [operator only, never proxied]
 ```
 
 - **nginx proxies `/ws`, `/live.json` and `/live-thumb/`, and nothing else**, and `csp.test.ts` pins
   that list so a fourth path is a decision somebody takes deliberately. The two live-streams paths
-  answer from the Go server's memory: it asks Twitch, through the Janus gateway, roughly once a
+  answer from the server's memory: it asks Twitch, through the Janus gateway, roughly once a
   minute and fetches the previews itself, so a player's browser never makes a request to Twitch. That
   is what leaves the CSP untouched and the privacy page's promise true — see
   [`notes/live.md`](notes/live.md). Neither block declares an `add_header`, so both inherit the five
@@ -246,23 +256,24 @@ Go server (:8080, internal only)
   proxied and answers with the live room count, the connected-player count and `draining`: the counts size the server for anyone
   thinking of loading it, and `draining` announces the window in which new tables are refused.
   Nothing legitimate needed it published, because the container's own healthcheck runs inside it
-  against `localhost:8080`, which is also how an operator reads either endpoint:
-  `docker compose exec server wget -qO- http://localhost:8080/health`.
+  (`loco-server healthcheck`, a `GET /health` on loopback). The image has no shell, so an operator
+  reads either endpoint from the nginx container on the same network:
+  `docker compose exec client wget -qO- http://server:8080/health`.
 
-- **That chain is why the Go server reads `CF-Connecting-IP`.** Four hops in, `r.RemoteAddr` is the
-  nginx container and it is identical for every player, which silently turns `MaxConnsPerNet` (64 per
-  network) into a 64-player server and `MaxFailedJoins` (20 per network per minute) into a global
+- **That chain is why the server reads `CF-Connecting-IP`.** Four hops in, the peer address is the
+  nginx container and it is identical for every player, which silently turns `max_conns_per_net` (64
+  per network) into a 64-player server and `max_failed_joins` (20 per network per minute) into a global
   lockout. `hub.clientNet` takes the header instead, and only from a trusted peer — see
   [`docs/notes/server.md`](notes/server.md). Nothing needs Cloudflare's **Pseudo IPv4**, which exists
   for origins that cannot parse an IPv6 address: this one truncates it to a `/48` and moves on.
 - Traefik terminates TLS and routes all traffic to the nginx container on port 80.
-- nginx bridges the `traefik` and `internal` Docker networks; the Go server is isolated on `internal` and is never directly reachable by Traefik.
-- The Go server container exposes port 8080 internally (`expose`, not `ports`).
+- nginx bridges the `traefik` and `internal` Docker networks; the server is isolated on `internal` and is never directly reachable by Traefik.
+- The server container exposes port 8080 internally (`expose`, not `ports`).
 
 ## A deploy does not interrupt the matches on the server
 
 A deploy used to end every match in progress, silently. `docker compose up -d`
-recreated the `server` container, `main.go` caught no signal, and the process
+recreated the `server` container, the server caught no signal, and the process
 died mid-turn. The clients retried 250 ms later with the session token they
 still held, found the room gone, and were answered `room not found`, which the
 client renders as "Aucune table avec ce code": the player lost the match and was
@@ -273,7 +284,7 @@ alternative. Both run on every shutdown.
 
 ### 1. The drain
 
-On `SIGTERM` (`server/main.go` → `hub.BeginDrain`, `server/hub/drain.go`):
+On `SIGTERM` (`loco-server/src/main.rs` → `Hub::begin_drain`, `loco-hub/src/drain.rs`):
 
 - Nothing new starts. `create_room`, `start_game`, `rematch`, `find_match` and a
   `join_room` aimed at a table this process does not have are all answered
@@ -314,7 +325,7 @@ players could hold a deploy open indefinitely by rematching.
 
 ### 2. The snapshot
 
-For the case the drain runs out of time (`server/hub/snapshot.go`): the matches
+For the case the drain runs out of time (`loco-hub/src/snapshot.rs`): the matches
 still in flight are written to `LOCO_SNAPSHOT_PATH` as the process exits, and
 the next one reads them back before its listener is up. The clients reconnect
 into the restored rooms on their own, with the token they have had in
@@ -327,15 +338,15 @@ Three deliberate limits:
 - **Only matches in flight travel.** A lobby has nothing to lose and its players
   are on the table screen, not in a hand.
 - **A snapshot is never replayed.** The file is removed as it is read.
-- **`SnapshotSchemaVersion` is a hard gate, not a merge.** A room shaped by
+- **`SNAPSHOT_SCHEMA_VERSION` (5) is a hard gate, not a merge.** A room shaped by
   another build is dropped whole, with a `WARN`. So is one older than
-  `SnapshotMaxAge` (2 min), by which point the clients have given up anyway.
+  `snapshot_max_age` (2 min), by which point the clients have given up anyway.
   That age is what the rollout has to stay inside: the file is written as the
   old container exits and read as the new one boots, seconds apart, and a
   rollout that ever put more than two minutes between the two would be
   discarding the matches it stopped waiting for. With the drain at 90 s this
   path is the ordinary one, not the exception, which is why the restart test in
-  `server/hub/snapshot_test.go` goes through real sockets and reclaims both
+  `loco-hub/tests/snapshot.rs` goes through real sockets and reclaims both
   hands card for card.
 
 ### What the deploy has to get right
@@ -343,7 +354,7 @@ Three deliberate limits:
 | Piece | Why it matters |
 |---|---|
 | `stop_grace_period` on the `server` service | The single most important line. Docker's default is SIGTERM, wait 10 s, SIGKILL, and a SIGKILL lands in the middle of all of the above. Left at the default, none of this exists. Kept above `LOCO_DRAIN_TIMEOUT` so the snapshot write always fits inside it. |
-| `${DATA_DIR}/snapshots:/data` bind mount | Where the snapshot survives the container. A path rather than a named volume so an operator can see, and delete, exactly one file. |
+| `${DATA_DIR}/snapshots/${DEPLOY_ENV}:/data` bind mount | Where the snapshot survives the container. A path rather than a named volume so an operator can see, and delete, exactly one file; one directory per environment, because dev and prod share `DATA_DIR`. |
 | `rollout()` does **server first, client second** | Recreating the server is the slow half, and for as long as it drains the players in a match are talking to the *old* process. Serving them the new bundle during that window would pair a fresh client with a server one version behind for the whole drain. Doing the client afterwards narrows the mismatch to the seconds between the two commands. |
 | One drain policy, in `deploy/app.env` | `90s` / `150s` in both environments, no per-job switch. The wait a deploy can incur is now a constant, not a question about the tables that happen to be up, so `deploy_dev`, `deploy_prod` and `stop_dev` all carry `timeout: 10m` with the ceiling far clear of the wait it bounds. |
 
@@ -351,25 +362,74 @@ Three deliberate limits:
 `matches_in_flight`, which is the number the shutdown is waiting to reach zero.
 It is only maintained while draining and reads 0 before that.
 
-Coverage is `server/hub/drain_test.go` and `server/hub/snapshot_test.go`,
+Coverage is `loco-hub/tests/drain.rs` and `loco-hub/tests/snapshot.rs`,
 including a full restart: a match on one hub, snapshot, a second hub loads it,
 and both players reconnect with their original tokens and get their hands back
 card for card. There is deliberately **no Playwright coverage**: the E2E suite
 cannot restart the server underneath itself.
 
+### The server image, and who owns `/data`
+
+`server/Dockerfile` is a static musl binary on `gcr.io/distroless/static:nonroot`: no shell, no
+package manager, no `wget`. Three things follow from it:
+
+- **The runtime uid is 65532** (distroless `nonroot`; the old server ran as 10001). The `/data` bind
+  mount has to be writable by it, and a mount overrides whatever the image chowned.
+- **The healthcheck is the binary**: `["CMD", "/loco-server", "healthcheck"]` (a `GET /health` on
+  loopback, exit 0 on a 200). `wget -qO- …/health` does not exist in the image.
+- **`/metrics` is Prometheus text**, under the names the JSON version used; `/health` is JSON. The
+  E2E helpers read it as text (`e2e/helpers/metrics.ts`).
+
+**Ownership is the deploy's job, and it is done in `rollout()`, between the two halves of the
+swap**: `docker compose stop server`, then `chown -R 65532:65532 ${DATA_DIR}/snapshots/${DEPLOY_ENV}`
+and `chmod 700`, then `up -d --wait server`. **The chown runs in a throwaway container
+(`docker run -v ${DATA_DIR}/snapshots:/s docker:29 …`), never in the job's own shell**: the bind
+mount is resolved on the host, and a chown run in the job lands on the job container's copy of the
+path. That is how the first Rust deploys to loco-d found a root-owned directory dockerd had made for
+the mount and logged `snapshot write failed … Permission denied`. The deploy log prints the old
+server's last lines after the stop and the new one's `snapshot` lines after the start, so the
+outcome of every drain is on the job.
+
+**Each environment has its own snapshot directory** (`${DATA_DIR}/snapshots/dev`, `…/prod`). Dev and
+prod share `DATA_DIR`, and with one directory they shared one file: a dev deploy could restore
+prod's matches into the dev server and delete the file doing it. The server that preceded the split
+wrote at the top level, so the first deploy of each environment after it moves the `snapshot.json`
+its old server just wrote into that environment's directory before the new server starts, and only
+that directory changes owner — the top level stays writable by an old server still running in the
+other environment. The order is the point. The process being replaced writes
+its snapshot while it stops, as *its* user: a chown before the stop locks it out of a 0700
+directory, and a chown that is not recursive leaves the file it wrote unreadable to the next
+process. Either way the matches in flight are lost, and the deploy that replaced the old image was
+exactly the one where they would have been. `.defaults` only creates the directory now.
+
+**No manual action is needed on the host** as long as the deploy job can reach the Docker
+daemon, which it needs anyway to deploy. If a host is ever brought up by hand instead, the one-time
+equivalent is:
+
+```sh
+sudo mkdir -p /home/kisuke/data-loco/snapshots/prod
+sudo chown -R 65532:65532 /home/kisuke/data-loco/snapshots/prod && sudo chmod 700 /home/kisuke/data-loco/snapshots/prod
+```
+
+`read_only`, `cap_drop: ALL`, `no-new-privileges`, the tmpfs `/tmp` and the `/data` bind mount are
+unchanged. The shutdown listens for SIGTERM through `tokio::signal::unix` (and Ctrl-C), which is
+what `docker compose stop` sends PID 1; it has been exercised on Windows with Ctrl-Break, so the
+first deploy to loco-d is where the Linux path is seen for real: check the server's log for
+`shutdown signal received, draining` and, past the drain, `snapshot written`.
+
 ## Production readiness
 
-- The `server` service in `deploy/compose.yml` has a healthcheck (`GET /health`, 10 s interval, 5 s timeout, 3 retries, 5 s start period).
-- The `client` service waits for `server` to be `healthy` before starting (`condition: service_healthy`), preventing nginx from routing to a not-yet-listening Go server.
+- The `server` service in `deploy/compose.yml` has a healthcheck (`loco-server healthcheck`, a `GET /health` on loopback; 10 s interval, 5 s timeout, 3 retries, 5 s start period).
+- The `client` service waits for `server` to be `healthy` before starting (`condition: service_healthy`), preventing nginx from routing to a not-yet-listening server.
 - Compose-interpolation variables (`DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`, `STOP_GRACE_PERIOD`) and the server's own `LOCO_DRAIN_TIMEOUT` / `LOCO_SNAPSHOT_PATH` are written to `app.env` by `write_app_env` and loaded via `--env-file app.env`, so a manual `docker compose up` on the server works without CI shell exports.
 - Dev hosts (`*-d.<domain>`) serve `robots.txt` with `Disallow: /`; production hosts allow indexing.
 - nginx WebSocket timeouts: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
 - nginx sends security headers on every response (`always`): a closed CSP, `X-Content-Type-Options`,
   `Referrer-Policy`, `Permissions-Policy`. The client is built for it — self-hosted fonts, no CDN, no
-  remote anything — so the only relaxations are `style-src 'unsafe-inline'` (Astro inlines the
-  stylesheets, and the board positions every card with a `style` attribute) and an explicit
+  remote anything — so the only relaxations are `style-src 'unsafe-inline'` (SvelteKit inlines the
+  small stylesheets, and the board positions every card with a `style` attribute) and an explicit
   `ws://$host wss://$host` in
   `connect-src`, since a page on `http://` and a socket on `ws://` are different CSP origins.
-- The Go server checks the `Origin` header on the WebSocket upgrade. By default the Origin's hostname
+- The server checks the `Origin` header on the WebSocket upgrade (`serve::origin_allowed`). By default the Origin's hostname
   must match the request's (ports ignored, so the dev client on :5173 reaches :8080); set
   `LOCO_ALLOWED_ORIGINS` to an exact comma-separated list to narrow it further.

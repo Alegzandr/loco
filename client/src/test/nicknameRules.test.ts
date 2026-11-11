@@ -7,9 +7,9 @@ import {
 
 /**
  * The client half of nickname validation. It mirrors the *shape* rules of
- * server/game/nickname.go so the refusal is instant; the word list and the
+ * server/crates/loco-game/src/nickname.rs so the refusal is instant; the word list and the
  * verdict stay on the server. Every case here has a counterpart in
- * server/game/nickname_test.go, and they must not drift apart.
+ * server/crates/loco-game/src/tests/nickname_test.rs, and they must not drift apart.
  */
 describe('canonicalNickname', () => {
   it('trims and squeezes runs of spaces', () => {

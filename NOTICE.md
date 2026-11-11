@@ -65,13 +65,13 @@ Running on the server:
 
 | Component | Licence |
 | --- | --- |
-| gorilla/websocket | BSD-2-Clause |
-| [LDNOOBW word lists](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words) (`server/game/wordlists/`) | CC BY 4.0 |
+| The Rust crates compiled into `loco-server` (Tokio, axum, hyper, tungstenite, serde, rustls, rand, tracing, metrics and their dependencies) | MIT / Apache-2.0, and the other permissive licences `server/deny.toml` allows (BSD, ISC, Zlib, Unicode-3.0, CDLA-Permissive-2.0, MPL-2.0); `cargo deny check` refuses anything else in CI |
+| [LDNOOBW word lists](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words) (`server/crates/loco-game/wordlists/`) | CC BY 4.0 |
 
 The word lists are Shutterstock's "List of Dirty, Naughty, Obscene and Otherwise
 Bad Words", 19 languages of it, vendored into the repository and compiled into
 the server binary. They are what the nickname filter matches against
-(`server/game/nickname.go`); the game holds none of those words itself. CC BY 4.0
+(`server/crates/loco-game/src/nickname.rs`, which compiles them in with `include_str!`); the game holds none of those words itself. CC BY 4.0
 requires the attribution, which is this entry, and permits the redistribution,
 which is the vendoring. Nothing about them reaches the client: they are never
 sent on the wire and they are not in the browser bundle.

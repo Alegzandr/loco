@@ -4,7 +4,7 @@
  * Full happy-path gameplay flow tested from a single browser:
  *   create room → add bot → start game → play/draw → round summary → game over
  *
- * The Go server must be running on :8080 before these tests run.
+ * The server (`loco-server`, with LOCO_E2E=1) must be running on :8080 before these tests run.
  * In CI the server binary is started by the pipeline; locally use docker-compose.dev.yml.
  */
 import { test, expect } from '@playwright/test'
@@ -50,7 +50,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
    * the word list is the server's, so a blocked term costs a round trip. The
    * test asserts both, and asserts they are indistinguishable: a player who
    * could tell which half refused them could read the rule off the message.
-   * See server/game/nickname.go.
+   * See server/crates/loco-game/src/nickname.rs.
    */
   test('a nickname the game refuses never opens a table, and never says why', async ({ page }) => {
     await forceEnglish(page)

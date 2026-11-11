@@ -1,0 +1,91 @@
+<script lang="ts">
+  // The rules, in one column.
+  //
+  // The sections come straight from `t.rules`, the same array `RulesModal.svelte`
+  // walks. That is the point: the page and the in-game modal are one source, so
+  // they cannot end up telling a player two different things about a +2. The deck
+  // table is the reference the modal has no room for.
+  import { en } from '../i18n/en'
+  import { fr } from '../i18n/fr'
+  import { CONTRASTS } from './contrasts'
+  import { DECK, DECK_SIZE } from './deck'
+  import { ui } from './ui'
+  import type { Lang } from '../seo/meta'
+
+  const { lang }: { lang: Lang } = $props()
+  const t = $derived(lang === 'fr' ? fr : en)
+</script>
+
+<h1>{ui('rulesH1', lang)}</h1>
+<p class="lede">{ui('rulesLede', lang)}</p>
+
+<!--
+  Before the rules themselves, because it is the question the reader arrived
+  with. Somebody who has played a card game of colours and symbols is not looking
+  for a rulebook, they are looking for the delta — and it used to be spread over
+  ten sections of this page, which is a lot of reading to find out whether the
+  game is worth ten seconds.
+
+  Deliberately not in the in-game rules modal: that is a reference read standing
+  up in the middle of a round, and this is an argument read before the first one.
+-->
+<section>
+  <h2>{ui('contrastH2', lang)}</h2>
+  <ul>
+    {#each CONTRASTS as line, i (i)}<li>{line[lang]}</li>{/each}
+  </ul>
+</section>
+
+{#each t.rules as section, s (s)}
+  <section>
+    <h2>{section.heading}</h2>
+    <ul>
+      {#each section.items as item, i (i)}<li>{item}</li>{/each}
+    </ul>
+  </section>
+{/each}
+
+<section>
+  <h2>{ui('deckH2', lang)}</h2>
+  <p>{ui('deckLede', lang)}</p>
+
+  <!--
+    `tabindex="0"` because the box scrolls: on a phone the deck table is wider
+    than the column, and a region that can only be reached by dragging is a
+    region a keyboard cannot read at all. Nothing inside it is focusable — it is
+    a table of numbers — so the box has to take the focus itself.
+  -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="tableWrap" tabindex="0">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">{ui('colCard', lang)}</th>
+          <th scope="col" class="num">{ui('colCopies', lang)}</th>
+          <th scope="col" class="num">{ui('colPoints', lang)}</th>
+          <th scope="col">{ui('colDetail', lang)}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each DECK as entry (entry.kind)}
+          <tr>
+            <th scope="row">{t.cardNames[entry.kind]}</th>
+            <td class="num">{entry.copies}</td>
+            <!-- Numbers are worth what is printed on them, so there is no single
+                 figure to put here. -->
+            <td class="num">{entry.points ?? ui('faceValue', lang)}</td>
+            <td>{entry.detail[lang]}</td>
+          </tr>
+        {/each}
+        <tr>
+          <th scope="row">{ui('deckTotal', lang)}</th>
+          <td class="num">{DECK_SIZE}</td>
+          <td class="num"></td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<p>{ui('rulesOutro', lang)}</p>

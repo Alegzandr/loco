@@ -1,6 +1,6 @@
-import { StateCreator } from './createStore'
+import { type StateCreator } from './createStore'
 import { stamp } from './helpers'
-import { GameStore, LocoActions } from './types'
+import { type GameStore, type LocoActions } from './types'
 
 export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => ({
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),

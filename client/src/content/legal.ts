@@ -10,7 +10,7 @@
  * Moving the copy here rather than leaving it in `src/i18n/` is the second half
  * of that: nothing in the game renders it any more, and `src/i18n/en.ts` is
  * loaded by every player on every visit. This file is read at build time by
- * `LegalArticle.astro` and ships in no bundle.
+ * `LegalArticle.svelte` and ships in no bundle.
  *
  * Legal copy in a game is read by somebody who wanted to play cards, so it is
  * held to the same standard as the rules page: one sentence per item, headings
@@ -31,7 +31,7 @@ export interface LegalDoc {
    * The anchor this document answers to, and deliberately the same word in both
    * languages: `#terms` has to keep working when somebody sends the link to a
    * reader who opens the other translation. It lives on the document because it
-   * was a positional array in `LegalArticle.astro` — a fourth document, or a
+   * was a positional array in `LegalArticle.svelte` — a fourth document, or a
    * reordering, would have rendered `#undefined` and a jump list that quietly
    * went nowhere while the page still looked right.
    */

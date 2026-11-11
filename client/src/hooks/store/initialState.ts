@@ -1,4 +1,4 @@
-import { GameState } from './types'
+import { type GameState } from './types'
 
 /** A tab that has just booted: no table, no seat, nothing dealt. */
 export const initialState: GameState = {

@@ -3,10 +3,10 @@
   import { i18n } from '../i18n/i18n.svelte'
   import type { Lang } from '../lang'
   import { langUrl } from '../lang'
-  // What makes this a pick rather than a navigation: the served markup carries
-  // both languages, so the footer, the drawer and the prose change with the game
-  // and the address bar follows. See `src/langSwap.ts`.
-  import { swapServedLang } from '../langSwap'
+  // On a game page the pick also moves the router to the same page in the other
+  // language, which re-renders the bar, the drawer and the prose around the game
+  // without touching it (it lives in the root layout). See `src/langRoute.ts`.
+  import { moveTo } from '../langRoute'
 
   // Autonyms, deliberately untranslated: a chooser is read by the person who
   // cannot read the language currently on screen, so "Français" is the only
@@ -70,31 +70,15 @@
     closeList()
     if (code === lang) return
     // The choice *is* the application, on every screen. `setLang` swaps the
-    // game's strings where they stand and writes the choice down; the call under
-    // it does the same for the half of `/` that Astro served, and moves the
-    // address bar to the URL a reload would need. Nothing is left disagreeing,
-    // so there is nothing for a second press to protect.
-    //
-    // `shown` is what the document is showing at this instant, and it is read
-    // *before* `setLang`: `lang` is a `$derived` of the language store, so a line
-    // later it is already the new one and the URL would be computed against the
-    // answer rather than against the question.
-    //
-    // It is also this, and never `data-served-lang`, that the URL is decided
-    // against — that attribute says what the page was *built* as, so on a
-    // document already swapped into French the two disagree, and asking the
-    // wrong one leaves the address bar at `/fr/` over an English page.
-    const shown = lang
+    // game's strings where they stand and writes the choice down; on `/` and
+    // `/fr/` the router then moves to the same page in the chosen language, which
+    // is the page a reload would serve. Nothing is left disagreeing, so there is
+    // nothing for a second press to protect. On `/i/`, built as no language,
+    // `langUrl` answers null and nothing moves.
+    const served = document.documentElement.dataset.servedLang
     i18n.setLang(code)
-    swapServedLang(
-      langUrl(
-        code,
-        document.documentElement.dataset.servedLang,
-        shown,
-        location.search,
-        location.hash,
-      ),
-    )
+    const url = langUrl(code, served, served, location.search, location.hash)
+    if (url) moveTo(url)
   }
 
   // The list is not a modal and it is anchored to the control that opened it, so
@@ -165,7 +149,7 @@
   control to press.
 
   It used to have two, because the page has two halves. Half of `/` is markup
-  Astro rendered — the footer row, the burger's drawer, the sheet of prose — and
+  prerendered — the footer row, the burger's drawer, the sheet of prose — and
   that half is built per URL, so no amount of in-app state changed a word of it:
   a switch that only called `setLang` left the game in French under a menu still
   reading "With friends". The entry screen therefore spent the choice as a real
@@ -174,10 +158,10 @@
   not fire on the press that was aiming for it, and a thumb sliding across a
   segmented pair is exactly how it did.
 
-  The served half speaks both languages now (`src/langSwap.ts`, and the
-  `data-alt` attributes in `layouts/GamePage.astro`), so applying costs nothing
-  anywhere: the game, the footer, the drawer, the prose and the tab's own label
-  all change together, and the address bar moves to the URL a reload would need.
+  Under SvelteKit that link is a client-side navigation (`src/langRoute.ts`),
+  which re-renders the page around a game the root layout keeps, so applying
+  costs nothing anywhere: the game, the bar, the drawer, the prose and the tab's
+  own label all change together, and the address bar is the URL a reload needs.
   A button that protects nothing is a step asked for nothing, and the hint under
   it promised a reload that no longer happens.
 

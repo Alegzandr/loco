@@ -89,7 +89,7 @@ export interface WsEnv {
 }
 
 /**
- * VITE_WS_PORT is dev: docker-compose.dev.yml points it at the Go server's own
+ * VITE_WS_PORT is dev: docker-compose.dev.yml points it at the server's own
  * port, because Vite's WebSocket proxy is unreliable under Docker networking.
  * It wins over everything and leaves no direct endpoint, since there is no CDN
  * in front of a dev server to escape.

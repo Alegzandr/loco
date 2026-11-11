@@ -248,7 +248,7 @@ function onLeave(): void {
 
 /**
  * Decides, before the first render, whether this tab is the one holding the
- * game. Called from `entry.ts` ahead of `initSessionRestore()`: a tab that is
+ * game. Called from `boot.ts` ahead of `initSessionRestore()`: a tab that is
  * not the owner must not seed the restoring screen or line up a `join_room`
  * either.
  */

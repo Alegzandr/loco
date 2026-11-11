@@ -64,6 +64,13 @@ function globalKeyListeners(src: string): { handler: string; index: number }[] {
   while ((m = re.exec(src))) {
     out.push({ handler: src.slice(m.index + m[0].length), index: m.index })
   }
+  // The same listener written the Svelte way: `<svelte:window onkeydown={fn}>`
+  // or `<svelte:document …>`. Read as a call to the named handler, so the rule
+  // below sees its body exactly as it sees an addEventListener's.
+  const svelteRe = /<svelte:(?:window|document)\b[^>]*\bonkey(?:down|up)=\{(\w+)\}/g
+  while ((m = svelteRe.exec(src))) {
+    out.push({ handler: `${m[1]})`, index: m.index })
+  }
   return out
 }
 

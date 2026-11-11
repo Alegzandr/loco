@@ -11,7 +11,7 @@ import { fr } from '../../client/src/i18n/fr'
  * nothing else in the repo can prove that. A unit test reads sources, and the
  * rest of this suite drives an app that only exists once React has mounted.
  *
- * These need no Go server: they never open a socket.
+ * These need no game server: they never open a socket.
  */
 
 // A context with scripts off. `test.use` applies to the file, so the last case —
@@ -185,7 +185,7 @@ test.describe('read without JavaScript', () => {
     // In the served HTML: with scripts off nothing has mounted, so anything
     // readable here is what a crawler gets. The prose sits inside the sheet,
     // which is markup either way — hence textContent rather than innerText.
-    const intro = page.locator('.homeIntro')
+    const intro = page.locator('.siteFooter.onHome')
     await expect(intro).toBeVisible()
     expect(((await page.locator('.homeSheetCard').textContent()) ?? '').length)
       .toBeGreaterThan(200)
@@ -193,14 +193,12 @@ test.describe('read without JavaScript', () => {
     // The only links from `/` to the content pages, and they are in the open:
     // the sitemap lists them, but a link is what carries weight between them.
     //
-    // `.homeLinks`, not `.homeIntro`: the same links are rendered a second time
-    // inside the drawer, which is the phone's menu. Only one of the two is ever
-    // on screen — this project runs at a desktop viewport, so it is this one —
-    // and both are built from `NAV`, so neither can lose a page on its own.
-    //
-    // Privacy closes the list rather than standing off at the right-hand end,
-    // which is why it is in this loop: held apart it was a second navigation of
-    // one item, and the row had two centres.
+    // The bar's row, not the whole bar: the same links are rendered a second
+    // time inside the drawer, which is the phone's menu. Only one of the two is
+    // ever on screen — this project runs at a desktop viewport, so it is this
+    // one — and both are built from `NAV`, so neither can lose a page on its own.
+    // It is the same bar every content page carries (layouts/SiteFooter.svelte),
+    // privacy at its right-hand end beside the globe.
     for (const href of [
       '/rules/',
       '/cards/',
@@ -210,7 +208,7 @@ test.describe('read without JavaScript', () => {
       '/faq/',
       '/privacy/',
     ]) {
-      await expect(page.locator(`.homeLinks a[href="${href}"]`)).toBeVisible()
+      await expect(page.locator(`.footerRow a[href="${href}"]`)).toBeVisible()
       await expect(page.locator(`.navPopLinks a[href="${href}"]`)).toHaveCount(1)
     }
   })
@@ -237,7 +235,8 @@ test.describe('read without JavaScript', () => {
     // half of the same contract. A board that scrolls off-screen mid-match is
     // what it prevents.
     await page.evaluate(() => document.documentElement.setAttribute('data-seated', '1'))
-    await expect(page.locator('.homeIntro')).toBeHidden()
+    await expect(page.locator('.siteFooter.onHome')).toBeHidden()
+    await expect(page.locator('.homeBurger')).toBeHidden()
     await expect(page.locator('body')).toHaveCSS('overflow', 'hidden')
   })
 
@@ -325,8 +324,8 @@ test.describe('with JavaScript, it is still the game', () => {
  * `/` is the root and the canonical English page at once, which is what makes it
  * the one URL a browser setting is allowed to decide anything at. A device set
  * to French gets the French game, under a French footer, at `/fr/` — and none of
- * it is a round trip: the served markup carries both languages and
- * `src/langSwap.ts` walks it. Nothing is written to storage, because a detection
+ * it is a round trip: the router renders the French page in place of the
+ * history entry (`src/langRoute.ts`). Nothing is written to storage, because a detection
  * that stored itself would become a choice and outrank every French link this
  * player is sent afterwards.
  */
@@ -339,8 +338,8 @@ test.describe('a browser that asks for French', () => {
     await expect(page.locator('#root')).toContainText(fr.tagline, { timeout: 15_000 })
     await expect(page).toHaveURL(/\/fr\/$/)
 
-    // The half Astro served moved too, links included — that is the half with no
-    // second chance, since a content page mounts nothing. Both renderings of the
+    // The prerendered half moved too, links included — the bar is the French
+    // page's now, not a translation of the English one. Both renderings of the
     // navigation are in this footer, the row and the drawer, so the assertion
     // that means anything is that neither leaks: nothing still points at an
     // English page.
@@ -348,10 +347,10 @@ test.describe('a browser that asks for French', () => {
     await expect(page.locator('footer a[href="/fr/regles/"]').first()).toBeVisible()
     await expect(page.locator('footer')).toContainText('Confidentialité')
 
-    // But the document is still the one that was served: `data-served-lang` says
-    // what the page was built as, and a reload is what fetches the real French
-    // one. Nothing recorded a choice on the player's behalf.
-    await expect(page.locator('html')).toHaveAttribute('data-served-lang', 'en')
+    // And the document is the French page: `data-served-lang` says what the page
+    // on screen was built as, which is what a reload fetches. Nothing recorded a
+    // choice on the player's behalf.
+    await expect(page.locator('html')).toHaveAttribute('data-served-lang', 'fr')
     expect(await page.evaluate(() => localStorage.getItem('loco_lang'))).toBeNull()
   })
 

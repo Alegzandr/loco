@@ -19,7 +19,7 @@
  *
  * Prerequisites:
  *   - Server must be running with LOCO_E2E=1 (set in docker-compose.dev.yml and CI).
- *   - Go server on :8080, Vite dev server on :5173.
+ *   - Game server (loco-server, LOCO_E2E=1) on :8080, Vite dev server on :5173.
  */
 import { test, expect, Browser } from '@playwright/test'
 import {
@@ -669,6 +669,13 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
         bobIdx,
         { timeout: 5_000 },
       )
+      // Alice seeing the slam says nothing about Bob's socket: the broadcast
+      // reaches each seat on its own, so wait for his hand rather than read it.
+      await bob
+        .waitForFunction(() => window.__LOCO_E2E__?.getState?.()?.myHand?.length === 1, undefined, {
+          timeout: 5_000,
+        })
+        .catch(() => {})
       const after = await getState(bob)
       expect(after?.errorMsg ?? '').toBe('')
       expect(after?.myHand?.length).toBe(1) // both red 5s gone, spare kept

@@ -5,11 +5,11 @@
  * own hook: the content pages have to take part in this decision and
  * they mount nothing, so the storage key and the two home paths could not live
  * inside a provider. There is still exactly one definition of each — `i18n`,
- * `LanguageSwitcher` and `content/page-boot.ts` all read them from here.
+ * `LanguageSwitcher`, `langRoute.ts` and the bar's globe all read them from here.
  *
  * ## Why the home page translates itself rather than navigating
  *
- * Half of `/` is markup Astro built per URL — the footer row, the drawer, the
+ * Half of `/` is markup prerendered per URL — the footer row, the drawer, the
  * prose in the sheet — and no in-app state changes a word of it. A stored choice
  * outranks the URL when the app picks its language (see `chooseLang`), so a
  * player who had chosen French and then opened `/` got the game in French under
@@ -21,7 +21,7 @@
  * by throwing the document away. It cost a round trip on the one page the game
  * is played from, and it put a redirect on the site's canonical English URL —
  * which is the pattern Google names when it asks sites not to redirect on a
- * visitor's presumed language. `langSwap.ts` translates the served markup in
+ * visitor's presumed language. `langRoute.ts` moves the router to the other language's page in
  * place instead and moves the address bar with `history.replaceState`, which is
  * not a canonicalisation signal. The document at the new URL is real: reloading
  * `/fr/` serves the French page, and sharing the link hands over the French
@@ -58,7 +58,7 @@ export const DEFAULT_LANG: Lang = 'en'
  * Where the game lives in each language. Two constants rather than an import of
  * `seo/meta.ts`, which carries every page on the site and is read at build time
  * by markup no player downloads. `seo.test.ts` pins these against `HOME.path`,
- * so they cannot drift from the pages Astro actually emits.
+ * so they cannot drift from the pages the build actually emits.
  */
 export const HOME_PATH: Record<Lang, string> = { en: '/', fr: '/fr/' }
 

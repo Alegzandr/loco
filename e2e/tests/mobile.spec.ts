@@ -214,7 +214,7 @@ test.describe('mobile viewport', () => {
 
     // The row is still in the document for a crawler; it is simply not what a
     // phone is shown.
-    await expect(page.locator('.homeLinks')).toBeHidden()
+    await expect(page.locator('.siteFooter .footerNav')).toBeHidden()
 
     const burger = page.locator('.homeBurger')
     await expect(burger).toBeVisible()
@@ -235,7 +235,8 @@ test.describe('mobile viewport', () => {
     // that six had become seven without naming which link it was.
     const hrefs = (sel: string) =>
       page.locator(sel).evaluateAll((els) => els.map((el) => el.getAttribute('href')))
-    const rowHrefs = await hrefs('.homeLinks a')
+    // The bar's destinations: the pages and privacy, which closes the row.
+    const rowHrefs = await hrefs('.siteFooter .footerNav a, .siteFooter .footerLegal')
     // Both empty would agree with each other for ever.
     expect(rowHrefs.length).toBeGreaterThan(4)
     expect(await hrefs('.navPopLinks a')).toEqual(rowHrefs)
@@ -322,12 +323,13 @@ test.describe('mobile viewport', () => {
   })
 
   /**
-   * Half of `/` is markup Astro rendered per URL — the footer row, this drawer,
-   * the sheet of prose — so switching language in the app alone left the game in
-   * French under a menu still reading "With friends". That half carries both
-   * languages now (`src/langSwap.ts`), so the pick applies itself: the whole
-   * document changes, the address bar moves to the URL a reload would need, and
-   * there is no Apply button left because nothing costs the page any more.
+   * Half of `/` is markup prerendered per URL — the bar, this drawer, the sheet
+   * of prose — so switching language in the app alone left the game in French
+   * under a menu still reading "With friends". The pick is a navigation to the
+   * same page in that language now (`src/langRoute.ts`), which the router
+   * renders around a game it keeps: the whole document changes, the address bar
+   * is the URL a reload would need, and there is no Apply button left because
+   * nothing costs the page.
    *
    * The links are the half worth asserting. A label left behind is a wart; a
    * link left pointing at `/rules/` sends this player to a static English page
@@ -383,6 +385,6 @@ test.describe('mobile viewport', () => {
     await expect(drawer).toBeVisible()
     await page.setViewportSize({ width: 1100, height: 800 })
     await expect(drawer).toBeHidden()
-    await expect(page.locator('.homeLinks')).toBeVisible()
+    await expect(page.locator('.siteFooter .footerNav')).toBeVisible()
   })
 })

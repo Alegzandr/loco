@@ -9,7 +9,7 @@ import { render, screen, fireEvent } from './render'
 import GameView from '../components/GameView.svelte'
 import { gameStore } from '../hooks/gameStore'
 import { en } from '../i18n/en'
-import { WsStatus } from '../hooks/webSocketPolicy'
+import { type WsStatus } from '../hooks/webSocketPolicy'
 
 const baseGameState = {
   screen: 'game' as const,
