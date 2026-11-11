@@ -11,7 +11,8 @@ TDD, tests first for non-trivial behaviour, deterministic clocks for timing logi
 in this repository states an invariant, there must be a test that fails without it**, and the reason
 that is written as a rule rather than as advice is that it has been broken three times, expensively:
 
-- `DrawCard` mutated state before an all-or-nothing draw, and `applyCardPlayed` removed one card
+- The Go server's `DrawCard` mutated state before an all-or-nothing draw (`Room::draw_card` now
+  validates first and draws second, and a proptest holds it), and `applyCardPlayed` removed one card
   where the server had removed N. Both sat in the only paths with no test at all, and `CLAUDE.md`
   described both as already fixed — one of them naming a function that did not exist.
 - A card-foil system (`.foil`, `.glint`, `holoOffsetMs`) was documented in detail and existed nowhere
@@ -80,19 +81,36 @@ that makes the button pressable (`catchAvailability.test.ts`), the arming that i
 from the pressing (`actionBar.test.ts`), the card a press that finds nobody costs, and — on both
 sides of the wire, because either half alone is a rule that reads fine and plays badly — that it
 costs exactly one per offer however often it is pressed, nothing at all where nothing is offered,
-that a press is answered on the instant it arrives (`hub/catch_immediate_test.go`), and that the
-button is still live — and the press still charged — for `catchGrace` after the offer vanished, the
-half of the wager an interface can silently take away (`penalties.spec.ts`). **Which of two presses
-arrives first is not an E2E assertion**: measured through Playwright, a 6ms head start given to one
-page's `WebSocket.send` did not survive to the server, so that test decided on the harness rather
-than on the rule and the ordering is pinned in Go instead.
+that a press is answered on the instant it arrives (`server/crates/loco-hub/tests/catch_immediate.rs`),
+and that the button is still live — and the press still charged — for `CATCH_GRACE_MS` after the
+offer vanished, the half of the wager an interface can silently take away (`penalties.spec.ts`).
+**Which of two presses arrives first is not an E2E assertion**: measured through Playwright, a 6ms
+head start given to one page's `WebSocket.send` did not survive to the server, so that test decided
+on the harness rather than on the rule and the ordering is pinned in the hub's own suite instead.
+
+The domain's invariants over random play, not only over the cases somebody thought of
+(`server/crates/loco-game/src/tests/proptests.rs`): the 112 cards conserved across hands, deck and
+pile, `Wild` never the active colour, a draw the seat is owed never failing, a refusal leaving the
+room exactly as it was, and the LOCO! gate on all four finishing paths. A shrunk failure is written
+to `server/crates/loco-game/proptest-regressions/` and replayed first on every later run, so commit
+it with the fix. One scripted round's event log is pinned with `insta`
+(`server/crates/loco-game/src/tests/scripted_round.rs`, the snapshot under
+`server/crates/loco-game/src/tests/snapshots/`): a change to it is a change to what a reconnecting
+client replays, and has to be accepted on purpose.
+
+The wire, byte for byte (`server/crates/loco-protocol/tests/parity.rs`): every server frame and
+every client frame the Go server wrote or read (`server/crates/loco-protocol/tests/fixtures/`) reads
+back unchanged, a zero behind an `Option` is still written, and the wire enums stay pinned to the
+domain's (`server/crates/loco-protocol/tests/enums.rs`). And a match the Go server snapshotted is
+reclaimed by both players on the Rust one (`server/crates/loco-hub/tests/go_snapshot.rs`), which is
+what let the cutover deploy without ending the matches in flight.
 
 Reconnect (60s, nickname + room code) **and session restore across a page reload**. Rematch: the ask
 **everybody** at the table has to make, one ask dealing nothing, a departure retiring an ask and
 completing what is left of the agreement, seat pruning, re-indexing.
 
 Protocol validation and rejection. The two client mirrors of a server rule (the table code's alphabet
-and length, the nickname's shape) held against the Go source rather than against a second copy of the
+and length, the nickname's shape) held against the Rust source rather than against a second copy of the
 same belief (`serverMirrors.test.ts`). **That React is gone and cannot come back** through the
 manifest, the build configuration, an import or a file extension (`noReact.test.ts`). **That a rune
 appears only where one is compiled** (`runeScope.test.ts`): a `$state()` in a plain `.ts` is not a
@@ -116,7 +134,7 @@ Streamer mode on both sides of the wire: that nothing uncovers a blurred code (n
 host's switch reaches every seat and rides `room_joined` and the state snapshot, that a guest's own
 preference is never overwritten by it, and the two asks the client must **not** send — a change of
 seat, and anything at a hostless table (`preferences.test.ts`, `tableStreamerMode.test.ts`,
-`hub/streamermode_test.go`, `e2e/tests/streamer-mode.spec.ts`).
+`server/crates/loco-hub/tests/streamermode.rs`, `e2e/tests/streamer-mode.spec.ts`).
 
 The table link: what the code's button copies, the code coming off the address bar, the arrival a
 remembered name seats and the one that is asked for a name first. Seat layout at every table size and
@@ -130,27 +148,31 @@ pinned to the server's, the light rig, the loading gate. Batch play and the inte
 `Origin` checking. The legal disclosures and the truncation of every logged address. Bots
 interjecting.
 
-The table's own bookkeeping (`server/hub/table_internal_test.go`): seating a client leaves no pointer
-behind on the table it left, a removal shifts the members and the bots and the tokens and the
-`playerID`s together, and a reset clears the map gate but not the roster. **That first one goes
-through both goroutines now**, since the sweep of the old table is asked of that table rather than
-reached into; reading either table's members from the test goroutine would be the very race the
-hand-off exists to remove, so every read in it is posted too. The hardening in
-`server/hub/hardening_test.go`: a gameplay message at a table that has not dealt, a handler that
-panics on demand, every ceiling, the wrong-code budget **and** the mistyped code that must still get
-in, the reclaim refusal that names nothing, the reclaim that rotates its token.
+The table's own bookkeeping (`server/crates/loco-hub/src/internal_tests/table_internal.rs`): seating
+a client leaves no pointer behind on the table it left, a removal shifts the members and the bots and
+the tokens and the seats together, a reset clears the map gate but not the roster, and `Hub::stop`
+waits for the loop to leave the handler it is in. **The first one goes through both tables' tasks**,
+since the sweep of the old table is asked of that table rather than reached into; every read in the
+file is posted to the table that owns it (`on_table`), because a table's state is not reachable from
+the test task any other way. The hardening in `server/crates/loco-hub/tests/hardening.rs`: a gameplay
+message at a table that has not dealt, a handler that panics on demand, every ceiling, the wrong-code
+budget **and** the mistyped code that must still get in, the reclaim refusal that names nothing, the
+reclaim that rotates its token.
 
-What a table owning its own goroutine is supposed to buy, and what it could have cost
-(`server/hub/actor_test.go`, both through real sockets):
+What a table owning its own task is supposed to buy, and what it could have cost
+(`server/crates/loco-hub/tests/actor.rs`):
 
 - **A table that panics answers the message and keeps playing.** On the old shared loop the question
-  was whether the process survived. It is nastier now: a panic would take that table's goroutine, and
-  a room whose goroutine is gone does not fail, it goes **quiet** — every message queued behind
-  nothing, for ever, with no error to show the players.
+  was whether the process survived. It is nastier now: a panic would take that table's task, and a
+  room whose task is gone does not fail, it goes **quiet** — every message queued behind nothing, for
+  ever, with no error to show the players. Every job is run inside `catch_unwind` (`actor.rs` on the
+  table, `dispatch.rs` on the hub) and counted on `/metrics` as `handler_panics`.
 - **One table held still inside a handler does not hold up another.** This is the whole change in one
   assertion, and it is worth knowing that it does not merely pass: put the handler back on the hub
   loop and it *hangs*, because the hub would be sitting in the first table's handler and would not
-  read the second table's messages until it came back.
+  read the second table's messages until it came back. It runs on a multi-threaded runtime on
+  purpose: the held handler blocks its thread outright, and on a one-thread runtime that would stop
+  every other table for a reason that has nothing to do with the hub.
 
 And the graceful shutdown: what a drain refuses, what it leaves alone, and a full restart where a
 match is snapshotted, reloaded by a fresh hub and reclaimed by both players with their original
@@ -159,13 +181,14 @@ deliberately not covered here" below.
 
 ## Playwright E2E
 - Lives in `e2e/` (separate `package.json`). `@playwright/test` + Chromium + Pixel 5.
-- Needs Go server `:8080`. Playwright starts an isolated Vite dev server on `:4173` with
+- Needs the game server on `:8080`. Playwright starts an isolated Vite dev server on `:4173` with
   `--strictPort`, so a busy port fails loudly instead of moving the server one port over where the
   suite would never find it. Vite takes no lock, so it runs beside `make dev` (Astro's dev server was
   a singleton and needed `--ignore-lock`, plus clearing the agent-detection variables that made it
   background itself; both are gone).
   - Local: `docker compose -f docker-compose.dev.yml up --build` then `cd e2e && npm test`.
-  - CI: `backend_test` builds `server-bin`; `e2e_test` runs it + Playwright.
+  - CI: `backend_test` builds `server-bin` (the static musl `loco-server`); `e2e_test` runs it +
+    Playwright.
 - `window.__LOCO_E2E__` exposed in dev only (`import.meta.env.DEV`):
   - `send(msg)`, `getState()`, `playCard(card)` (animates + sends `play_card`), `getWsStatus()`, `forceCloseWs()`.
   - `startTurnRecorder()` / `getRecordedTurns()` — records distinct `currentTurn` transitions. **Use this instead of polling `currentTurn` whenever a bot seat is involved**: a bot holds the turn for only ~800ms, so sampling is inherently flaky, and the recorded sequence additionally proves a skipped seat never held the turn.
@@ -177,7 +200,7 @@ deliberately not covered here" below.
   27/39/0/21. It is also what lets `workers` be more than one off CI.
 - **The 1v1 queue is the one thing a test cannot open its own of, so it is locked rather than
   hidden.** A room code is private: two tests hold two rooms on one server and never meet. There is
-  exactly one matchmaking queue per process, it is a FIFO, and `tryPair` hands seat 0 to whoever is
+  exactly one matchmaking queue per process, it is a FIFO, and `try_pair` hands seat 0 to whoever is
   at the front — so a searcher belonging to another test, arriving between one test's two, is paired
   with one of them. The symptom is not a clean failure: a test waits out its timeout on a
   `match_found` that went to a stranger, and the *other* test fails too.
@@ -191,7 +214,7 @@ deliberately not covered here" below.
   `describe.serial` would have bought and why the rule above refuses it.
   Two details are the whole of why the first version of it did not work:
   - **The lock is not the whole guarantee; an empty queue is.** Closing a context tears the socket
-    down, but the dequeue happens on the hub's goroutine a moment later, so the previous test's
+    down, but the dequeue happens on the hub's loop a moment later, so the previous test's
     searcher can still be at the front when the next one enqueues. A fixed sleep is the wrong
     instrument — too short under load, wasted otherwise, silent either way. The claim polls
     `/metrics` for `matchmaking_queue == 0` instead. It is the only place in the suite that reads an
@@ -221,27 +244,39 @@ deliberately not covered here" below.
   is not playable, so `handleCardClick` refuses to open its picker — a fixture using a
   `{ color: 'wild', kind: 'swap' }`, a card that exists in no deck, failed on every run once the
   legality check moved ahead of the prompt.
-- **`backend_test` runs `-race`, and gcc is installed for it.** This server is one event loop plus
-  two goroutines per socket, so a data race is not a lint finding here: it is the hidden-state
-  guarantee coming apart under load, on the one process that owns every hand at every table.
+- **A table task owns its state and nothing reads it off that task, and the compiler is what
+  enforces it.** This server is one hub loop, one task per table and two per socket, so a data race
+  is not a lint finding here: it is the hidden-state guarantee coming apart under load, on the one
+  process that owns every hand at every table. The Go server needed `go test -race` in CI to catch
+  one; there is no flag to pass now. A `Table` lives inside its task (`server/crates/loco-hub/src/actor.rs`),
+  the hub reaches it only by posting a job, and anything that crosses between tasks has to be `Send`
+  — a test that read a table's members from the test task would not compile, which is why
+  `table_internal.rs` posts every read. The workspace forbids `unsafe_code` (`server/Cargo.toml`),
+  so the guarantee cannot be opted out of one block at a time.
 
-  It was added after finding a real one that had been in the suite for months. `Hub.Stop` closed
-  `h.quit` and returned without waiting, so everything after it ran alongside a loop that was still
-  dispatching — in production a process that could exit mid-handler, and in the tests fourteen
-  simultaneous races, because every timing test narrows a package-level tunable (`BotThinkDelay` and
-  a dozen others) and restores it in a `t.Cleanup` the loop was still reading. One `<-h.stopped` in
-  `Stop` closed the whole class. Nothing about it was subtle; it was invisible because **nothing ever
-  passed the flag**, which is the actual defect this line fixes.
+  What the flag found in Go is worth keeping as the reason the shape is what it is. `Hub.Stop` closed
+  its quit channel and returned without waiting, so everything after it ran alongside a loop that
+  was still dispatching — in production a process that could exit mid-handler, and in the tests
+  fourteen simultaneous races, because every timing test narrowed a package-level tunable and
+  restored it while the loop was still reading it. Both halves are structural now. The tunables are
+  per hub (`HubConfig`, `Timings`, `BotTimings`, `server/crates/loco-hub/src/config.rs`), so a timing
+  test narrows its own hub's copy and there is nothing shared to restore. And `Hub::stop` waits until
+  the loop and every table's task are gone; `stop_waits_for_the_loop_to_leave_the_handler` pins it by
+  parking the loop inside a handler whose reply nobody is reading yet. The compiler cannot see that
+  one: a stop that returns early is not a data race, it is a lifetime.
 
-  One run, not two. The instrumented binary is not the one that ships, but this suite is dominated by
-  real sleeps and reaction windows rather than by CPU, so `-race` costs it about two seconds
-  (17.5s → 19.4s) and keeping a second uninstrumented run would buy nothing this job can observe.
-  `server-bin` is still built `CGO_ENABLED=0`, stated explicitly now that the test run turns cgo on.
-  `hub/table_internal_test.go` pins `Stop`'s half of it deterministically, by parking the loop inside
-  a handler whose reply nobody is reading yet; the flag is what covers the next one.
+  **Time is the other thing a test must own.** The domain takes `now` as an argument, so its suite
+  needs no clock at all. In the hub, the unix milliseconds the domain and the wire read are derived
+  from tokio's clock (`server/crates/loco-hub/src/clock.rs`), so a test that drives a `Table` or the
+  actor directly runs under `tokio::time::pause` (`#[tokio::test(start_paused = true)]`) and the
+  catch windows, the turn deadline and the bot delays all move together when it advances. The
+  socket tests (`server/crates/loco-hub/src/testkit.rs`) run on real time on purpose: a paused clock
+  auto-advances whenever the runtime is idle, and a test waiting on a socket is idle, so every
+  deadline would fire before the reply it is waiting for.
 - **The graceful shutdown is deliberately not covered here.** A drain and a snapshot restore are
   properties of the *process*, and the suite runs against a server it does not own and cannot restart
-  underneath itself. `server/hub/drain_test.go` and `server/hub/snapshot_test.go` are the coverage,
+  underneath itself. `server/crates/loco-hub/tests/drain.rs` and
+  `server/crates/loco-hub/tests/snapshot.rs` are the coverage,
   and they earn it by going through real WebSockets rather than testing the marshalling: the restart
   test stands up one hub, plays a match on it, snapshots, stands up a *second* hub, and has both
   players reconnect with their original tokens and get their hands back card for card. If a way to
@@ -250,10 +285,11 @@ deliberately not covered here" below.
 - Prefer `waitForFunction` + store state over DOM polling. Few high-value tests > many fragile.
 - **Update E2E in same commit as gameplay/UI/protocol changes.**
 - **The fixture's payload is one nested object on the wire** (`{"type":"debug_set_state","debug":{...}}`,
-  `protocol.DebugStateDTO`), not seven `debug_*` fields on every message a client can send. No
-  player's client ever fills it; `e2e/helpers/game.ts` is the only thing that builds it, and
-  `protocol/messages_test.go` pins the bytes so a rename on one side cannot silently deal every
-  Playwright table unconfigured.
+  `DebugStateDTO` in `loco-protocol`), not seven `debug_*` fields on every message a client can
+  send. No player's client ever fills it; `e2e/helpers/game.ts` is the only thing that builds it, and
+  `server/crates/loco-protocol/tests/parity.rs` replays recorded `debug_set_state` frames through it
+  so a rename on one side cannot silently deal every Playwright table unconfigured. The server reads
+  it only with `LOCO_E2E=1`.
 - **Pin the direction with `debugSetState({ direction: 1 })` in any test that computes a seat.**
   `waitForMyTurn` lets the bots play first, and one Reverse among them mirrors the table: a
   3-player Skip then lands on `myIdx-2` instead of `myIdx+2`, and the run reads as a rules bug.
@@ -278,7 +314,7 @@ deliberately not covered here" below.
   timeout while the app has done exactly what was asked. `clickContinue` therefore clicks with a
   short timeout, tolerates losing that race, and returns on `showRoundSummary === false`.
 - **A `debug_set_state` fixture must set `pendingDraw: 0` whenever it expects a play to land.**
-  `PlayCard` refuses every card while a stack is pending, so a bot that landed a +2 before our turn
+  `Room::play_card` refuses every card while a stack is pending, so a bot that landed a +2 before our turn
   makes the test pass or fail on the deal. Same class as pinning `direction`: the fixture has to
   state everything the assertion depends on, not only the part it is about.
 - **Do not leave the local seat on one card at the end of a bot test.** One card opens a catch
@@ -354,29 +390,35 @@ Raising the global budget to 60s is the other half: it stops the suite relying o
 
 ## CI/CD
 Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
-- `test` (every push):
-  - `backend_test` (`golang:1.26.5-alpine`): `cd server && go test -race ./...` + builds `server-bin`,
-    handed to `e2e_test` through the cache (see "This runner cannot upload artifacts").
+- `test` (every push). Every Rust job runs on `rust:1.97-bookworm` and passes `--locked`, so a
+  `server/Cargo.lock` out of step with the manifests fails rather than being re-resolved:
+  - `backend_test`: `cd server && cargo test --workspace --locked` (every crate, the domain, the
+    protocol and the hub's socket suites among them); then `cargo build -p loco-game --target
+    wasm32-unknown-unknown`, so the domain keeps building for the browser — a dependency that reaches
+    for the OS (a clock, a file, an entropy source) fails here rather than the day somebody tries;
+    then the release `loco-server` for `x86_64-unknown-linux-musl` (with `musl-tools`), copied to
+    `server-bin` with `server-bin.sha` beside it and handed to `e2e_test` through the cache (see
+    "This runner cannot upload artifacts"). Static because the Playwright image's glibc is older than
+    the build image's, and because `server/Dockerfile` ships the same static build.
   - `frontend_test` (`node:24-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
   - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs `server-bin` + Playwright,
     `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for that binary alone.
-  - `backend_lint` (`golangci/golangci-lint:v2.12-alpine`): `cd server && golangci-lint run ./...`.
-  - `protocol_check_rs` (`rust:1.97-bookworm`, plus the distribution's `nodejs`): runs the
-    converter's refusal tests (`node --test tools/protocol/valibot.test.mjs`), the `loco-protocol`
-    tests (the Go parity fixtures and the enum pins among them), then regenerates the client's
-    protocol types and schemas from `server-rs/crates/loco-protocol` and fails if the result differs
-    from what is committed. Without it the generator is a suggestion, and the two files drift back
-    into being hand-maintained copies the first time somebody edits one directly. Cached on
-    `server-rs/Cargo.lock` under its own key prefix.
-  - `protocol_check` (`golang:1.26.5-alpine`), until the cutover: runs the Go generator into a
-    scratch directory. The client files are no longer its to write; it is kept so the Go protocol
-    package still refuses a const block out of step with its `All*` slice while that server runs. No
-    cache: the generator is stdlib-only and compiles in about a second.
+    The server is started with `PORT=8080 LOCO_E2E=1 JANUS_API_KEY= LOCO_BOT_THINK_MS=250
+    LOCO_BOT_JITTER_MS=200`, and the job waits up to 30s for `/health` before installing anything.
+  - `backend_lint`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked
+    -- -D warnings`, then `cargo deny check` (see "Linting").
+  - `protocol_check` (plus the distribution's `nodejs`): runs the converter's refusal tests
+    (`node --test tools/protocol/valibot.test.mjs`), the `loco-protocol` tests (the Go parity
+    fixtures and the enum pins among them), then `cargo run -p protocolgen -- --check`, which
+    regenerates the client's protocol types and schemas from `server/crates/loco-protocol` and fails
+    if the result differs from what is committed. Without it the generator is a suggestion, and the
+    two files drift back into being hand-maintained copies the first time somebody edits one
+    directly. `make protocol-check` is the same check locally.
 - **The client tests that pin a copy to the server's source read it through
-  `client/src/test/serverSource.ts`**: one switch, `SERVER_SOURCE` (`'go'` until the cutover,
-  `LOCO_SERVER_SOURCE=rs` to read `server-rs` ahead of it), and a Go and a Rust spelling of every
-  constant, deck rule, card value and map list they read. Against `loco-game` every `game` reader
-  passes today; the room-code, code-alphabet and full-address readers wait for `loco-hub`.
+  `client/src/test/serverSource.ts`**, which knows where each crate's modules are and how a Rust
+  constant is spelled. Constants are asked for by the names the client copies and the docs use
+  (`catchGrace`), and `rustConstName` turns one into the crate's (`CATCH_GRACE_MS`). A reader that
+  finds nothing fails its test by name rather than passing on an empty match.
 - `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
   Naming a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the
   build started the moment those two finished, so the lint and the entire Playwright suite were
@@ -396,12 +438,13 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
   the split even. Left false, Playwright shards whole **spec files**, and the suite's files are
   wildly uneven — `rules-coverage.spec.ts` alone holds 23 of the 147 tests. Measured back at 87, that
   split came out 27/39/0/21: one job running empty while another carried 45% of the suite. This is the only change here with a prerequisite outside the
-  repo: **it needs a runner that accepts concurrent jobs** (`concurrent > 1` in its `config.toml`).
+  repo: **it needs a runner that accepts concurrent jobs** (`concurrent > 1` in its runner config.toml).
   At `concurrent = 1` the shards queue and pay four setups for one suite, which is slower than not
   sharding at all.
 - **`server-bin` is built once by `backend_test`** and handed over through the cache. `e2e_test` used
-  to download a 70 MB Go toolchain tarball and rebuild the same binary, on an image with no Go in it,
-  once per shard.
+  to download a whole toolchain and rebuild the same binary, on an image with none in it, once per
+  shard. It still can, and only as the exception: a shard that finds no binary for its commit
+  installs a minimal Rust 1.97 with the musl target and builds the same static `loco-server`.
 - **No `playwright install`.** The image already ships the browsers, and it ships **only the ones its
   own Playwright needs**, so the image tag and `e2e/package-lock.json` are one decision. That step
   was not merely slow, it was *hiding* a drift: `^1.52.0` in `e2e/package.json` had long since
@@ -412,11 +455,13 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
   caret, because the runtime is a docker image and not a range), and `PLAYWRIGHT_VERSION` is declared once in
   `e2e_test`, interpolated into the image tag, and asserted against `npx playwright --version` before
   the suite runs. Bump the variable and the dependency together, and commit the lockfile.
-- **Caches.** `GOPATH`/`GOMODCACHE`/`GOCACHE` and npm's cache are redirected under `$CI_PROJECT_DIR`
-  because GitLab can only cache paths inside the project. Every cache key is per-job-family
-  (`go`, `golangci`, `npm-client`, `npm-e2e-$CI_NODE_INDEX`): two jobs sharing one key race on the
-  upload and the loser's entry is what the next pipeline restores, which is why the shards key on
-  their index.
+- **Caches.** `CARGO_HOME` (`.cargo`), `CARGO_TARGET_DIR` (`server/target`) and npm's cache are
+  redirected under `$CI_PROJECT_DIR` because GitLab can only cache paths inside the project. The
+  Rust jobs cache the crate registry and the target directory, keyed on `server/Cargo.lock`; the lint
+  job also keeps .cargo/bin, where `cargo-deny` is installed once rather than on every push. Every
+  cache key is per-job-family (`cargo-test`, `cargo-lint`, `cargo-protocol`, `npm-client`,
+  `npm-e2e-$CI_NODE_INDEX`): two jobs sharing one key race on the upload and the loser's entry is
+  what the next pipeline restores, which is why the shards key on their index.
 - **`e2e_test` needs `backend_test` only.** It consumes that job's binary and nothing of
   `frontend_test`, so naming it just parked the pipeline's longest job behind the second-longest.
   The `build` job still `needs` every test job, so nothing red can ship — that gate is what makes
@@ -432,7 +477,7 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
   is the documented off switch everywhere but production (`live.md`). Anything else this pipeline
   starts that reads a protected variable takes the same treatment.
 - **`LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`** cut bot think time from 1.2–2.2 s to 0.25–0.45 s
-  in CI (`hub.ApplyBotTimingEnv`). See "Bots" in `server.md`: the think delay is the only bot timing nothing races.
+  in CI (`BotTimings::apply_env`, read only under `LOCO_E2E=1`). See "Bots" in `server.md`: the think delay is the only bot timing nothing races.
 - **The E2E helpers wait on state, not on the clock.** `createRoom`/`joinRoom` wait for the socket to
   be open (`getWsStatus() === 'open'`), which is the actual precondition for the click they precede;
   `debugSetState` waits for the fixture it just sent to appear in the store, tolerating the loss of
@@ -460,8 +505,9 @@ network, or registering it against the FQDN), not a line of YAML.
   `artifacts:` block is what surfaced it.
 - **`server-bin` therefore travels by cache**, which works because a cache is a tarball on the
   runner's own disk and needs no API call ("cache will not be downloaded from shared cache server").
-  Keyed **per branch**, not per commit: a per-SHA key leaves one ~15 MB cache volume behind for every
-  push and nothing ever collects them. Correctness comes from a `server-bin.sha` stamp instead:
+  Keyed **per branch** (`server-bin-$CI_COMMIT_REF_SLUG`, pushed by `backend_test`, pulled by
+  `e2e_test`), not per commit: a per-SHA key leaves one cache volume behind for every push and
+  nothing ever collects them. Correctness comes from a `server-bin.sha` stamp instead:
   `e2e_test` rebuilds unless the cached binary was built from the commit it is testing, which also
   covers two pipelines racing on the same branch. Testing a binary from another commit is the one
   outcome this must not have: it reports on code nobody pushed.
@@ -474,19 +520,27 @@ network, or registering it against the FQDN), not a line of YAML.
 ```
 Browser (HTTPS) → Traefik (:443 websecure)
   → client nginx (:80, traefik+internal)
-    → /ws     → Go server (:8080, internal only)  [WebSocket]
-    → /health → Go server (:8080)
-    → /       → nginx static SPA
+    → /ws          → game server (:8080, internal only)  [WebSocket]
+    → /live.json   → game server (:8080)
+    → /live-thumb/ → game server (:8080)
+    → /            → nginx static site
 ```
-- Go on `internal` network only; nginx bridges traefik↔internal.
-- Port chain: Traefik → 80 → nginx → 8080 → Go.
+- The game server (`loco-server`) is on the `internal` network only; nginx bridges traefik↔internal.
+- Port chain: Traefik → 80 → nginx → 8080 → `loco-server`.
+- `/health` and `/metrics` are deliberately **not** proxied: they are operator surfaces
+  (`client/nginx.conf` says why), read from inside the server's own container.
 
 ### Production readiness
-- Server healthcheck: `wget -qO- http://localhost:8080/health`, 10s/5s/3 retries/5s start.
+- Server healthcheck: `loco-server healthcheck` (the image is distroless, so there is no `wget` to
+  call; the subcommand asks `/health` on loopback and exits 0 or 1), 10s/5s/3 retries/5s start in
+  `deploy/compose.yml`.
 - `client depends_on server: service_healthy`.
-- `write_app_env` writes `PORT`, `DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE` to `app.env`.
+- `write_app_env` writes `PORT`, `DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`,
+  `LOCO_ALLOWED_ORIGINS`, the drain and snapshot settings, the socket's certificate label and (in
+  production only) the gateway and Twitch keys to `app.env`, then makes it 0600.
 - All `docker compose` calls use `--env-file paths.env --env-file app.env`.
-- nginx `/ws`: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
+- nginx `/ws` (`client/ws-proxy.conf`): `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`,
+  `proxy_send_timeout 86400s`.
 - nginx serves `robots.txt` `Disallow: /` on `*-d.<domain>`; prod allows indexing.
 - nginx sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` /
   `Strict-Transport-Security` on every response (`always`). See "Anti-cheat" in `server.md` for what
@@ -554,29 +608,44 @@ Browser (HTTPS) → Traefik (:443 websecure)
   - It waits on **the SPA answering, not on `docker compose up -d` returning**. The two are not the
     same on Docker Desktop for Windows, where the start phase can sit there for minutes after the
     page is already being served.
-- **`make bench-server` is the third**, `server/hub/loop_bench_test.go`, and it answers a question no
-  assertion can: what one pass of the event loop costs. It is outside CI for the ordinary reason
-  benchmarks are — a shared runner's numbers describe the runner — and it is not decoration. Every
-  argument about sharding the hub, moving work off the loop or raising a ceiling starts here, and the
-  one it has already settled (an actor per table, and the log line that turned out to cost more than
-  a card play) is written up in [`server.md`](server.md).
-  - It is an **internal** benchmark, package `hub`, because it calls `dispatch` directly: going
-    through a socket would measure the kernel.
-  - `2>/dev/null` is baked into the target on purpose. The log benchmarks measure a real write to
-    stderr, so without it they measure whatever happens to be attached to your terminal, which is
-    the exact variable they exist to expose. Run it both ways when that is the number you want.
+- **`make bench-server` is the third** (`cargo bench -p loco-hub`, criterion,
+  `server/crates/loco-hub/benches/hub.rs`), and it answers a question no assertion can: what one pass
+  of the event loop costs. It is outside CI for the ordinary reason benchmarks are — a shared
+  runner's numbers describe the runner — and it is not decoration. Every argument about sharding the
+  hub, moving work off the loop or raising a ceiling starts here, and the one it has already settled
+  (an actor per table, and the log line that turned out to cost more than a card play) is written up
+  in [`server.md`](server.md).
+  - It drives a `Table` in-process — a whole card play through the table's dispatch, the
+    personalised fan-out after a Swap, the `card_played` broadcast alone, one recipient's state —
+    rather than going through a socket, which would measure the kernel. Its cases mirror the Go
+    benchmark one for one, and the file's header keeps the Go numbers to compare against.
+  - The log benchmark writes through the asynchronous sink into `std::io::sink()`, so it measures
+    the queue and not whatever terminal happens to be attached.
 
 ## Linting
-- Client: ESLint v10 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.
-- Rules: `@typescript-eslint/recommended`, `react-hooks`, `react-refresh`. `no-unused-vars: error` — prefix `_` to silence.
-- CI: lint runs before tests.
-- Server: `golangci-lint` (`server/.golangci.yml`) — errcheck, govet, ineffassign, staticcheck, unused, misspell, unconvert, bodyclose. CI job `backend_lint` uses `golangci/golangci-lint:v2.12-alpine`. Run locally via `make lint-server` (docker, no host Go required).
+- Client: ESLint v10 flat config (`eslint.config.js`): `typescript-eslint` plus
+  `eslint-plugin-svelte`'s recommended set. `npm run lint` / `lint:fix`. `no-unused-vars: error` —
+  prefix `_` to silence.
+- CI: `frontend_test` lints before it tests.
+- Server, three checks in `backend_lint` and in `make lint-server` (docker, no host Rust required):
+  - `cargo fmt --all -- --check`, with rustfmt's defaults (there is no rustfmt.toml).
+  - `cargo clippy --workspace --all-targets --locked -- -D warnings`. The workspace lints in
+    `server/Cargo.toml` set `clippy::all` to warn and forbid `unsafe_code`; `-D warnings` is what
+    makes a warning a red job, so nothing is waved through as "only a warning".
+  - `cargo deny check` against `server/deny.toml`: licences from an allowlist (MIT, Apache-2.0, the
+    BSDs, ISC, Zlib, Unicode-3.0, CDLA-Permissive-2.0, MPL-2.0), the RustSec advisories (one ignore,
+    with its reason: an unmaintained crate reached only through `protocolgen`'s TypeScript
+    formatter, which never ships in the server image), no wildcard versions, and crates.io as the
+    only source.
 
-### What the two major linter bumps changed, and what was pinned back
-Both tools widened what they report by default, and in both cases the widening was a style
-expansion rather than a correctness one. The configs say so explicitly rather than letting a
-future reader mistake the exclusions for neglect.
+### What is switched off, and where
+The rule on both sides is the same: **a lint is argued with in place, one line at a time, with the
+reason written next to it, never switched off in the config.**
 
+- **Clippy is switched off in exactly one way**: `#![allow(clippy::field_reassign_with_default)]` at
+  the top of the hub test files that narrow one knob of the default config (`HubConfig::default()`
+  and then a single timing), each carrying that reason as a comment. Nothing outside a test carries
+  a clippy `allow`.
 - **`eslint-plugin-svelte`'s recommended set is kept whole**, and that is a deliberate change of
   posture from what stood here before. The React config it replaced had four rules switched off,
   because the React Compiler's static analysis flagged 27 sites that were this game's timing model —
@@ -593,14 +662,6 @@ future reader mistake the exclusions for neglect.
     conditional since the comment was written.
   A rule turned off in `eslint.config.js` is invisible; a rule turned off on one line is read by the
   next person to touch that line. Prefer the second.
-- **golangci-lint 2 folded `gosimple`, `stylecheck` and `quickfix` into `staticcheck`**, and stopped
-  applying v1's default exclusions unless asked. Straight off the `golangci-lint migrate` output the
-  job reported 14 new issues, none of them a bug: capitalised error strings, "could use a tagged
-  switch", and the deliberate zero-width characters in `nickname_test.go`'s fixtures — plus three
-  unchecked `conn.Close()` calls that v1's built-in `EXC0001` had always excluded. So
-  `server/.golangci.yml` names `SA*` and `S1*` under `linters.settings.staticcheck.checks` (v1's
-  staticcheck plus gosimple, and nothing else) and re-enables the four exclusion presets that
-  reproduce v1's defaults.
 
 ## Image hardening and reproducibility
 - **`client/Dockerfile` copies `package-lock.json` and runs `npm ci`.** It used to copy
@@ -608,30 +669,51 @@ future reader mistake the exclusions for neglect.
   build: two builds of the same commit were not the same image, and a dependency compromised between
   them would have shipped with nothing in the diff to show it. The lockfile is committed precisely so
   that cannot happen; it just was not being copied in.
-- **`server/Dockerfile` runs as uid 10001.** The process binds a port above 1024, reads no system
-  path and writes one file (the shutdown snapshot under `/data`), so it needs nothing it is not
-  being given. `deploy/compose.yml` and `docker-compose.yml` add `no-new-privileges`,
+- **`server/Dockerfile` ships one static binary on distroless, as uid 65532.** The builder is
+  `rust:1.97-alpine` and builds `loco-server` with `--locked` against musl, so the binary links
+  nothing at run time; the image it lands in is `gcr.io/distroless/static:nonroot` — no shell, no
+  package manager, no `wget` — running as distroless's `nonroot` user (65532), with `/data` created
+  and owned by that user in the builder. The process binds a port above 1024, reads no system path
+  and writes one file (the shutdown snapshot under `/data`), so it needs nothing it is not being
+  given. With no shell to run a probe in, the healthcheck is the binary's own subcommand,
+  `loco-server healthcheck`. `deploy/compose.yml` and `docker-compose.yml` add `no-new-privileges`,
   `cap_drop: ALL`, a read-only root filesystem and a tmpfs `/tmp`.
 - **nginx gets `no-new-privileges` and nothing more.** The stock image starts as root to bind :80
   before dropping to the `nginx` user, and writes its caches and pid under `/var`, so `cap_drop: ALL`
   and `read_only` both stop it booting. Rewriting it rootless is a separate change with its own ways
   of going wrong, and this container serves static files and proxies a socket: the server behind it
   is where the state is.
-- **`${DATA_DIR}/snapshots` is chowned to 10001 and chmodded 0700 by the deploy job.** A bind mount
-  overrides whatever the image chowned, and a server that cannot write its snapshot loses exactly the
-  matches the snapshot exists to save. 0700 because that file holds session tokens and hands.
+- **Each environment has its own snapshot directory, `${DATA_DIR}/snapshots/${DEPLOY_ENV}`, mounted
+  at `/data`, and the deploy job chowns it to 65532 and chmods it 0700** (`rollout` in
+  `.gitlab-ci.yml`). A bind mount overrides whatever the image chowned, and a server that cannot
+  write its snapshot loses exactly the matches the snapshot exists to save. 0700 because that file
+  holds session tokens and hands. One directory per environment because dev and prod share
+  `DATA_DIR`: with one file between them, a dev deploy could restore prod's matches into the dev
+  server and delete the file as it did (`deploy/compose.yml`). **The order inside `rollout` is the
+  point**: the old server is stopped first, so it writes its snapshot as its own user, and only then
+  is the directory handed (recursively) to the new image's user; chowning first would lock the
+  departing process out of a 0700 directory. The first deploy after the split moves a snapshot left
+  at the top level into the environment's own directory before the new server starts. Details in
+  [`deployment.md`](../deployment.md).
 
 ## Dev Docker Compose
-- `docker-compose.dev.yml` — hot-reload, no host Go/Node needed.
-- Backend: `golang:1.26.5-alpine`, bind `./server:/app`, `go run .`, `:8080`.
+- `docker-compose.dev.yml` — hot-reload, no host Rust/Node needed.
+- Backend: `rust:1.97-bookworm`, bind `./server:/app`, `cargo watch -x 'run -p loco-server'`
+  (installed on start), `:8080`, `LOCO_E2E=1`. The crate registry and the target directory live in named
+  volumes outside the bind mount, so a second start neither downloads the graph nor rebuilds it, and
+  a host's own `server/target` is not overwritten by Linux artefacts. The first build takes a few
+  minutes, which is what the healthcheck's 60 retries (`target/debug/loco-server healthcheck`) wait
+  for; the client waits on it.
 - Frontend: `node:24-alpine` (Vite 8 and SvelteKit 3 declare `engines.node >= 22.12`), bind `./client:/app`,
   `npm ci && npm run dev`, `:5173` (container 3000).
 - **No dev-server WS proxy** — browser connects directly to `ws://<host>:8080/ws` (the proxy is unreliable under Docker).
 - `VITE_WS_PORT=8080` env tells client which port (default 8080).
 - `hooks/webSocket.svelte.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
-- `vite.config.ts`: no proxy. `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries
-  `VITE_HMR_CLIENT_PORT` so HMR dials the published 5173 rather than the container's 3000.
-- Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).
+- `vite.config.ts`: no proxy for the socket; it proxies `/live.json` and `/live-thumb` to
+  `LOCO_SERVER_ORIGIN` (the `server` service in compose), as nginx does in production.
+  `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries `VITE_HMR_CLIENT_PORT` so HMR
+  dials the published 5173 rather than the container's 3000.
+- Volumes: `cargo-registry`, `cargo-target`, `client-node-modules` (named, persistent).
 - Start: `docker compose -f docker-compose.dev.yml up --build`.
 - **The client command is `npm ci && npm run dev`, and nothing else.** Under Astro it first deleted
   `.astro/dev.json`, the dev server's singleton lock, which lived on the bind mount and read as held

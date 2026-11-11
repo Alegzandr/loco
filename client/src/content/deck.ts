@@ -6,7 +6,7 @@
  * scoring are the same eight kinds seen from three angles, and pages that listed
  * them separately would eventually disagree with each other. The numbers come
  * from `docs/rules.md` §2 and §10, and `contentPages.test.ts` checks them
- * against `server/game/deck.go` and `server/game/card.go`, which are the only
+ * against `server/crates/loco-game/src/deck.rs` and `server/crates/loco-game/src/card.rs`, which are the only
  * authorities in the repo.
  *
  * The *names* deliberately do not come from `docs/rules.md`: that file is the

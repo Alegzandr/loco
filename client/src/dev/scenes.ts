@@ -35,7 +35,7 @@ const PLAYERS_4: PlayerDTO[] = [
   player(3, 'Pixel', 1),
 ]
 
-// A full table: seven is the server's cap (`serverMaxPlayers`, game/room.go).
+// A full table: seven is the server's cap (`SERVER_MAX_PLAYERS`, loco-game/src/room.rs).
 const PLAYERS_7: PlayerDTO[] = [
   player(0, 'Nova', 6),
   player(1, 'Kiwi', 3),

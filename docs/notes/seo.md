@@ -585,8 +585,9 @@ The exceptions run the other way, and they are the point of the whole arrangemen
   and the names existed nowhere but buried in the sentences of `t.rules`. Nothing could name a card
   in a table or a heading. It lives in the i18n bundle because the game has a use for it too.
 - **The deck table is a second statement of facts the server owns**, which is the drift risk this
-  page carries. `contentPages.test.ts` therefore reads `server/game/deck.go` and counts the deck it
-  builds, and reads `server/game/card.go`'s `CardValue` and compares every point value. A scoring
+  page carries. `contentPages.test.ts` therefore reads `loco-game/src/deck.rs` and counts the deck it
+  builds, and reads `loco-game/src/card.rs`'s `card_value` and compares every point value (both
+  through `src/test/serverSource.ts`). A scoring
   change made server-side without touching the page goes red.
 
 The names in that table deliberately do **not** come from `docs/rules.md`: that file is the

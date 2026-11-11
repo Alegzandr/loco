@@ -124,7 +124,7 @@ interjects, and the seat sits catchable between them.
 
 ### 6.7 Simultaneous Interjects
 
-If multiple players could interject: **the first message the server dequeues wins.** Each table runs on its own goroutine (`server/hub/actor.go`), which serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
+If multiple players could interject: **the first message the server dequeues wins.** Each table runs on its own task (`server/crates/loco-hub/src/actor.rs`), which serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
 
 ### 6.8 One Card Per Interject
 

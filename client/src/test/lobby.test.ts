@@ -101,7 +101,7 @@ describe('Lobby', () => {
   it('says the same thing for every reason a nickname is refused', () => {
     // The client checks the shape and the server owns the word list, but a
     // player must not be able to tell the two apart: one line, both times.
-    // See server/game/nickname.go.
+    // See server/crates/loco-game/src/nickname.rs.
     renderLobby(vi.fn(), 'nickname not allowed')
     fireEvent.click(screen.getByText(en.createRoom))
     expect(screen.getByRole('alert')).toHaveTextContent(en.errors.nicknameRejected)
@@ -145,7 +145,7 @@ describe('Lobby', () => {
 
   it('keeps only what the server draws a code from', () => {
     // I, O, 0 and 1 are outside the alphabet on purpose: a code is read out
-    // loud off a stream. See server/hub/hub.go.
+    // loud off a stream. See server/crates/loco-hub/src/config.rs.
     renderLobby()
     fireEvent.click(screen.getByText(en.joinRoom))
     const codeInput = screen.getByPlaceholderText(en.roomCodeLabel)

@@ -14,7 +14,7 @@
  * trip; the stricter one is not caught by anything.
  *
  * So each test below pins the copy to the source, the same way
- * `contentPages.test.ts` pins the deck table to `server/game/deck.go`.
+ * `contentPages.test.ts` pins the deck table to `server/crates/loco-game/src/deck.rs`.
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'

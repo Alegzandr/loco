@@ -1,6 +1,6 @@
 //! The authoritative server's runtime: the hub, the tables, the sockets, the
-//! drain and the snapshot. A module per file of `server/hub/`, so
-//! `docs/notes/server.md` stays navigable ("Rust port" maps the two).
+//! drain and the snapshot. One module per thing a message leads to, laid out
+//! in the table at the top of `docs/notes/server.md`.
 //!
 //! The rules this crate exists to keep, briefly (the reasons are in the note):
 //! a table is one task that owns its state and nothing else reads it; the hub

@@ -92,7 +92,7 @@
   let showRules = $state(false)
   // The shape rules the client can check itself, answered as the player types
   // rather than after a round trip. It says nothing the server would not have
-  // said: the same one line, for the same reason (server/game/nickname.go).
+  // said: the same one line, for the same reason (server/crates/loco-game/src/nickname.rs).
   let nicknameRefused = $state(false)
 
   // Whether the field holds something that could seat a player. The rules behind

@@ -2,8 +2,8 @@
 #
 # A static musl binary on distroless: no shell, no package manager, no wget.
 # The healthcheck is therefore the binary itself (`loco-server healthcheck`),
-# and the image runs as distroless's nonroot user, uid 65532 — not the Go
-# image's 10001, which is why the deploy chowns ${DATA_DIR}/snapshots to it
+# and the image runs as distroless's nonroot user, uid 65532, which is why
+# the deploy chowns ${DATA_DIR}/snapshots/${DEPLOY_ENV} to it
 # (docs/deployment.md).
 
 FROM rust:1.97-alpine AS builder

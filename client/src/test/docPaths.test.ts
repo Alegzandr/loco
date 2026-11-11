@@ -10,8 +10,8 @@
  * own testing section still carries as a warning.
  *
  * So every path the docs put in backticks has to resolve. They are written at
- * whatever depth the surrounding paragraph makes readable (`hub/rooms.go` in a
- * server section, a bare `layout.ts` in a paragraph already about the card
+ * whatever depth the surrounding paragraph makes readable (`loco-hub/src/rooms.rs`
+ * in a server section, a bare `layout.ts` in a paragraph already about the card
  * renderer), so a token passes if it names any real file or directory in the
  * repository. What it may not do is name nothing at all.
  */
@@ -101,11 +101,12 @@ const OUTSIDE_THE_REPO = new Set([
 /**
  * A token is only held to account when it says it is a file (an extension we
  * own) or a directory (a trailing slash). Everything else with a slash in it is
- * as likely to be a Go import (`crypto/rand`), a module (`golang.org/x/text`)
- * or a MIME type, and guessing wrong there would make this test a nuisance
- * rather than a guard.
+ * as likely to be a Rust path (`std::sync`), a crate feature or a MIME type,
+ * and guessing wrong there would make this test a nuisance rather than a guard.
+ * `.go` stays on the list although no Go is left: a doc naming a Go file is
+ * naming something that is not there, which is exactly what this catches.
  */
-const OURS = /\.(ts|tsx|go|mjs|css|astro|md|yml|json|conf|html|webp|png|svg|txt|ico)$/
+const OURS = /\.(ts|tsx|rs|toml|go|mjs|css|astro|md|yml|json|jsonl|conf|html|webp|png|svg|txt|ico)$/
 
 const looksLikePath = (t: string) =>
   !NOT_A_PATH.some((re) => re.test(t)) && (OURS.test(t) || t.endsWith('/'))
@@ -116,68 +117,10 @@ const looksLikePath = (t: string) =>
  */
 const BUILD_OUTPUT = new Set(['client/build', 'csp-hashes.conf', 'version.json'])
 
-/**
- * The Go server, deleted at the cutover to Rust, is still what much of the
- * prose names (`hub/rooms.go`, `server/hub/`), and rewriting that prose is its
- * own pass. Until it lands, a Go path counts as resolved when the Rust module
- * that replaced it is on disk — one module per Go file, so `hub/rooms.go` is
- * `server/crates/loco-hub/src/rooms.rs` — and a Go package directory when its
- * crate is. A Go name with no Rust twin still fails, so the guard keeps
- * catching a name that points at nothing. Delete this with the last Go path.
- */
-const GO_PACKAGE_CRATE: Record<string, string> = {
-  game: 'loco-game',
-  hub: 'loco-hub',
-  protocol: 'loco-protocol',
-  janus: 'loco-janus',
-  twitch: 'loco-twitch',
-  'cmd/protocolgen': 'protocolgen',
-}
-/** Go files whose Rust module took another name, or that became no module. */
-const GO_RENAMED: Record<string, string> = {
-  'converter.go': 'convert.rs',
-  'config.go': 'config.rs',
-  'enums.go': 'enums.rs',
-  'messages.go': 'dto.rs',
-  'rules.go': 'rules.rs',
-  'client.go': 'client.rs',
-  'loop_bench_test.go': 'benches/hub.rs',
-  'messages_test.go': 'tests/parity.rs',
-}
-const RUST_FILES = TREE.filter((p) => p.startsWith('server/') && p.endsWith('.rs'))
-const RETIRED_GO = new Set(['server/.golangci.yml', '.golangci.yml'])
-
-function goTwinResolves(clean: string): boolean {
-  if (RETIRED_GO.has(clean)) return true
-  const dir = clean.replace(/^server\//, '')
-  if (dir in GO_PACKAGE_CRATE) return TREE.includes(`server/crates/${GO_PACKAGE_CRATE[dir]}`)
-  // Something kept inside a package, a word list say: the same path in its crate.
-  const pkg = Object.keys(GO_PACKAGE_CRATE).find((k) => dir.startsWith(`${k}/`))
-  if (pkg && !dir.endsWith('.go')) {
-    return TREE.includes(`server/crates/${GO_PACKAGE_CRATE[pkg]}/${dir.slice(pkg.length + 1)}`)
-  }
-  if (!clean.endsWith('.go')) return false
-  const base = clean.split('/').pop()!
-  const renamed = GO_RENAMED[base]
-  if (renamed) return TREE.some((p) => p.startsWith('server/') && p.endsWith(renamed))
-  // A Go test file is a Rust test of the same name, under tests/ or
-  // src/internal_tests/, or a unit test inside the module it tests.
-  const stem = base.replace(/(_internal)?_test\.go$/, '').replace(/\.go$/, '')
-  return RUST_FILES.some((p) =>
-    [`/${stem}.rs`, `/${stem}_internal.rs`, `/${stem}_test.rs`].some((end) => p.endsWith(end)),
-  )
-}
-
 const resolves = (t: string) => {
-  const clean = t
-    .replace(/^\.\//, '')
-    .replace(/\/$/, '')
-    // The Rust tree was server-rs/ until it replaced the Go one.
-    .replace(/^server-rs\//, 'server/')
-  if (clean === 'server-rs') return true
+  const clean = t.replace(/^\.\//, '').replace(/\/$/, '')
   if (OUTSIDE_THE_REPO.has(clean) || BUILD_OUTPUT.has(clean)) return true
-  if (TREE.some((p) => p === clean || p.endsWith(`/${clean}`))) return true
-  return goTwinResolves(clean)
+  return TREE.some((p) => p === clean || p.endsWith(`/${clean}`))
 }
 
 const docs = [

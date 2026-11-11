@@ -132,7 +132,7 @@
    * Who is at this table to be talked to.
    *
    * The server refuses an emote to and from a bot in both directions
-   * (`hub/emotes.go`): a seat the server plays has no opinion about the match
+   * (`loco-hub/src/emotes.rs`): a seat the server plays has no opinion about the match
    * and no socket to receive one. So a table where every other seat is a bot —
    * a solo game against the server, or a room somebody filled with bots — draws
    * no emote block at all. It goes rather than going dead: a dead control on

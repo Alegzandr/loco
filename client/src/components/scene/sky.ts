@@ -3,7 +3,7 @@
  *
  * A map says *where* a match is played; this file says *when* and *under what*.
  * The two ids come off the wire beside `map_id` (`time_of_day`, `weather`, drawn
- * by the server in `game/maps.go` so every seat sees one sky) and everything
+ * by the server in `loco-game/src/maps.rs` so every seat sees one sky) and everything
  * the renderer, the weather overlay and the CSS table need from them is derived
  * here, once, as plain data: no framework, no three.js, so it is testable and
  * so a content page could read it.
@@ -11,7 +11,7 @@
  * The four hours are the four moods a scene can carry with one set of props;
  * the six skies are the ones a diorama can show without changing its geometry
  * (an overlay for what falls, a tint for what the light does, a flag for what
- * settles on a roof). `game/maps.go` lists which of the six each map allows,
+ * settles on a roof). `loco-game/src/maps.rs` lists which of the six each map allows,
  * and `maps.test.ts` pins this file's lists to that one.
  *
  * The numbers behind the four hours live in `look.ts` (`LOOK.hours`), beside every

@@ -6,7 +6,7 @@ import { cpus } from 'os'
  * Playwright E2E configuration for Loco.
  *
  * Prerequisites:
- *   - Go server running on :8080 (start via docker-compose.dev.yml or manually)
+ *   - Game server running on :8080 (start via docker-compose.dev.yml or manually)
  *   - Playwright starts the Vite dev server automatically
  *
  * Local dev:
@@ -64,7 +64,7 @@ export default defineConfig({
   // contends on (the 1v1 queue) is taken under a cross-process lock by the
   // six tests that use it. `LOCO_E2E_WORKERS` overrides for a machine that
   // wants fewer; the cap is deliberate, since every worker is a browser plus
-  // the Go server's share of the same box.
+  // the server's share of the same box.
   workers: process.env.LOCO_E2E_WORKERS
     ? Number(process.env.LOCO_E2E_WORKERS)
     : process.env.CI
@@ -94,7 +94,7 @@ export default defineConfig({
   ],
 
   // Start the client's dev server automatically; never reuse one.
-  // The Go server must already be running (docker-compose or CI script).
+  // The server must already be running (docker-compose or CI script).
   webServer: {
     // Pass --port explicitly so the server binds on 4173 rather than its default,
     // and --strictPort so a busy port fails loudly instead of moving the server

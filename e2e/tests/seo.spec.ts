@@ -11,7 +11,7 @@ import { fr } from '../../client/src/i18n/fr'
  * nothing else in the repo can prove that. A unit test reads sources, and the
  * rest of this suite drives an app that only exists once React has mounted.
  *
- * These need no Go server: they never open a socket.
+ * These need no game server: they never open a socket.
  */
 
 // A context with scripts off. `test.use` applies to the file, so the last case —

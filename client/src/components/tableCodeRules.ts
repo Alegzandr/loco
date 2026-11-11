@@ -1,6 +1,6 @@
 /**
- * The table code's shape, mirrored from `server/hub/rooms.go` (`roomCodeRe`)
- * and `server/hub/tokens.go` (the alphabet codes are drawn from), so the lobby
+ * The table code's shape, mirrored from `server/crates/loco-hub/src/rooms.rs` (`ROOM_CODE_CHARS`, `ROOM_CODE_LEN`)
+ * and `server/crates/loco-hub/src/tokens.rs` (the alphabet codes are drawn from), so the lobby
  * can refuse an impossible code without a round trip.
  *
  * Like `nicknameRules.ts`, this decides nothing: the server still owns the

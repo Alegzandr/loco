@@ -606,10 +606,10 @@ polish.
   `store.myDeclared` — our own seat's LOCO! chip — derived by `deriveCatchMiddleware` rather than
   written by an action, like everything else that is a function of the board.
 - **A Contre-LOCO! is acknowledged on the frame it is pressed, and the verdict is still the server's.**
-  Measured with Playwright against the real Go server (two browsers, a fixture putting one seat on
+  Measured with Playwright against the real server (the Go one at the time; two browsers, a fixture putting one seat on
   one card, a click on the centre button): from the click being dispatched to `uno_caught` applied
   in the store and the caught hand grown by two is **3–5 ms**. The client does nothing slow — the
-  press goes straight to `socket.send`, the handler is synchronous on the table's goroutine, the
+  press goes straight to `socket.send`, the handler is synchronous on the table's own task, the
   answer is one broadcast — so everything a player waits for beyond that is the wire: the CDN path
   below on the dev host, or their own connection. What made that wait read as *the button ignoring
   the tap* was that the
@@ -782,8 +782,8 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
   navigation in the suite really does unload the page and the socket really does close. It reproduces
   in a browser the way a player has one — measured in Brave with the cache back on, three connected
   sockets for one person. And **the count itself was never lying**: `players_online` is
-  `len(h.clients)` and it reported exactly what the server was holding, which is why the first place
-  to look, the broadcast in `hub/online.go`, had nothing wrong with it. The 5s tick only decides how
+  the number of registered sockets and it reported exactly what the server was holding, which is why the first place
+  to look, the broadcast in `loco-hub/src/online.rs`, had nothing wrong with it. The 5s tick only decides how
   long the wrong number stays on screen after the truth changes.
 - `getReconnectMsg` is `reconnectMessageFor`; see "session persistence" below for what each screen
   sends.
@@ -858,9 +858,10 @@ That is the disconnect people actually have, and it was the one that could not b
   **0**, and this hid longer because the client's `?? 0` fallback was right by luck everywhere it
   mattered: the host is seat 0 on `room_created`, so an absent field and the default agreed. A tab
   reloading straight into a match has no earlier value to fall back on, so a dropped `player_id` seated
-  the restored client at **-1**, holding a hand it could not match to any seat on the board. Read it
-  with `ServerMsg.OwnSeat()` (-1 = the message assigns no seat); `protocol/messages_test.go` now pins
-  seat 0 onto the wire for **both** fields. `player_reconnected` additionally falls back to
+  the restored client at **-1**, holding a hand it could not match to any seat on the board. The
+  field is an `Option` on the server and optional in the generated type, so seat 0 is written and an
+  absent one means the message assigns no seat; the wire fixtures (`loco-protocol/tests/parity.rs`)
+  pin seat 0 onto the wire for **both** fields. `player_reconnected` additionally falls back to
   `state.your_index`, which is the same seat and is not omittable.
 - **The token is one-shot, so the answer to a reclaim carries the next one and the client has to keep
   it.** `hub.handleReconnect` spends the token the reclaim was made with and issues a fresh one on
@@ -965,7 +966,7 @@ last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mo
 
 ## Answering a nickname as it is typed
 `components/nicknameRules.ts`, used by `<Lobby />` on every keystroke and again on submit. It mirrors
-the **shape** half of `server/game/nickname.go`: 20 characters counted as characters, the Latin /
+the **shape** half of `loco-game/src/nickname.rs`: 20 characters counted as characters, the Latin /
 Greek / Cyrillic allowlist, `-_.'` and one space, at most one combining mark per letter, at least one
 letter or digit.
 
@@ -1232,7 +1233,7 @@ is: there is no board to draw behind either of them.
   that watches the seat come free). The offer is the *search*, not the opponent — who turns up is the
   queue's to say and the label must not promise a name, which is why "find another opponent" became
   "Search again" / "Relancer". It stays **one message**: `find_match` releases the seat server-side
-  before it enqueues (`hub/matchmaking.go`), so a `leave_room` sent ahead of it buys nothing and costs
+  before it enqueues (`loco-hub/src/matchmaking.rs`), so a `leave_room` sent ahead of it buys nothing and costs
   the screen — its `left_room` runs `resetToHome`, which would reset the store out from under the
   search we just opened.
 - **Leaving is the quietest control on that card** (`.btnQuit`, under both offers): no outline, no
@@ -1307,14 +1308,13 @@ nothing here decides anything.
 ## Protocol validation (client)
 
 **Both type files are generated. Neither is edited.** `client/src/types/protocol.ts` and
-`client/src/types/protocolSchemas.ts` come out of `server-rs/crates/protocolgen`, which reads
-`server-rs/crates/loco-protocol`. Change the Rust, run `make protocol`, commit both.
-`protocol_check_rs` in CI regenerates and fails on any difference (CRLF and LF compare equal), so a
-hand edit is undone by the next run rather than merged. Until the cutover the Go server is still the
-one answering, and the crate's parity fixtures (frames captured from it) are what keep the two
-honest; see `docs/protocol.md`.
+`client/src/types/protocolSchemas.ts` come out of `server/crates/protocolgen`, which reads
+`server/crates/loco-protocol`. Change the Rust, run `make protocol`, commit both.
+`protocol_check` in CI regenerates and fails on any difference (CRLF and LF compare equal), so a
+hand edit is undone by the next run rather than merged. The crate's wire fixtures (frames the
+original Go server wrote) hold the bytes where they were; see `docs/protocol.md`.
 
-The wire used to be described three times: the Go structs, a hand-written TypeScript file, and a
+The wire used to be described three times: the server's structs, a hand-written TypeScript file, and a
 hand-written file of schemas. Nothing checked that the three agreed, and the failure is silent by
 construction. That is the same shape as the mirrors this repository already pins by test
 (`serverMirrors.test.ts` for the nickname's shape and the table code's alphabet); the difference is
@@ -1328,16 +1328,16 @@ that a mirror can be pinned and a copy can be deleted, and these two were copies
   nullable required field, `pattern`, `minimum`, an open map, a recursive type…), naming the path.
   Each of those has a Valibot spelling that type-checks and means something nobody decided:
   approximating it would put an unwritten rule in front of every message. `valibot.test.mjs`
-  (`node --test`, run by `protocol_check_rs` and `make protocol`) covers the refusals; the happy path
+  (`node --test`, run by `protocol_check` and `make protocol`) covers the refusals; the happy path
   is covered from the other end by the drift check plus every client test that runs against the
   committed output.
 - **`ServerMsg` is a union, and the client narrows it by `type`.** One variant per message, so
   `msg.streamer_mode` does not type-check on `room_created`, which never carries it. The old
   generator made every envelope field optional because one flat struct stood in for thirty message
   types; per variant, a field is required exactly when the server always writes it (`turn` on
-  `turn_changed`, `drawn_count` on `card_drawn`) and optional everywhere Go had `omitempty` or a
-  pointer. The validator is never stricter than the Go server, because the parity fixtures are Go's
-  own frames read by the same types.
+  `turn_changed`, `drawn_count` on `card_drawn`) and optional everywhere the server may leave it
+  out. The validator is never stricter than the server, because the wire fixtures are real frames
+  read by the same types.
 - **`Option<T>` is `T`, optional, in the schema, never `T | null`.** `schemars` spells an `Option` as
   nullable, which is what serde would read; the server never writes a `null`, so
   `generate.rs: AbsentNotNull` takes it out of every non-required property, and the validator agrees
@@ -1346,7 +1346,7 @@ that a mirror can be pinned and a copy can be deleted, and these two were copies
   string in Rust generates a `string` in TypeScript and would throw away a narrowing the client
   always had. `tests/enums.rs` pins them to `loco-game` by walking the domain (colours and kinds
   through their integer spelling, formats through what `Room::set_format` accepts) rather than
-  listing it, and to the Go server's `enums.go` until the cutover.
+  listing it.
 
 **Valibot, not Zod.** Zod 4 JIT-compiles each schema with `Function()` the first time it runs; under
 `script-src 'self'` the call is refused, Zod catches the throw and interprets instead, so the game
@@ -1977,8 +1977,9 @@ whether a game is worth ten seconds.
 
 - **`src/content/contrasts.ts`** is that answer, eight lines, first thing on the rules page and
   above the `t.rules` mapping. **Its numbers are constants checked against the server**, exactly as
-  the deck table is: `HAND_SIZE` against `initialHandSize` in `server/game/room.go`, the number
-  range against `NewDeck()`'s loop, the deck size against `DECK_SIZE`. A hand size typed by hand is
+  the deck table is: `HAND_SIZE` against `INITIAL_HAND_SIZE` in `loco-game/src/room.rs`, the
+  number range against `NUMBER_LOW..=NUMBER_HIGH` in `Deck::standard`, the deck size against
+  `DECK_SIZE` (all read through `src/test/serverSource.ts`). A hand size typed by hand is
   right on the day it is written, and this is the copy nobody plays against, so it goes wrong
   silently.
 - **It is not in the rules modal, and must not be put there.** The modal is a reference read
@@ -2267,8 +2268,8 @@ What it is deliberately not:
 - **Not a link to it either.** The rule the footer comment carries is unchanged: this opens mid-match,
   and anything navigable is an invitation to leave the table, new tab or not. The tab is how the
   cards got here *instead of* a link. `rulesModal.test.ts` still asserts zero links.
-- **Not a third place the card numbers live.** No copies, no points. Those are checked against the Go
-  source on the page that prints them, and a number typed here would be right on the day it was
+- **Not a third place the card numbers live.** No copies, no points. Those are checked against the
+  server's source on the page that prints them, and a number typed here would be right on the day it was
   written.
 
 Mechanics worth knowing before touching it: the two panels share **one** scroller (a card is a fixed

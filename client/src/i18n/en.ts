@@ -24,7 +24,7 @@ export interface ErrorCopy {
   // Joining
   nicknameTaken: string
   /** Every nickname refusal, whatever rule fired. One string on purpose:
-   *  see server/game/nickname.go. */
+   *  see server/crates/loco-game/src/nickname.rs. */
   nicknameRejected: string
   roomNotFound: string
   roomFull: string
