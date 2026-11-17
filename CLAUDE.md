@@ -260,7 +260,8 @@ the build.
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
 `playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`,
-`rooms/shoot.mjs`, `plates/guide.mjs` + `plates/paint.py` + `plates/trim.py` + `plates/prompts/`,
+`rooms/shoot.mjs`, `plates/guide.mjs` + `plates/paint.py` + `plates/retouch.py` (+ `retouches.json`) + `plates/trim.py` +
+`plates/prompts/`,
 `cover/shoot.mjs`, `audio/verify.mjs`, `csp/check.mjs`) · **`brand/`** the 600×800 game covers,
 uploaded to IGDB and drawn by Twitch as the category's box art — **committed and deliberately not
 under `client/public/`**: they are an upload · `docs/` spec + `docs/notes/` · `LICENSE` (MIT) ·
@@ -964,7 +965,8 @@ stated at the top of `styles/tokens.css`:
 - **A painted room is one painting, laid by its lens and never by its edges** (`scene/plate.ts`,
   `plateUv`: the two horizons laid on each other, scaled by the ratio of the focal lengths). **The
   guide is the block room itself** (`?bare=1`) at 16:9, the widest lens, **painted in two passes**
-  (`tools/plates/paint.py`). **A painted room has one hour, its painting's** (`plateHour`); the
+  (`tools/plates/paint.py`); **what the model invented is repainted locally, never by painting the
+  room again** (`tools/plates/retouch.py`, `retouches.json`). **A painted room has one hour, its painting's** (`plateHour`); the
   weather still falls. It leaves through the tone curve backwards (`untone`), no lens blur, no mist,
   a share of bloom (`LOOK.plate`); **a plate that will not load is the block room**.
   `scenePlates.test.ts`.

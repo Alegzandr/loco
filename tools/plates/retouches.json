@@ -1,0 +1,78 @@
+{
+  "orbit": {
+    "truck": {
+      "box": [1700, 100, 2304, 520],
+      "mask": [2080, 140, 2304, 510],
+      "prompt": "Remove the jeep and the truck at the right edge entirely. Where they were: empty grey lunar ground with a few small rocks, the dark paved band, and below it the dark blue glossy tiled floor continuing to the right edge. No vehicle, no wheels, no container there, no black rectangle. Keep the three stacked containers on the left and everything else exactly as it is, same painted cartoon style.",
+      "seed": 3
+    }
+  },
+  "marina": {
+    "steps": {
+      "box": [300, 200, 900, 440],
+      "mask": [425, 300, 785, 385],
+      "prompt": "Remove the grey stair-shaped stones on the wooden quay wall between the two metal bollards. The wall is plain dark wooden planks all along. Keep everything else exactly as it is, same painted cartoon style.",
+      "seed": 1
+    },
+    "rock": {
+      "box": [1400, 150, 2304, 480],
+      "mask": [1530, 365, 2070, 455],
+      "prompt": "Remove the grey rock lying on the wooden deck, and remove the red base under the barrel: the barrel stands directly on the planks. Plain wooden planks where they were. Keep everything else exactly as it is, same painted cartoon style.",
+      "seed": 1
+    },
+    "chip": {
+      "box": [500, 700, 1000, 950],
+      "mask": [670, 765, 830, 875],
+      "prompt": "Remove the white mark on the wooden plank. Plain smooth wooden planks. Keep everything else exactly as it is, same painted cartoon style.",
+      "seed": 2
+    }
+  },
+  "neon": {
+    "bench": {
+      "box": [0, 150, 800, 600],
+      "mask": [0, 335, 420, 580],
+      "prompt": "Remove the bench. Where it was, the wet dark wooden deck planks continue, with the reflections of the city lights. Keep the plants in their metal pots and everything else exactly as it is, same painted cartoon style.",
+      "seed": 3
+    },
+    "strip": {
+      "box": [1500, 150, 2304, 600],
+      "mask": [1730, 365, 2304, 545],
+      "prompt": "Remove the glowing cyan line lying on the floor and the black rectangle at the right. The cyan neon strip runs only along the foot of the bar counter, whose front goes straight down to the deck. The wet dark wooden deck planks continue to the right edge, with soft cyan reflections. Keep the two stools and everything else exactly as it is, same painted cartoon style.",
+      "seed": 1
+    }
+  },
+  "rune": {
+    "brazier": {
+      "box": [0, 0, 760, 420],
+      "mask": [335, 80, 550, 365],
+      "prompt": "The black iron fire bowl stands on a wrought iron tripod that rests on the ground, in front of the wall. Behind it the wooden door is a plain closed door reaching the ground. Nothing floats. Keep everything else exactly as it is, same painted cartoon style.",
+      "seed": 1
+    },
+    "barrel": {
+      "box": [1500, 100, 2304, 420],
+      "mask": [1685, 200, 1815, 375],
+      "prompt": "Remove the flames and the handles from the second barrel: it is a plain closed wooden barrel like the one beside it. Keep everything else exactly as it is, same painted cartoon style.",
+      "seed": 1
+    }
+  },
+  "sakura": {
+    "bowl": {
+      "box": [300, 150, 900, 520],
+      "mask": [465, 315, 655, 420],
+      "prompt": "Remove the blue bowl in front of the railing. Behind where it was, the red wooden railing, the white raked gravel and the edge of the wooden floor continue. Keep everything else exactly as it is, same painted cartoon style.",
+      "seed": 1
+    },
+    "torii": {
+      "box": [1560, 60, 2304, 400],
+      "mask": [1735, 105, 2065, 300],
+      "prompt": "The red torii gate has exactly two pillars. Remove its middle pillar: between the two pillars the garden shows through, bushes and grass. Keep everything else exactly as it is, same painted cartoon style.",
+      "seed": 1
+    },
+    "teapot": {
+      "box": [1700, 330, 2304, 620],
+      "mask": [1985, 395, 2145, 495],
+      "prompt": "Replace the teapot with a classic round white porcelain teapot: a short curved spout on one side, a round loop handle on the other, a small lid. Remove the grey tube. It sits on the low red table. Keep the two cups and everything else exactly as it is, same painted cartoon style.",
+      "seed": 2
+    }
+  }
+}

@@ -919,6 +919,15 @@ the room off the top of the screen. Prompts ask for few, large features and no f
 for lettering except velvet's marquee. Strips are chosen by eye among three; `plates.ts` records the
 seeds. Neon's guide uses its own clear-sky scene (`game-map-neon-clear`).
 
+**What the model invented is repainted locally** (`tools/plates/retouch.py`). The two passes leave the
+odd thing no room has, mostly where they meet: a vehicle parked on a crate, a bench sunk into the
+floor, a gate with three pillars. Painting the room again would move everything else, so a retouch
+cuts a box out of the plate, asks the same model for that box without the mistake, and lays the answer
+back through a feathered mask: nothing outside the mask moves. `retouches.json` is the list by room
+(`box` the context shown, `mask` what may change, `prompt`, and the `seed` chosen by eye among a few);
+`ship` lays them over the plate as `paint.py` left it (`.assets-in/plates/<room>-base.png`). **A
+retouch removes or simplifies; it does not add**: asked for a replacement, the model invents again.
+
 **How it is shown: laid by its lens, never by its edges.** A floor seen from the same height through
 another focal length is the same picture scaled about the horizon, so each frame reads the plate by
 `plateUv`: **the two horizons laid on each other, scaled by the ratio of the focal lengths**. A plate
