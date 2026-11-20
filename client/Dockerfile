@@ -34,7 +34,11 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine
+# Pinned to the exact release rather than `nginx:alpine`: the CI build does not
+# pass --pull, so a floating tag ships whatever the host daemon cached, and
+# v3.0.2 went out on 1.31.8. 1.31.9 carries the fixes for the nginx2root CVEs
+# (CVE-2026-123007 and the rest of that release); bump this line on purpose.
+FROM nginx:1.31.9-alpine
 
 COPY --from=builder /app/build /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
